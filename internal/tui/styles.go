@@ -64,3 +64,9 @@ func (s *Styles) AccentStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(s.flavor.Teal().Hex))
 }
+
+func (s *Styles) ErrorStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Red().Hex)).
+		Bold(true)
+}

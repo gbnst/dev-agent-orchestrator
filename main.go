@@ -16,7 +16,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
 	}
 
-	model := tui.NewModel(cfg.Theme)
+	model := tui.NewModel(&cfg)
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

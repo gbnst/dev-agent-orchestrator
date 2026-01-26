@@ -1,0 +1,221 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestLoadFullConfig(t *testing.T) {
+	// Create temp config file with all fields
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	configContent := `
+theme: latte
+runtime: podman
+otel:
+  grpc_port: 4317
+credentials:
+  OPENAI_API_KEY: OPENAI_API_KEY
+  ANTHROPIC_API_KEY: ANTHROPIC_API_KEY
+base_images:
+  default: mcr.microsoft.com/devcontainers/base:ubuntu
+  python: mcr.microsoft.com/devcontainers/python:3.11
+agents:
+  claude-code:
+    display_name: Claude Code
+    otel_env:
+      OTEL_SERVICE_NAME: claude-code
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4317
+    state_sources:
+      - type: files
+        events: [create, modify]
+        patterns:
+          todo: ["**/TODO.md"]
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadFrom(configPath)
+	if err != nil {
+		t.Fatalf("LoadFrom failed: %v", err)
+	}
+
+	// Verify theme
+	if cfg.Theme != "latte" {
+		t.Errorf("Theme: got %q, want %q", cfg.Theme, "latte")
+	}
+
+	// Verify runtime
+	if cfg.Runtime != "podman" {
+		t.Errorf("Runtime: got %q, want %q", cfg.Runtime, "podman")
+	}
+
+	// Verify OTEL config
+	if cfg.OTEL.GRPCPort != 4317 {
+		t.Errorf("OTEL.GRPCPort: got %d, want %d", cfg.OTEL.GRPCPort, 4317)
+	}
+
+	// Verify credentials
+	if len(cfg.Credentials) != 2 {
+		t.Errorf("Credentials length: got %d, want %d", len(cfg.Credentials), 2)
+	}
+	if cfg.Credentials["OPENAI_API_KEY"] != "OPENAI_API_KEY" {
+		t.Errorf("Credentials[OPENAI_API_KEY]: got %q, want %q", cfg.Credentials["OPENAI_API_KEY"], "OPENAI_API_KEY")
+	}
+
+	// Verify base images
+	if len(cfg.BaseImages) != 2 {
+		t.Errorf("BaseImages length: got %d, want %d", len(cfg.BaseImages), 2)
+	}
+	if cfg.BaseImages["python"] != "mcr.microsoft.com/devcontainers/python:3.11" {
+		t.Errorf("BaseImages[python]: got %q, want expected value", cfg.BaseImages["python"])
+	}
+
+	// Verify agents
+	if len(cfg.Agents) != 1 {
+		t.Errorf("Agents length: got %d, want %d", len(cfg.Agents), 1)
+	}
+	agent, ok := cfg.Agents["claude-code"]
+	if !ok {
+		t.Fatal("Agents[claude-code] not found")
+	}
+	if agent.DisplayName != "Claude Code" {
+		t.Errorf("Agent DisplayName: got %q, want %q", agent.DisplayName, "Claude Code")
+	}
+	if agent.OTELEnv["OTEL_SERVICE_NAME"] != "claude-code" {
+		t.Errorf("Agent OTELEnv[OTEL_SERVICE_NAME]: got %q, want %q", agent.OTELEnv["OTEL_SERVICE_NAME"], "claude-code")
+	}
+	if len(agent.StateSources) != 1 {
+		t.Errorf("Agent StateSources length: got %d, want %d", len(agent.StateSources), 1)
+	}
+}
+
+func TestDetectedRuntime_ConfiguredValue(t *testing.T) {
+	cfg := Config{Runtime: "podman"}
+	got := cfg.DetectedRuntime()
+	if got != "podman" {
+		t.Errorf("DetectedRuntime: got %q, want %q", got, "podman")
+	}
+}
+
+func TestDetectedRuntime_AutoDetect(t *testing.T) {
+	cfg := Config{Runtime: ""}
+
+	// DetectedRuntime should auto-detect; we test using a mock lookup function
+	got := cfg.DetectedRuntimeWith(func(name string) (string, error) {
+		if name == "docker" {
+			return "/usr/bin/docker", nil
+		}
+		return "", os.ErrNotExist
+	})
+	if got != "docker" {
+		t.Errorf("DetectedRuntime: got %q, want %q", got, "docker")
+	}
+}
+
+func TestDetectedRuntime_AutoDetectPodman(t *testing.T) {
+	cfg := Config{Runtime: ""}
+
+	got := cfg.DetectedRuntimeWith(func(name string) (string, error) {
+		if name == "podman" {
+			return "/usr/bin/podman", nil
+		}
+		return "", os.ErrNotExist
+	})
+	if got != "podman" {
+		t.Errorf("DetectedRuntime: got %q, want %q", got, "podman")
+	}
+}
+
+func TestDetectedRuntime_AutoDetectFallback(t *testing.T) {
+	cfg := Config{Runtime: ""}
+
+	// Neither docker nor podman found, falls back to docker
+	got := cfg.DetectedRuntimeWith(func(name string) (string, error) {
+		return "", os.ErrNotExist
+	})
+	if got != "docker" {
+		t.Errorf("DetectedRuntime fallback: got %q, want %q", got, "docker")
+	}
+}
+
+func TestGetCredentialValue_Found(t *testing.T) {
+	cfg := Config{
+		Credentials: map[string]string{
+			"MY_API_KEY": "TEST_ENV_VAR",
+		},
+	}
+
+	// Set the env var
+	t.Setenv("TEST_ENV_VAR", "secret-value")
+
+	value, ok := cfg.GetCredentialValue("MY_API_KEY")
+	if !ok {
+		t.Error("GetCredentialValue: expected ok=true")
+	}
+	if value != "secret-value" {
+		t.Errorf("GetCredentialValue: got %q, want %q", value, "secret-value")
+	}
+}
+
+func TestGetCredentialValue_NotFound(t *testing.T) {
+	cfg := Config{
+		Credentials: map[string]string{},
+	}
+
+	value, ok := cfg.GetCredentialValue("UNKNOWN_KEY")
+	if ok {
+		t.Error("GetCredentialValue: expected ok=false for unknown key")
+	}
+	if value != "" {
+		t.Errorf("GetCredentialValue: got %q, want empty string", value)
+	}
+}
+
+func TestGetCredentialValue_EnvVarNotSet(t *testing.T) {
+	cfg := Config{
+		Credentials: map[string]string{
+			"MY_API_KEY": "UNSET_ENV_VAR_12345",
+		},
+	}
+
+	value, ok := cfg.GetCredentialValue("MY_API_KEY")
+	if ok {
+		t.Error("GetCredentialValue: expected ok=false when env var not set")
+	}
+	if value != "" {
+		t.Errorf("GetCredentialValue: got %q, want empty string", value)
+	}
+}
+
+func TestResolveBaseImage_Found(t *testing.T) {
+	cfg := Config{
+		BaseImages: map[string]string{
+			"python": "mcr.microsoft.com/devcontainers/python:3.11",
+		},
+	}
+
+	image, ok := cfg.ResolveBaseImage("python")
+	if !ok {
+		t.Error("ResolveBaseImage: expected ok=true")
+	}
+	if image != "mcr.microsoft.com/devcontainers/python:3.11" {
+		t.Errorf("ResolveBaseImage: got %q, want expected value", image)
+	}
+}
+
+func TestResolveBaseImage_NotFound(t *testing.T) {
+	cfg := Config{
+		BaseImages: map[string]string{},
+	}
+
+	image, ok := cfg.ResolveBaseImage("unknown")
+	if ok {
+		t.Error("ResolveBaseImage: expected ok=false for unknown image")
+	}
+	if image != "" {
+		t.Errorf("ResolveBaseImage: got %q, want empty string", image)
+	}
+}

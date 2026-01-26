@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// View renders the TUI.
 func (m Model) View() string {
 	title := m.styles.TitleStyle().Render("devagent")
 	subtitle := m.styles.SubtitleStyle().Render("Development Agent Orchestrator")
@@ -14,19 +15,36 @@ func (m Model) View() string {
 		fmt.Sprintf("Theme: %s", m.styles.AccentStyle().Render(m.themeName)),
 	)
 
-	placeholder := m.styles.BoxStyle().Render("No containers running")
+	var content string
+	if len(m.containerList.Items()) == 0 {
+		content = m.renderEmptyState()
+	} else {
+		content = m.containerList.View()
+	}
 
-	help := m.styles.HelpStyle().Render("q: quit")
+	// Error display
+	var errorDisplay string
+	if m.err != nil {
+		errorDisplay = m.styles.ErrorStyle().Render(fmt.Sprintf("Error: %v", m.err))
+	}
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
+	help := m.styles.HelpStyle().Render("c: create • s: start • x: stop • d: destroy • r: refresh • q: quit")
+
+	parts := []string{
 		title,
 		subtitle,
 		themeInfo,
 		"",
-		placeholder,
-		help,
-	)
+		content,
+	}
+
+	if errorDisplay != "" {
+		parts = append(parts, "", errorDisplay)
+	}
+
+	parts = append(parts, help)
+
+	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	if m.width > 0 && m.height > 0 {
 		return lipgloss.Place(
@@ -34,9 +52,21 @@ func (m Model) View() string {
 			m.height,
 			lipgloss.Center,
 			lipgloss.Center,
-			content,
+			view,
 		)
 	}
 
-	return content
+	return view
+}
+
+// renderEmptyState renders the placeholder when no containers exist.
+func (m Model) renderEmptyState() string {
+	return m.styles.BoxStyle().Render(
+		lipgloss.JoinVertical(
+			lipgloss.Center,
+			"No containers running",
+			"",
+			m.styles.InfoStyle().Render("Press 'c' to create a new container"),
+		),
+	)
 }

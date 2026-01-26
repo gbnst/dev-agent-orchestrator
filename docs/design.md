@@ -3,6 +3,19 @@
 **Status:** Draft
 **Last Updated:** 2025-01-26
 
+## MVP Goal
+
+A TUI that lets you:
+1. **Create** a devcontainer from a template (select template + project path)
+2. **Start** the container
+3. **See** container status and tmux sessions in the TUI
+4. **Attach** to a tmux session in a separate terminal (manually: `docker exec -it <container> tmux attach`)
+5. **Stop** and **destroy** containers from the TUI
+
+This is the core workflow before adding OTEL monitoring or agent state detection.
+
+---
+
 ## Definition of Done
 
 1. **A Go TUI application** that runs on the host machine
@@ -19,7 +32,7 @@
    - User attaches to sessions separately for interaction
    - TUI can inject input via send-keys (for environment setup), observe via capture-pane
 
-4. **Agent state monitoring (passive):**
+4. **Agent state monitoring (passive):** *(future)*
    - Embedded OTEL collector receives telemetry from agents
    - Agent-specific adapters parse state from multiple sources (OTEL, filesystem via docker exec, terminal output)
    - Displays agent state in TUI (working, waiting for input, idle, error)
@@ -352,32 +365,57 @@ Based on cc_session_mon patterns:
 
 ## Implementation Phases
 
-### Phase 1: Foundation
+### Phase 1: Foundation ✅
 - Project scaffolding (Nix flake, Makefile, go.mod)
 - Config loading from XDG paths
 - Basic TUI with container list view
 
-### Phase 2: Container Management
+### Phase 2: Container Management ✅
 - Docker CLI wrapper
 - Devcontainer JSON generation from templates
-- Container lifecycle (create, start, stop, destroy)
+- Container lifecycle (start, stop, destroy) via keybindings
+
+### Phase 2b: Container Creation UI
+- TUI form for creating containers: select template, enter project path, name
+- `c` keybinding opens creation form
+- Calls devcontainer CLI to create and start
 
 ### Phase 3: Tmux Integration
 - Tmux CLI wrapper via docker exec
-- Session create/list/destroy
-- capture-pane for terminal content
+- List sessions per container in TUI
+- Create session from TUI
+- Display attach command for user to copy
+- Session destroy from TUI
 
-### Phase 4: OTEL Receiver
+### Phase 4: OTEL Receiver *(future)*
 - Embedded OTLP gRPC receiver
 - In-memory event store
 - Wire events to TUI
 
-### Phase 5: Agent State Detection
+### Phase 5: Agent State Detection *(future)*
 - Claude Code adapter
 - Multi-source state aggregation
 - Status display in TUI
 
-### Phase 6: Polish
+### Phase 6: Polish *(future)*
 - Template management UI
 - Credential validation
 - Error handling and recovery
+
+---
+
+## Current Status
+
+**Implemented:**
+- Config parsing with full schema (theme, runtime, otel, credentials, base_images, agents)
+- Template loading from `~/.config/devagent/templates/`
+- Docker/Podman CLI wrapper with injectable executor for testing
+- Devcontainer JSON generation from templates
+- Container manager for lifecycle orchestration
+- TUI with container list, keybindings (s/x/d/r/q), auto-refresh
+
+**Not yet implemented:**
+- Container creation form (`c` key does nothing)
+- Tmux session management
+- OTEL receiver
+- Agent state detection
