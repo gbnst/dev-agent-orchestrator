@@ -1,0 +1,49 @@
+# Example configuration for devagent
+# Copy to ~/.config/devagent/config.yaml
+
+theme: mocha  # Catppuccin theme: mocha, macchiato, frappe, latte
+
+# Container runtime (auto-detected if not specified)
+# runtime: docker  # or podman
+
+# OTEL receiver settings
+otel:
+  grpc_port: 4317
+
+# Credential references (env var names to inject into containers)
+# Values are read from host environment at container start time
+credentials:
+  anthropic: ANTHROPIC_API_KEY
+  openai: OPENAI_API_KEY
+  github: GITHUB_TOKEN
+
+# Default base images for templates
+base_images:
+  default: mcr.microsoft.com/devcontainers/base:ubuntu
+  node: mcr.microsoft.com/devcontainers/javascript-node:22
+  go: mcr.microsoft.com/devcontainers/go:1.23
+  python: mcr.microsoft.com/devcontainers/python:3.12
+
+# Agent definitions
+agents:
+  claude:
+    display_name: "Claude Code"
+    otel_env:
+      CLAUDE_CODE_ENABLE_TELEMETRY: "1"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "host.docker.internal:4317"
+    state_sources:
+      - type: otel
+        events: [user_prompt, tool_result, tool_decision]
+      - type: terminal
+        patterns:
+          waiting: ["^>", "\\? "]
+      - type: filesystem
+        paths: ["~/.claude/projects/*/session.jsonl"]
+
+  codex:
+    display_name: "OpenAI Codex CLI"
+    otel_env: {}
+    state_sources:
+      - type: terminal
+        patterns:
+          waiting: ["^>>> "]

@@ -1,0 +1,24 @@
+# Example devcontainer template for Go projects
+# Templates live in ~/.config/devagent/templates/
+
+name: go-project
+description: "Go development with common tools"
+base_image: go  # References base_images.go from main config
+
+devcontainer:
+  features:
+    ghcr.io/devcontainers/features/git:1: {}
+    ghcr.io/devcontainers/features/github-cli:1: {}
+  customizations:
+    vscode:
+      extensions:
+        - golang.go
+  postCreateCommand: "go mod download"
+
+# Credentials to inject (references config.credentials keys)
+inject_credentials:
+  - github
+  - anthropic
+
+# Default agent for this template
+default_agent: claude

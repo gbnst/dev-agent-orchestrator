@@ -1,0 +1,28 @@
+# Build output
+bin/
+result
+result-*
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# direnv
+.direnv/
+
+# Local config (keep config.yaml in user's ~/.config/devagent/)
