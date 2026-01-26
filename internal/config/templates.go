@@ -26,8 +26,19 @@ type DevcontainerSpec struct {
 	PostCreateCommand string                            `yaml:"postCreateCommand"`
 }
 
+// customTemplatesPath allows overriding the templates directory.
+var customTemplatesPath string
+
+// SetTemplatesPath sets a custom templates directory path.
+func SetTemplatesPath(path string) {
+	customTemplatesPath = path
+}
+
 // LoadTemplates loads all templates from the default templates directory.
 func LoadTemplates() ([]Template, error) {
+	if customTemplatesPath != "" {
+		return LoadTemplatesFrom(customTemplatesPath)
+	}
 	return LoadTemplatesFrom(getTemplatesPath())
 }
 

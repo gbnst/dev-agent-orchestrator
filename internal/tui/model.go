@@ -23,13 +23,25 @@ type Model struct {
 	manager       *container.Manager
 	containerList list.Model
 
+	// Form state for container creation
+	formOpen          bool
+	formTemplateIdx   int
+	formProjectPath   string
+	formContainerName string
+	formFocusedField  FormField
+	formError         string
+
 	err error
 }
 
 // NewModel creates a new TUI model with the given configuration.
 func NewModel(cfg *config.Config) Model {
 	templates, _ := config.LoadTemplates()
+	return NewModelWithTemplates(cfg, templates)
+}
 
+// NewModelWithTemplates creates a new TUI model with explicit templates (for testing).
+func NewModelWithTemplates(cfg *config.Config, templates []config.Template) Model {
 	mgr := container.NewManager(cfg, templates)
 
 	// Create container list
@@ -77,4 +89,35 @@ func (m Model) tick() tea.Cmd {
 	return tea.Tick(10*time.Second, func(t time.Time) tea.Msg {
 		return tickMsg{time: t}
 	})
+}
+
+// ContainerCount returns the number of containers in the list.
+// This is an accessor for E2E testing.
+func (m Model) ContainerCount() int {
+	return len(m.containerList.Items())
+}
+
+// GetContainerByName returns a container by name if it exists.
+// This is an accessor for E2E testing.
+func (m Model) GetContainerByName(name string) (*container.Container, bool) {
+	for _, item := range m.containerList.Items() {
+		if ci, ok := item.(containerItem); ok {
+			if ci.container.Name == name {
+				return ci.container, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// Manager returns the container manager.
+// This is an accessor for E2E testing.
+func (m Model) Manager() *container.Manager {
+	return m.manager
+}
+
+// FormOpen returns whether the create form is open.
+// This is an accessor for E2E testing.
+func (m Model) FormOpen() bool {
+	return m.formOpen
 }

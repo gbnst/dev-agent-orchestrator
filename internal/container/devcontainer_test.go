@@ -392,3 +392,59 @@ func TestDevcontainerCLI_Up_CallsCorrectCommand(t *testing.T) {
 		t.Errorf("containerID: got %q, want %q", containerID, "abc123")
 	}
 }
+
+func TestDevcontainerCLI_Up_WithDockerPath(t *testing.T) {
+	var capturedArgs []string
+
+	mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+		capturedArgs = args
+		return `{"containerId":"abc123"}`, nil
+	}
+
+	cli := NewDevcontainerCLIWithExecutorAndRuntime(mockExec, "podman")
+	_, err := cli.Up(context.Background(), "/home/user/project")
+	if err != nil {
+		t.Fatalf("Up failed: %v", err)
+	}
+
+	// Check --docker-path is present with correct value
+	hasDockerPath := false
+	for i, arg := range capturedArgs {
+		if arg == "--docker-path" && i+1 < len(capturedArgs) && capturedArgs[i+1] == "podman" {
+			hasDockerPath = true
+		}
+	}
+
+	if !hasDockerPath {
+		t.Errorf("Missing --docker-path podman, got args: %v", capturedArgs)
+	}
+}
+
+func TestDevcontainerCLI_Up_WithoutDockerPath(t *testing.T) {
+	var capturedArgs []string
+
+	mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+		capturedArgs = args
+		return `{"containerId":"abc123"}`, nil
+	}
+
+	cli := NewDevcontainerCLIWithExecutor(mockExec)
+	_, err := cli.Up(context.Background(), "/home/user/project")
+	if err != nil {
+		t.Fatalf("Up failed: %v", err)
+	}
+
+	// Check --docker-path is NOT present
+	for _, arg := range capturedArgs {
+		if arg == "--docker-path" {
+			t.Errorf("--docker-path should not be present when runtime not set, got args: %v", capturedArgs)
+		}
+	}
+}
+
+func TestNewDevcontainerCLIWithRuntime(t *testing.T) {
+	cli := NewDevcontainerCLIWithRuntime("docker")
+	if cli.dockerPath != "docker" {
+		t.Errorf("dockerPath: got %q, want %q", cli.dockerPath, "docker")
+	}
+}

@@ -128,13 +128,22 @@ func (g *DevcontainerGenerator) WriteToProject(projectPath string, dc *Devcontai
 
 // DevcontainerCLI wraps the devcontainer CLI.
 type DevcontainerCLI struct {
-	exec CommandExecutor
+	exec       CommandExecutor
+	dockerPath string // path to runtime binary (docker/podman)
 }
 
 // NewDevcontainerCLI creates a new DevcontainerCLI.
 func NewDevcontainerCLI() *DevcontainerCLI {
 	return &DevcontainerCLI{
 		exec: defaultExecutor,
+	}
+}
+
+// NewDevcontainerCLIWithRuntime creates a new DevcontainerCLI with an explicit runtime.
+func NewDevcontainerCLIWithRuntime(runtime string) *DevcontainerCLI {
+	return &DevcontainerCLI{
+		exec:       defaultExecutor,
+		dockerPath: runtime,
 	}
 }
 
@@ -145,6 +154,14 @@ func NewDevcontainerCLIWithExecutor(exec CommandExecutor) *DevcontainerCLI {
 	}
 }
 
+// NewDevcontainerCLIWithExecutorAndRuntime creates a new DevcontainerCLI with both custom executor and runtime.
+func NewDevcontainerCLIWithExecutorAndRuntime(exec CommandExecutor, runtime string) *DevcontainerCLI {
+	return &DevcontainerCLI{
+		exec:       exec,
+		dockerPath: runtime,
+	}
+}
+
 // upResponse represents the JSON output from devcontainer up.
 type upResponse struct {
 	ContainerID string `json:"containerId"`
@@ -152,7 +169,12 @@ type upResponse struct {
 
 // Up starts a devcontainer from the project directory.
 func (c *DevcontainerCLI) Up(ctx context.Context, projectPath string) (string, error) {
-	output, err := c.exec(ctx, "devcontainer", "up", "--workspace-folder", projectPath)
+	args := []string{"up", "--workspace-folder", projectPath}
+	if c.dockerPath != "" {
+		args = append(args, "--docker-path", c.dockerPath)
+	}
+
+	output, err := c.exec(ctx, "devcontainer", args...)
 	if err != nil {
 		return "", err
 	}

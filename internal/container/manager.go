@@ -29,7 +29,14 @@ type Manager struct {
 func NewManager(cfg *config.Config, templates []config.Template) *Manager {
 	runtime := NewRuntime(cfg.DetectedRuntime())
 	generator := NewDevcontainerGenerator(cfg, templates)
-	devCLI := NewDevcontainerCLI()
+
+	// Use explicit runtime for devcontainer CLI if configured
+	var devCLI *DevcontainerCLI
+	if cfg.Runtime != "" {
+		devCLI = NewDevcontainerCLIWithRuntime(cfg.Runtime)
+	} else {
+		devCLI = NewDevcontainerCLI()
+	}
 
 	return &Manager{
 		cfg:        cfg,

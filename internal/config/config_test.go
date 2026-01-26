@@ -219,3 +219,84 @@ func TestResolveBaseImage_NotFound(t *testing.T) {
 		t.Errorf("ResolveBaseImage: got %q, want empty string", image)
 	}
 }
+
+func TestValidateRuntime_EmptySkipsValidation(t *testing.T) {
+	cfg := Config{Runtime: ""}
+
+	err := cfg.ValidateRuntimeWith(func(name string) (string, error) {
+		return "", os.ErrNotExist
+	})
+	if err != nil {
+		t.Errorf("ValidateRuntime: expected nil for empty runtime, got %v", err)
+	}
+}
+
+func TestValidateRuntime_InvalidRuntime(t *testing.T) {
+	cfg := Config{Runtime: "containerd"}
+
+	err := cfg.ValidateRuntimeWith(func(name string) (string, error) {
+		return "/usr/bin/" + name, nil
+	})
+	if err == nil {
+		t.Error("ValidateRuntime: expected error for invalid runtime")
+	}
+	if err.Error() != "runtime must be 'docker' or 'podman', got: containerd" {
+		t.Errorf("ValidateRuntime: unexpected error message: %v", err)
+	}
+}
+
+func TestValidateRuntime_DockerFound(t *testing.T) {
+	cfg := Config{Runtime: "docker"}
+
+	err := cfg.ValidateRuntimeWith(func(name string) (string, error) {
+		if name == "docker" {
+			return "/usr/bin/docker", nil
+		}
+		return "", os.ErrNotExist
+	})
+	if err != nil {
+		t.Errorf("ValidateRuntime: expected nil for found docker, got %v", err)
+	}
+}
+
+func TestValidateRuntime_PodmanFound(t *testing.T) {
+	cfg := Config{Runtime: "podman"}
+
+	err := cfg.ValidateRuntimeWith(func(name string) (string, error) {
+		if name == "podman" {
+			return "/usr/bin/podman", nil
+		}
+		return "", os.ErrNotExist
+	})
+	if err != nil {
+		t.Errorf("ValidateRuntime: expected nil for found podman, got %v", err)
+	}
+}
+
+func TestValidateRuntime_DockerNotFound(t *testing.T) {
+	cfg := Config{Runtime: "docker"}
+
+	err := cfg.ValidateRuntimeWith(func(name string) (string, error) {
+		return "", os.ErrNotExist
+	})
+	if err == nil {
+		t.Error("ValidateRuntime: expected error when docker not found")
+	}
+	if err.Error() != "runtime 'docker' not found in PATH" {
+		t.Errorf("ValidateRuntime: unexpected error message: %v", err)
+	}
+}
+
+func TestValidateRuntime_PodmanNotFound(t *testing.T) {
+	cfg := Config{Runtime: "podman"}
+
+	err := cfg.ValidateRuntimeWith(func(name string) (string, error) {
+		return "", os.ErrNotExist
+	})
+	if err == nil {
+		t.Error("ValidateRuntime: expected error when podman not found")
+	}
+	if err.Error() != "runtime 'podman' not found in PATH" {
+		t.Errorf("ValidateRuntime: unexpected error message: %v", err)
+	}
+}

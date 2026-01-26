@@ -8,6 +8,11 @@ import (
 
 // View renders the TUI.
 func (m Model) View() string {
+	// If form is open, render the form instead
+	if m.formOpen {
+		return m.renderCreateForm()
+	}
+
 	title := m.styles.TitleStyle().Render("devagent")
 	subtitle := m.styles.SubtitleStyle().Render("Development Agent Orchestrator")
 
@@ -69,4 +74,103 @@ func (m Model) renderEmptyState() string {
 			m.styles.InfoStyle().Render("Press 'c' to create a new container"),
 		),
 	)
+}
+
+// renderCreateForm renders the container creation form.
+func (m Model) renderCreateForm() string {
+	title := m.styles.TitleStyle().Render("Create Container")
+
+	// Template selection
+	templateLabel := "Template"
+	if m.formFocusedField == FieldTemplate {
+		templateLabel = m.styles.AccentStyle().Render("▸ Template")
+	}
+
+	var templateList string
+	for i, tmpl := range m.templates {
+		indicator := "  "
+		if i == m.formTemplateIdx {
+			indicator = "● "
+		}
+		line := fmt.Sprintf("%s%s - %s", indicator, tmpl.Name, tmpl.Description)
+		if i == m.formTemplateIdx {
+			line = m.styles.AccentStyle().Render(line)
+		}
+		if i > 0 {
+			templateList += "\n"
+		}
+		templateList += line
+	}
+	if len(m.templates) == 0 {
+		templateList = m.styles.ErrorStyle().Render("No templates available")
+	}
+
+	// Project path input
+	projectPathLabel := "Project Path"
+	if m.formFocusedField == FieldProjectPath {
+		projectPathLabel = m.styles.AccentStyle().Render("▸ Project Path")
+	}
+	projectPathValue := m.formProjectPath
+	if projectPathValue == "" {
+		projectPathValue = m.styles.SubtitleStyle().Render("(enter path)")
+	}
+	if m.formFocusedField == FieldProjectPath {
+		projectPathValue += "_" // cursor
+	}
+
+	// Container name input
+	nameLabel := "Name (optional)"
+	if m.formFocusedField == FieldContainerName {
+		nameLabel = m.styles.AccentStyle().Render("▸ Name (optional)")
+	}
+	nameValue := m.formContainerName
+	if nameValue == "" {
+		nameValue = m.styles.SubtitleStyle().Render("(auto-generated)")
+	}
+	if m.formFocusedField == FieldContainerName {
+		nameValue += "_" // cursor
+	}
+
+	// Error display
+	var errorDisplay string
+	if m.formError != "" {
+		errorDisplay = m.styles.ErrorStyle().Render(fmt.Sprintf("Error: %s", m.formError))
+	}
+
+	// Help text
+	help := m.styles.HelpStyle().Render("Tab: next field • ↑↓: select template • Enter: create • Esc: cancel")
+
+	parts := []string{
+		title,
+		"",
+		templateLabel,
+		templateList,
+		"",
+		projectPathLabel,
+		projectPathValue,
+		"",
+		nameLabel,
+		nameValue,
+	}
+
+	if errorDisplay != "" {
+		parts = append(parts, "", errorDisplay)
+	}
+
+	parts = append(parts, "", help)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	boxed := m.styles.BoxStyle().Render(content)
+
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			boxed,
+		)
+	}
+
+	return boxed
 }

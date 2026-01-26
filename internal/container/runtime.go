@@ -84,15 +84,66 @@ func (r *Runtime) Exec(ctx context.Context, id string, cmd []string) (string, er
 }
 
 // containerJSON represents the JSON output from docker/podman ps --format json.
+// Supports both Docker (JSON lines) and Podman (JSON array) formats.
 type containerJSON struct {
-	ID        string `json:"ID"`
-	Names     string `json:"Names"`
-	State     string `json:"State"`
-	Labels    string `json:"Labels"`
-	CreatedAt string `json:"CreatedAt"`
+	// Docker uses "ID", Podman uses "Id"
+	ID string `json:"ID"`
+	Id string `json:"Id"`
+	// Docker uses string, Podman uses array
+	Names     interface{}       `json:"Names"`
+	State     string            `json:"State"`
+	Labels    interface{}       `json:"Labels"` // Docker: string, Podman: map
+	CreatedAt string            `json:"CreatedAt"`
+	Created   int64             `json:"Created"` // Podman uses unix timestamp
 }
 
-// parseContainerList parses JSON lines output from docker ps.
+func (cj *containerJSON) getID() string {
+	if cj.ID != "" {
+		return cj.ID
+	}
+	return cj.Id
+}
+
+func (cj *containerJSON) getName() string {
+	switch v := cj.Names.(type) {
+	case string:
+		return v
+	case []interface{}:
+		if len(v) > 0 {
+			if s, ok := v[0].(string); ok {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func (cj *containerJSON) getLabels() map[string]string {
+	labels := make(map[string]string)
+	switch v := cj.Labels.(type) {
+	case string:
+		// Docker format: comma-separated key=value
+		return parseLabels(v)
+	case map[string]interface{}:
+		// Podman format: actual map
+		for k, val := range v {
+			if s, ok := val.(string); ok {
+				labels[k] = s
+			}
+		}
+	}
+	return labels
+}
+
+func (cj *containerJSON) getCreatedAt() time.Time {
+	if cj.Created > 0 {
+		return time.Unix(cj.Created, 0)
+	}
+	t, _ := time.Parse(time.RFC3339, cj.CreatedAt)
+	return t
+}
+
+// parseContainerList parses JSON output from docker/podman ps.
 func (r *Runtime) parseContainerList(output string) ([]Container, error) {
 	output = strings.TrimSpace(output)
 	if output == "" {
@@ -100,8 +151,30 @@ func (r *Runtime) parseContainerList(output string) ([]Container, error) {
 	}
 
 	var containers []Container
-	scanner := bufio.NewScanner(strings.NewReader(output))
 
+	// Try parsing as JSON array first (Podman format)
+	if strings.HasPrefix(output, "[") {
+		var cjs []containerJSON
+		if err := json.Unmarshal([]byte(output), &cjs); err == nil {
+			for _, cj := range cjs {
+				labels := cj.getLabels()
+				containers = append(containers, Container{
+					ID:          cj.getID(),
+					Name:        cj.getName(),
+					State:       mapState(cj.State),
+					ProjectPath: labels[LabelProjectPath],
+					Template:    labels[LabelTemplate],
+					Agent:       labels[LabelAgent],
+					CreatedAt:   cj.getCreatedAt(),
+					Labels:      labels,
+				})
+			}
+			return containers, nil
+		}
+	}
+
+	// Fall back to JSON lines (Docker format)
+	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -113,17 +186,15 @@ func (r *Runtime) parseContainerList(output string) ([]Container, error) {
 			continue // Skip malformed lines
 		}
 
-		labels := parseLabels(cj.Labels)
-		createdAt, _ := time.Parse(time.RFC3339, cj.CreatedAt)
-
+		labels := cj.getLabels()
 		containers = append(containers, Container{
-			ID:          cj.ID,
-			Name:        cj.Names,
+			ID:          cj.getID(),
+			Name:        cj.getName(),
 			State:       mapState(cj.State),
 			ProjectPath: labels[LabelProjectPath],
 			Template:    labels[LabelTemplate],
 			Agent:       labels[LabelAgent],
-			CreatedAt:   createdAt,
+			CreatedAt:   cj.getCreatedAt(),
 			Labels:      labels,
 		})
 	}

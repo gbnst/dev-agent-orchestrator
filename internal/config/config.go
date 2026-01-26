@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,7 +45,18 @@ func DefaultConfig() Config {
 }
 
 func Load() (Config, error) {
-	return LoadFrom(getConfigPath())
+	return LoadFromDir(getConfigDir())
+}
+
+// LoadFromDir loads config and templates from a specified directory.
+func LoadFromDir(configDir string) (Config, error) {
+	configPath := filepath.Join(configDir, "config.yaml")
+	templatesPath := filepath.Join(configDir, "templates")
+
+	// Set the templates path for LoadTemplates to use
+	SetTemplatesPath(templatesPath)
+
+	return LoadFrom(configPath)
 }
 
 func LoadFrom(configPath string) (Config, error) {
@@ -93,6 +105,33 @@ func (c *Config) DetectedRuntimeWith(lookPath LookPathFunc) string {
 	return "docker"
 }
 
+// ValidateRuntime validates the configured runtime.
+// If Runtime is empty (auto-detect mode), validation is skipped.
+// Otherwise, validates the runtime is "docker" or "podman" and the binary exists.
+func (c *Config) ValidateRuntime() error {
+	return c.ValidateRuntimeWith(exec.LookPath)
+}
+
+// ValidateRuntimeWith validates the configured runtime using the provided lookup function.
+func (c *Config) ValidateRuntimeWith(lookPath LookPathFunc) error {
+	if c.Runtime == "" {
+		// Auto-detect mode - skip validation
+		return nil
+	}
+
+	// Validate runtime is a known value
+	if c.Runtime != "docker" && c.Runtime != "podman" {
+		return errors.New("runtime must be 'docker' or 'podman', got: " + c.Runtime)
+	}
+
+	// Validate binary exists
+	if _, err := lookPath(c.Runtime); err != nil {
+		return errors.New("runtime '" + c.Runtime + "' not found in PATH")
+	}
+
+	return nil
+}
+
 // GetCredentialValue looks up a credential by name and returns its value
 // from the host environment.
 func (c *Config) GetCredentialValue(name string) (string, bool) {
@@ -115,15 +154,15 @@ func (c *Config) ResolveBaseImage(name string) (string, bool) {
 	return image, ok
 }
 
-func getConfigPath() string {
+func getConfigDir() string {
 	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
-		return filepath.Join(xdgConfig, "devagent", "config.yaml")
+		return filepath.Join(xdgConfig, "devagent")
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".config", "devagent", "config.yaml")
+		return filepath.Join(".config", "devagent")
 	}
 
-	return filepath.Join(home, ".config", "devagent", "config.yaml")
+	return filepath.Join(home, ".config", "devagent")
 }

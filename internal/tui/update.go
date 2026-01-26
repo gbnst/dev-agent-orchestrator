@@ -9,6 +9,12 @@ import (
 	"devagent/internal/container"
 )
 
+// containerCreateMsg is sent when container creation completes.
+type containerCreateMsg struct {
+	container *container.Container
+	err       error
+}
+
 // Message types for container operations.
 type containersRefreshedMsg struct {
 	containers []*container.Container
@@ -44,6 +50,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Handle form input when form is open
+		if m.formOpen {
+			return m.handleFormKey(msg)
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -53,7 +64,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.refreshContainers()
 
 		case "c":
-			// Create container (placeholder - will be implemented in Phase 2b)
+			// Open container creation form
+			m.openForm()
 			return m, nil
 
 		case "s":
@@ -139,5 +151,105 @@ func (m Model) destroyContainer(id string) tea.Cmd {
 
 		err := m.manager.Destroy(ctx, id)
 		return containerActionMsg{action: "destroy", id: id, err: err}
+	}
+}
+
+// handleFormKey processes key events when the form is open.
+func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle special keys by type first
+	switch msg.Type {
+	case tea.KeyEscape, tea.KeyCtrlC:
+		m.resetForm()
+		return m, nil
+
+	case tea.KeyEnter:
+		if !m.validateForm() {
+			return m, nil
+		}
+		// Submit the form
+		cmd := m.createContainer()
+		m.resetForm()
+		return m, cmd
+
+	case tea.KeyTab:
+		// Cycle through fields
+		m.formFocusedField = FormField((int(m.formFocusedField) + 1) % int(fieldCount))
+		return m, nil
+
+	case tea.KeyUp:
+		// Template selection
+		if m.formFocusedField == FieldTemplate && m.formTemplateIdx > 0 {
+			m.formTemplateIdx--
+		}
+		return m, nil
+
+	case tea.KeyDown:
+		// Template selection
+		if m.formFocusedField == FieldTemplate && m.formTemplateIdx < len(m.templates)-1 {
+			m.formTemplateIdx++
+		}
+		return m, nil
+
+	case tea.KeyBackspace:
+		// Delete character from focused text field
+		switch m.formFocusedField {
+		case FieldProjectPath:
+			if len(m.formProjectPath) > 0 {
+				m.formProjectPath = m.formProjectPath[:len(m.formProjectPath)-1]
+			}
+		case FieldContainerName:
+			if len(m.formContainerName) > 0 {
+				m.formContainerName = m.formContainerName[:len(m.formContainerName)-1]
+			}
+		}
+		return m, nil
+
+	case tea.KeyRunes:
+		// Clear any previous error when typing
+		m.formError = ""
+		// Text input for focused field
+		switch m.formFocusedField {
+		case FieldProjectPath:
+			m.formProjectPath += string(msg.Runes)
+		case FieldContainerName:
+			m.formContainerName += string(msg.Runes)
+		}
+		return m, nil
+	}
+
+	// Handle any other keys that have runes (fallback for text input)
+	if len(msg.Runes) > 0 {
+		m.formError = ""
+		switch m.formFocusedField {
+		case FieldProjectPath:
+			m.formProjectPath += string(msg.Runes)
+		case FieldContainerName:
+			m.formContainerName += string(msg.Runes)
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// createContainer returns a command to create a container with form values.
+func (m Model) createContainer() tea.Cmd {
+	templateName := ""
+	if len(m.templates) > m.formTemplateIdx {
+		templateName = m.templates[m.formTemplateIdx].Name
+	}
+	projectPath := m.formProjectPath
+	containerName := m.formContainerName
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		_, err := m.manager.Create(ctx, container.CreateOptions{
+			ProjectPath: projectPath,
+			Template:    templateName,
+			Name:        containerName,
+		})
+		return containerActionMsg{action: "create", id: containerName, err: err}
 	}
 }
