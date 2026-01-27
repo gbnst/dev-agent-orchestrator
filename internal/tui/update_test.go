@@ -10,10 +10,10 @@ import (
 
 func TestTabSwitching_NumberKeys(t *testing.T) {
 	tests := []struct {
-		name       string
-		key        string
-		startTab   TabMode
-		wantTab    TabMode
+		name     string
+		key      string
+		startTab TabMode
+		wantTab  TabMode
 	}{
 		{"press 1 switches to Containers", "1", TabSessions, TabContainers},
 		{"press 2 switches to Sessions", "2", TabContainers, TabSessions},
@@ -39,10 +39,10 @@ func TestTabSwitching_NumberKeys(t *testing.T) {
 
 func TestTabSwitching_HLKeys(t *testing.T) {
 	tests := []struct {
-		name       string
-		key        string
-		startTab   TabMode
-		wantTab    TabMode
+		name     string
+		key      string
+		startTab TabMode
+		wantTab  TabMode
 	}{
 		{"press h switches left to Containers", "h", TabSessions, TabContainers},
 		{"press l switches right to Sessions", "l", TabContainers, TabSessions},
