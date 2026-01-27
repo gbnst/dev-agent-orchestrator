@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/config"
@@ -28,6 +29,32 @@ func (t TabMode) String() string {
 		return "Sessions"
 	default:
 		return "Unknown"
+	}
+}
+
+// StatusLevel represents the current status type for the status bar.
+type StatusLevel int
+
+const (
+	StatusInfo StatusLevel = iota
+	StatusSuccess
+	StatusError
+	StatusLoading
+)
+
+// String returns the status level name.
+func (s StatusLevel) String() string {
+	switch s {
+	case StatusInfo:
+		return "info"
+	case StatusSuccess:
+		return "success"
+	case StatusError:
+		return "error"
+	case StatusLoading:
+		return "loading"
+	default:
+		return "info"
 	}
 }
 
@@ -66,6 +93,11 @@ type Model struct {
 	// Tab navigation
 	currentTab   TabMode
 	logPanelOpen bool
+
+	// Status bar
+	statusMessage string
+	statusLevel   StatusLevel
+	statusSpinner spinner.Model
 
 	err error
 }

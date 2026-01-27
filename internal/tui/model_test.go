@@ -32,3 +32,23 @@ func TestModel_HasTabs(t *testing.T) {
 		t.Errorf("currentTab = %v, want %v", m.currentTab, TabContainers)
 	}
 }
+
+func TestStatusLevel_String(t *testing.T) {
+	tests := []struct {
+		level StatusLevel
+		want  string
+	}{
+		{StatusInfo, "info"},
+		{StatusSuccess, "success"},
+		{StatusError, "error"},
+		{StatusLoading, "loading"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			if got := tt.level.String(); got != tt.want {
+				t.Errorf("StatusLevel.String() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
