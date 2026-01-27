@@ -2,9 +2,46 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
+
+// renderTabs renders the tab bar with active/inactive styling.
+func renderTabs(currentTab TabMode, width int, styles *Styles) string {
+	tabs := []struct {
+		key  string
+		name string
+		mode TabMode
+	}{
+		{"1", "Containers", TabContainers},
+		{"2", "Sessions", TabSessions},
+	}
+
+	var parts []string
+	for _, tab := range tabs {
+		label := tab.key + " " + tab.name
+		var style lipgloss.Style
+		if tab.mode == currentTab {
+			style = styles.ActiveTabStyle()
+		} else {
+			style = styles.InactiveTabStyle()
+		}
+		parts = append(parts, style.Render(label))
+	}
+
+	tabContent := lipgloss.JoinHorizontal(lipgloss.Bottom, parts...)
+
+	// Calculate remaining width and fill with gap character
+	tabWidth := lipgloss.Width(tabContent)
+	remaining := width - tabWidth
+	if remaining > 0 {
+		gap := styles.TabGapStyle().Render(strings.Repeat(styles.TabGapFill(), remaining))
+		tabContent = lipgloss.JoinHorizontal(lipgloss.Bottom, tabContent, gap)
+	}
+
+	return tabContent
+}
 
 // View renders the TUI.
 func (m Model) View() string {
