@@ -90,6 +90,17 @@ func (m Model) View() string {
 
 	// Compose full layout
 	parts := []string{header, tabs, content}
+
+	// Add log panel if open
+	if m.logPanelOpen {
+		separator := lipgloss.NewStyle().
+			Width(layout.Separator.Width).
+			Foreground(lipgloss.Color(m.styles.flavor.Surface1().Hex)).
+			Render(strings.Repeat("─", layout.Separator.Width))
+		parts = append(parts, separator)
+		parts = append(parts, m.renderLogPanel(layout))
+	}
+
 	if errorDisplay != "" {
 		parts = append(parts, errorDisplay)
 	}
