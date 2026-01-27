@@ -52,9 +52,9 @@ type Model struct {
 	formError         string
 
 	// Session view state
-	sessionViewOpen     bool
-	selectedContainer   *container.Container
-	selectedSessionIdx  int
+	sessionViewOpen    bool
+	selectedContainer  *container.Container
+	selectedSessionIdx int
 
 	// Session creation form state
 	sessionFormOpen bool
@@ -253,4 +253,16 @@ func (m *Model) openSessionForm() {
 func (m *Model) closeSessionForm() {
 	m.sessionFormOpen = false
 	m.sessionFormName = ""
+}
+
+// selectContainer selects a container and switches to the Sessions tab.
+// Returns a command to refresh the container's sessions.
+func (m *Model) selectContainer() tea.Cmd {
+	if item, ok := m.containerList.SelectedItem().(containerItem); ok {
+		m.selectedContainer = item.container
+		m.selectedSessionIdx = 0
+		m.currentTab = TabSessions
+		return m.refreshSessions()
+	}
+	return nil
 }
