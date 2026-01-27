@@ -213,6 +213,58 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case "L":
+			// Toggle log panel with uppercase L
+			m.logPanelOpen = !m.logPanelOpen
+			if m.logPanelOpen {
+				m.setLogFilterFromContext()
+				// Recalculate layout and initialize viewport if needed
+				layout := ComputeLayout(m.width, m.height, m.logPanelOpen)
+				if !m.logReady {
+					m.logViewport = viewport.New(layout.Logs.Width, layout.Logs.Height-1)
+					m.logReady = true
+				}
+				m.updateLogViewportContent()
+			}
+			// Recalculate list size for split layout
+			layout := ComputeLayout(m.width, m.height, m.logPanelOpen)
+			m.containerList.SetSize(m.width-4, layout.ContentListHeight())
+			return m, nil
+
+		case "j":
+			// Scroll logs down when panel is open
+			if m.logPanelOpen && m.logReady {
+				m.logViewport.LineDown(1)
+				m.logAutoScroll = m.logViewport.AtBottom()
+				return m, nil
+			}
+			// Fall through to container list navigation if not handled
+
+		case "k":
+			// Scroll logs up when panel is open
+			if m.logPanelOpen && m.logReady {
+				m.logViewport.LineUp(1)
+				m.logAutoScroll = false
+				return m, nil
+			}
+			// Fall through to container list navigation
+
+		case "g":
+			// Go to top of logs when panel is open
+			if m.logPanelOpen && m.logReady {
+				m.logViewport.GotoTop()
+				m.logAutoScroll = false
+				return m, nil
+			}
+
+		case "G":
+			// Go to bottom of logs when panel is open
+			if m.logPanelOpen && m.logReady {
+				m.logViewport.GotoBottom()
+				m.logAutoScroll = true
+				return m, nil
+			}
+
 		case "enter":
 			// In Containers tab: select container and switch to Sessions
 			if m.currentTab == TabContainers {

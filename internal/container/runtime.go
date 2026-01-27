@@ -90,11 +90,11 @@ type containerJSON struct {
 	ID string `json:"ID"`
 	Id string `json:"Id"`
 	// Docker uses string, Podman uses array
-	Names     interface{}       `json:"Names"`
-	State     string            `json:"State"`
-	Labels    interface{}       `json:"Labels"` // Docker: string, Podman: map
-	CreatedAt string            `json:"CreatedAt"`
-	Created   int64             `json:"Created"` // Podman uses unix timestamp
+	Names     interface{} `json:"Names"`
+	State     string      `json:"State"`
+	Labels    interface{} `json:"Labels"` // Docker: string, Podman: map
+	CreatedAt string      `json:"CreatedAt"`
+	Created   int64       `json:"Created"` // Podman uses unix timestamp
 }
 
 func (cj *containerJSON) getID() string {

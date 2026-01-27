@@ -51,10 +51,10 @@ func TestLogEntry_String(t *testing.T) {
 
 func TestLogEntry_MatchesScope(t *testing.T) {
 	tests := []struct {
-		name     string
-		scope    string
-		prefix   string
-		want     bool
+		name   string
+		scope  string
+		prefix string
+		want   bool
 	}{
 		{
 			name:   "empty prefix matches all",
@@ -131,4 +131,3 @@ func TestParseLevel(t *testing.T) {
 		})
 	}
 }
-

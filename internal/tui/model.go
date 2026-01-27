@@ -356,6 +356,8 @@ func (m *Model) setError(message string, err error) {
 	m.statusLevel = StatusError
 	m.statusMessage = message
 	m.err = err
+	// Store current context for log filtering when L is pressed
+	m.setLogFilterFromContext()
 }
 
 // clearStatus resets the status bar to default.

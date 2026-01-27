@@ -8,14 +8,14 @@ import (
 
 // mockRuntime implements a testable Runtime interface
 type mockRuntime struct {
-	containers      []Container
-	listErr         error
-	startCalled     string
-	stopCalled      string
-	removeCalled    string
-	startErr        error
-	stopErr         error
-	removeErr       error
+	containers   []Container
+	listErr      error
+	startCalled  string
+	stopCalled   string
+	removeCalled string
+	startErr     error
+	stopErr      error
+	removeErr    error
 }
 
 func (m *mockRuntime) ListContainers(ctx context.Context) ([]Container, error) {

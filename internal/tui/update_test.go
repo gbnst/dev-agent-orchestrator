@@ -380,3 +380,148 @@ func TestContainerActionMsg_ClearsPendingOnError(t *testing.T) {
 		t.Error("container should not be pending after error")
 	}
 }
+
+// Task 7: Add L key toggle for log panel
+func TestLKey_TogglesLogPanel(t *testing.T) {
+	m := newTestModel()
+	m.logPanelOpen = false
+
+	// Press L to open
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("L")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if !m.logPanelOpen {
+		t.Error("logPanelOpen should be true after L")
+	}
+
+	// Press L again to close
+	updated, _ = m.Update(msg)
+	m = updated.(Model)
+
+	if m.logPanelOpen {
+		t.Error("logPanelOpen should be false after second L")
+	}
+}
+
+func TestLKey_SetsFilterFromContext(t *testing.T) {
+	m := newTestModel()
+	m.selectedContainer = &container.Container{ID: "abc123456789", Name: "test"}
+	m.currentTab = TabSessions
+
+	// Press L
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("L")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.logFilter == "" {
+		t.Error("logFilter should be set from context")
+	}
+	if !strings.Contains(m.logFilter, "abc123456789") {
+		t.Errorf("logFilter = %q, should contain container ID", m.logFilter)
+	}
+}
+
+// Task 8: Add log viewport navigation
+func TestJKey_ScrollsLogPanel(t *testing.T) {
+	m := newTestModel()
+	m.logPanelOpen = true
+	m.logReady = true
+
+	// Initialize viewport
+	m.logViewport.SetContent("line1\nline2\nline3\nline4\nline5")
+	m.logViewport.Height = 2
+
+	// Press j (down)
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	// Viewport should have scrolled down
+	if m.logViewport.YOffset == 0 {
+		t.Error("viewport should scroll down on j key")
+	}
+}
+
+func TestKKey_ScrollsLogPanelUp(t *testing.T) {
+	m := newTestModel()
+	m.logPanelOpen = true
+	m.logReady = true
+
+	// Initialize viewport with some content scrolled
+	m.logViewport.SetContent("line1\nline2\nline3\nline4\nline5")
+	m.logViewport.Height = 2
+	m.logViewport.LineDown(2)
+	startOffset := m.logViewport.YOffset
+
+	// Press k (up)
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	// Viewport should have scrolled up
+	if m.logViewport.YOffset >= startOffset {
+		t.Error("viewport should scroll up on k key")
+	}
+}
+
+func TestGKey_GoesToTopOfLogs(t *testing.T) {
+	m := newTestModel()
+	m.logPanelOpen = true
+	m.logReady = true
+
+	// Initialize viewport with content scrolled
+	m.logViewport.SetContent("line1\nline2\nline3\nline4\nline5")
+	m.logViewport.Height = 2
+	m.logViewport.LineDown(2)
+
+	// Press g
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.logViewport.YOffset != 0 {
+		t.Error("viewport should go to top on g key")
+	}
+	if m.logAutoScroll {
+		t.Error("logAutoScroll should be false after g key")
+	}
+}
+
+func TestCapitalGKey_GoesToBottomOfLogs(t *testing.T) {
+	m := newTestModel()
+	m.logPanelOpen = true
+	m.logReady = true
+
+	// Initialize viewport with content
+	m.logViewport.SetContent("line1\nline2\nline3\nline4\nline5")
+	m.logViewport.Height = 2
+
+	// Press G
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("G")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if !m.logViewport.AtBottom() {
+		t.Error("viewport should be at bottom on G key")
+	}
+	if !m.logAutoScroll {
+		t.Error("logAutoScroll should be true after G key")
+	}
+}
+
+// Task 9: Error state auto-opens filtered logs
+func TestSetError_SetsLogFilter(t *testing.T) {
+	m := newTestModel()
+	m.selectedContainer = &container.Container{ID: "abc123456789", Name: "test"}
+	m.currentTab = TabContainers
+
+	m.setError("test failed", fmt.Errorf("test error"))
+
+	if m.logFilter == "" {
+		t.Error("logFilter should be set when error occurs")
+	}
+	if !strings.Contains(m.logFilter, "abc123456789") {
+		t.Errorf("logFilter = %q, should contain container ID", m.logFilter)
+	}
+}

@@ -14,11 +14,11 @@ func TestChannelSink_Write(t *testing.T) {
 
 	// Write a log entry as JSON (simulating what Zap sends)
 	entry := map[string]any{
-		"level":   "info",
-		"ts":      time.Now().Unix(),
-		"logger":  "test.scope",
-		"msg":     "test message",
-		"fieldA":  "valueA",
+		"level":  "info",
+		"ts":     time.Now().Unix(),
+		"logger": "test.scope",
+		"msg":    "test message",
+		"fieldA": "valueA",
 	}
 	data, _ := json.Marshal(entry)
 	data = append(data, '\n')
