@@ -41,11 +41,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Update list size (leave room for header and help)
-		listHeight := m.height - 8
-		if listHeight < 0 {
-			listHeight = 0
-		}
+		// Use Layout for consistent height calculation
+		layout := ComputeLayout(m.width, m.height, m.logPanelOpen)
+		listHeight := layout.ContentListHeight()
+
 		m.containerList.SetSize(m.width-4, listHeight)
 		return m, nil
 
