@@ -26,3 +26,6 @@ Thumbs.db
 .direnv/
 
 # Local config (keep config.yaml in user's ~/.config/devagent/)
+
+# Git worktrees
+.worktrees/
