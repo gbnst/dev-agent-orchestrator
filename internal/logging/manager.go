@@ -1,7 +1,10 @@
+// pattern: Imperative Shell
+
 package logging
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -71,6 +74,11 @@ func (l *ScopedLogger) With(args ...any) *ScopedLogger {
 	}
 }
 
+// Scope returns the logger's hierarchical scope.
+func (l *ScopedLogger) Scope() string {
+	return l.scope
+}
+
 // Manager manages loggers with dual output (file + channel).
 type Manager struct {
 	baseZap     *zap.Logger
@@ -83,6 +91,11 @@ type Manager struct {
 
 // NewManager creates a new log manager with the given configuration.
 func NewManager(cfg Config) (*Manager, error) {
+	// Validate required configuration
+	if cfg.FilePath == "" {
+		return nil, fmt.Errorf("FilePath is required")
+	}
+
 	// Set defaults
 	if cfg.ChannelBufSize == 0 {
 		cfg.ChannelBufSize = 1000

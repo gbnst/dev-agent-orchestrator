@@ -1,6 +1,9 @@
+// pattern: Functional Core
+
 package logging
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,9 +41,65 @@ func TestLogEntry_String(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.entry.String()
 			for _, want := range tt.contains {
-				if !containsString(got, want) {
+				if !strings.Contains(got, want) {
 					t.Errorf("String() = %q, should contain %q", got, want)
 				}
+			}
+		})
+	}
+}
+
+func TestLogEntry_MatchesScope(t *testing.T) {
+	tests := []struct {
+		name     string
+		scope    string
+		prefix   string
+		want     bool
+	}{
+		{
+			name:   "empty prefix matches all",
+			scope:  "container.abc123",
+			prefix: "",
+			want:   true,
+		},
+		{
+			name:   "exact match",
+			scope:  "container.abc123",
+			prefix: "container.abc123",
+			want:   true,
+		},
+		{
+			name:   "prefix match",
+			scope:  "container.abc123.session",
+			prefix: "container.abc123",
+			want:   true,
+		},
+		{
+			name:   "no match",
+			scope:  "container.abc123",
+			prefix: "container.xyz",
+			want:   false,
+		},
+		{
+			name:   "partial component no match",
+			scope:  "container.abc123",
+			prefix: "container.abc",
+			want:   true, // HasPrefix includes partial component
+		},
+		{
+			name:   "different root",
+			scope:  "session.test",
+			prefix: "container",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			entry := LogEntry{Scope: tt.scope}
+			got := entry.MatchesScope(tt.prefix)
+			if got != tt.want {
+				t.Errorf("MatchesScope(%q) = %v, want %v", tt.prefix, got, tt.want)
 			}
 		})
 	}
@@ -73,15 +132,3 @@ func TestParseLevel(t *testing.T) {
 	}
 }
 
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}

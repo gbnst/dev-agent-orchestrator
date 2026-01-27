@@ -1,7 +1,10 @@
+// pattern: Imperative Shell
+
 package logging
 
 import (
 	"log/slog"
+	"sync"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -23,6 +26,7 @@ type TestLogManager struct {
 	channelSink *ChannelSink
 	baseZap     *zap.Logger
 	loggers     map[string]*ScopedLogger
+	mu          sync.RWMutex
 }
 
 // NewTestLogManager creates a LogManager for testing that only writes to a channel.
@@ -50,6 +54,17 @@ func NewTestLogManager(bufferSize int) *TestLogManager {
 // For returns a scoped logger for the given scope name.
 // Named For() to match the production Manager API.
 func (m *TestLogManager) For(scope string) *ScopedLogger {
+	m.mu.RLock()
+	if logger, ok := m.loggers[scope]; ok {
+		m.mu.RUnlock()
+		return logger
+	}
+	m.mu.RUnlock()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Double-check after acquiring write lock
 	if logger, ok := m.loggers[scope]; ok {
 		return logger
 	}

@@ -1,10 +1,12 @@
+// pattern: Imperative Shell
+
 package logging
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 )
 
 func TestNewManager(t *testing.T) {
@@ -99,7 +101,7 @@ func TestManager_LoggingToChannel(t *testing.T) {
 	// Sync to ensure write completes
 	mgr.Sync()
 
-	// Check channel received entry
+	// Check channel received entry (non-blocking since Sync already completed)
 	select {
 	case entry := <-mgr.Entries():
 		if entry.Message != "test message" {
@@ -108,8 +110,8 @@ func TestManager_LoggingToChannel(t *testing.T) {
 		if entry.Scope != "test.component" {
 			t.Errorf("Scope = %q, want %q", entry.Scope, "test.component")
 		}
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("timeout waiting for log entry in channel")
+	default:
+		t.Fatal("entry not received on channel after Sync()")
 	}
 }
 
@@ -144,10 +146,10 @@ func TestManager_LoggingToFile(t *testing.T) {
 	}
 
 	content := string(data)
-	if !containsSubstring(content, "file test message") {
+	if !strings.Contains(content, "file test message") {
 		t.Errorf("log file should contain message, got: %s", content)
 	}
-	if !containsSubstring(content, "file.test") {
+	if !strings.Contains(content, "file.test") {
 		t.Errorf("log file should contain scope, got: %s", content)
 	}
 }

@@ -1,3 +1,5 @@
+// pattern: Imperative Shell
+
 package logging
 
 import (
@@ -29,7 +31,7 @@ func (s *ChannelSink) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
-		return 0, fmt.Errorf("channel sink closed")
+		return 0, fmt.Errorf("write to closed channel sink")
 	}
 	s.mu.Unlock()
 
@@ -111,9 +113,11 @@ func (s *ChannelSink) parseEntry(data []byte) (LogEntry, error) {
 		entry.Scope = "app"
 	}
 
-	// Parse timestamp if present
+	// Parse timestamp if present, preserving nanosecond precision
 	if ts, ok := raw["ts"].(float64); ok {
-		entry.Timestamp = time.Unix(int64(ts), 0)
+		sec := int64(ts)
+		nsec := int64((ts - float64(sec)) * 1e9)
+		entry.Timestamp = time.Unix(sec, nsec)
 		delete(raw, "ts")
 	}
 
