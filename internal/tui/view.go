@@ -471,6 +471,60 @@ func (m Model) renderSessionDetail(layout Layout) string {
 		Render(content)
 }
 
+// renderStatusBar renders the status bar with operation feedback and help.
+func (m Model) renderStatusBar(width int) string {
+	var statusIcon string
+	var messageStyle lipgloss.Style
+
+	switch m.statusLevel {
+	case StatusLoading:
+		statusIcon = m.statusSpinner.View()
+		messageStyle = m.styles.InfoStatusStyle()
+	case StatusSuccess:
+		statusIcon = m.styles.SuccessStyle().Render("✓")
+		messageStyle = m.styles.SuccessStyle()
+	case StatusError:
+		statusIcon = m.styles.ErrorStyle().Render("✗")
+		messageStyle = m.styles.ErrorStyle()
+	default: // StatusInfo
+		statusIcon = ""
+		messageStyle = m.styles.InfoStatusStyle()
+	}
+
+	// Build status message
+	var statusText string
+	if statusIcon != "" {
+		statusText = statusIcon + " " + messageStyle.Render(m.statusMessage)
+	} else if m.statusMessage != "" {
+		statusText = messageStyle.Render(m.statusMessage)
+	}
+
+	// Add error hint if in error state
+	if m.statusLevel == StatusError && m.err != nil {
+		statusText += m.styles.HelpStyle().Render(" (esc to clear)")
+	}
+
+	// Build help text
+	help := m.renderContextualHelp()
+
+	// Calculate spacing
+	statusWidth := lipgloss.Width(statusText)
+	helpWidth := lipgloss.Width(help)
+	spacerWidth := width - statusWidth - helpWidth - 2 // 2 for padding
+
+	if spacerWidth < 1 {
+		spacerWidth = 1
+	}
+
+	spacer := strings.Repeat(" ", spacerWidth)
+
+	return lipgloss.JoinHorizontal(lipgloss.Bottom,
+		statusText,
+		spacer,
+		help,
+	)
+}
+
 // renderContextualHelp returns help text based on current state.
 func (m Model) renderContextualHelp() string {
 	var help string

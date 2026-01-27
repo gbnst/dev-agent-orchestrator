@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -159,5 +160,61 @@ func TestRenderSessionDetail_ShowsStatus(t *testing.T) {
 
 	if !strings.Contains(content, "Attached") {
 		t.Error("should show attached status")
+	}
+}
+
+func TestRenderStatusBar_Info(t *testing.T) {
+	m := newTestModel()
+	m.statusLevel = StatusInfo
+	m.statusMessage = "Ready"
+
+	result := m.renderStatusBar(80)
+
+	if !strings.Contains(result, "Ready") {
+		t.Error("status bar should contain message")
+	}
+}
+
+func TestRenderStatusBar_Success(t *testing.T) {
+	m := newTestModel()
+	m.statusLevel = StatusSuccess
+	m.statusMessage = "Container started"
+
+	result := m.renderStatusBar(80)
+
+	if !strings.Contains(result, "✓") {
+		t.Error("success status should contain checkmark")
+	}
+	if !strings.Contains(result, "Container started") {
+		t.Error("status bar should contain message")
+	}
+}
+
+func TestRenderStatusBar_Error(t *testing.T) {
+	m := newTestModel()
+	m.statusLevel = StatusError
+	m.statusMessage = "Failed to start"
+	m.err = fmt.Errorf("connection refused")
+
+	result := m.renderStatusBar(80)
+
+	if !strings.Contains(result, "✗") {
+		t.Error("error status should contain X mark")
+	}
+	if !strings.Contains(result, "Failed to start") {
+		t.Error("status bar should contain message")
+	}
+}
+
+func TestRenderStatusBar_Loading(t *testing.T) {
+	m := newTestModel()
+	m.statusLevel = StatusLoading
+	m.statusMessage = "Starting container..."
+
+	result := m.renderStatusBar(80)
+
+	// Spinner renders differently each frame, just check message
+	if !strings.Contains(result, "Starting container...") {
+		t.Error("status bar should contain loading message")
 	}
 }
