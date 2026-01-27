@@ -309,3 +309,37 @@ func (m *Model) selectContainer() tea.Cmd {
 	}
 	return nil
 }
+
+// setStatus updates the status bar message and level.
+func (m *Model) setStatus(level StatusLevel, message string) {
+	m.statusLevel = level
+	m.statusMessage = message
+}
+
+// setLoading sets the status to loading with a spinner.
+func (m *Model) setLoading(message string) tea.Cmd {
+	m.statusLevel = StatusLoading
+	m.statusMessage = message
+	return m.statusSpinner.Tick
+}
+
+// setSuccess sets the status to success.
+func (m *Model) setSuccess(message string) {
+	m.statusLevel = StatusSuccess
+	m.statusMessage = message
+	m.err = nil
+}
+
+// setError sets the status to error.
+func (m *Model) setError(message string, err error) {
+	m.statusLevel = StatusError
+	m.statusMessage = message
+	m.err = err
+}
+
+// clearStatus resets the status bar to default.
+func (m *Model) clearStatus() {
+	m.statusLevel = StatusInfo
+	m.statusMessage = ""
+	m.err = nil
+}
