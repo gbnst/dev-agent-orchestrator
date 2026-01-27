@@ -90,9 +90,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.destroyContainer(item.container.ID)
 			}
 
+		case "1":
+			// Tab switching with number keys
+			m.currentTab = TabContainers
+			return m, nil
+
+		case "2":
+			m.currentTab = TabSessions
+			return m, nil
+
+		case "h":
+			// Tab switching with h/l (vim-style)
+			if m.currentTab > TabContainers {
+				m.currentTab--
+			}
+			return m, nil
+
+		case "l":
+			if m.currentTab < TabSessions {
+				m.currentTab++
+			}
+			return m, nil
+
 		case "enter":
-			// Open session view for selected container
-			m.openSessionView()
+			// In Containers tab: select container and switch to Sessions
+			if m.currentTab == TabContainers {
+				cmd := m.selectContainer()
+				return m, cmd
+			}
 			return m, nil
 		}
 
