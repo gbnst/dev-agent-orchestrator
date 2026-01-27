@@ -156,20 +156,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "q", "ctrl+c":
+			m.logger.Debug("quit command received")
 			return m, tea.Quit
 
 		case "r":
 			// Refresh containers
+			m.logger.Debug("refresh containers requested")
 			return m, m.refreshContainers()
 
 		case "c":
 			// Open container creation form
+			m.logger.Debug("opening container creation form")
 			m.openForm()
 			return m, nil
 
 		case "s":
 			// Start selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
+				m.logger.Info("starting container", "containerID", item.container.ID, "name", item.container.Name)
 				m.setPending(item.container.ID, "start")
 				cmd := m.setLoading("Starting " + item.container.Name + "...")
 				return m, tea.Batch(cmd, m.startContainer(item.container.ID))
@@ -178,6 +182,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "x":
 			// Stop selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
+				m.logger.Info("stopping container", "containerID", item.container.ID, "name", item.container.Name)
 				m.setPending(item.container.ID, "stop")
 				cmd := m.setLoading("Stopping " + item.container.Name + "...")
 				return m, tea.Batch(cmd, m.stopContainer(item.container.ID))
@@ -186,6 +191,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "d":
 			// Destroy selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
+				m.logger.Info("destroying container", "containerID", item.container.ID, "name", item.container.Name)
 				m.setPending(item.container.ID, "destroy")
 				cmd := m.setLoading("Destroying " + item.container.Name + "...")
 				return m, tea.Batch(cmd, m.destroyContainer(item.container.ID))
@@ -193,28 +199,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "1":
 			// Tab switching with number keys
+			m.logger.Debug("tab switched", "tab", "containers")
 			m.currentTab = TabContainers
 			return m, nil
 
 		case "2":
+			m.logger.Debug("tab switched", "tab", "sessions")
 			m.currentTab = TabSessions
 			return m, nil
 
 		case "h":
 			// Tab switching with h/l (vim-style)
 			if m.currentTab > TabContainers {
+				m.logger.Debug("tab switched", "direction", "previous")
 				m.currentTab--
 			}
 			return m, nil
 
 		case "l":
 			if m.currentTab < TabSessions {
+				m.logger.Debug("tab switched", "direction", "next")
 				m.currentTab++
 			}
 			return m, nil
 
 		case "L":
 			// Toggle log panel with uppercase L
+			m.logger.Debug("toggling log panel", "visible", !m.logPanelOpen)
 			m.logPanelOpen = !m.logPanelOpen
 			if m.logPanelOpen {
 				m.setLogFilterFromContext()
@@ -286,6 +297,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case containerErrorMsg:
+		m.logger.Error("container operation error", "error", msg.err)
 		m.err = msg.err
 		return m, nil
 
@@ -294,9 +306,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clearPending(msg.id)
 
 		if msg.err != nil {
+			m.logger.Error("container action failed", "action", msg.action, "containerID", msg.id, "error", msg.err)
 			m.setError(fmt.Sprintf("Failed to %s container", msg.action), msg.err)
 			return m, nil
 		}
+		m.logger.Info("container action completed", "action", msg.action, "containerID", msg.id)
 		actionNames := map[string]string{
 			"start":   "started",
 			"stop":    "stopped",
@@ -307,6 +321,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		// Periodic refresh
+		m.logger.Debug("periodic refresh triggered")
 		return m, tea.Batch(
 			m.refreshContainers(),
 			m.tick(),
