@@ -100,6 +100,9 @@ type Model struct {
 	statusLevel   StatusLevel
 	statusSpinner spinner.Model
 
+	// Pending operations (containerID -> operation type)
+	pendingOperations map[string]string
+
 	err error
 }
 
@@ -128,13 +131,14 @@ func NewModelWithTemplates(cfg *config.Config, templates []config.Template) Mode
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(styles.flavor.Teal().Hex))
 
 	return Model{
-		themeName:     cfg.Theme,
-		styles:        styles,
-		cfg:           cfg,
-		templates:     templates,
-		manager:       mgr,
-		containerList: containerList,
-		statusSpinner: s,
+		themeName:         cfg.Theme,
+		styles:            styles,
+		cfg:               cfg,
+		templates:         templates,
+		manager:           mgr,
+		containerList:     containerList,
+		statusSpinner:     s,
+		pendingOperations: make(map[string]string),
 	}
 }
 
@@ -342,4 +346,28 @@ func (m *Model) clearStatus() {
 	m.statusLevel = StatusInfo
 	m.statusMessage = ""
 	m.err = nil
+}
+
+// setPending marks a container as having a pending operation.
+func (m *Model) setPending(containerID, operation string) {
+	if m.pendingOperations == nil {
+		m.pendingOperations = make(map[string]string)
+	}
+	m.pendingOperations[containerID] = operation
+}
+
+// clearPending removes a container from pending operations.
+func (m *Model) clearPending(containerID string) {
+	delete(m.pendingOperations, containerID)
+}
+
+// isPending returns true if the container has a pending operation.
+func (m Model) isPending(containerID string) bool {
+	_, ok := m.pendingOperations[containerID]
+	return ok
+}
+
+// getPendingOperation returns the pending operation type for a container.
+func (m Model) getPendingOperation(containerID string) string {
+	return m.pendingOperations[containerID]
 }

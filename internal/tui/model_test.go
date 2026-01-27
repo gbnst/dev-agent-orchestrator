@@ -52,3 +52,32 @@ func TestStatusLevel_String(t *testing.T) {
 		})
 	}
 }
+
+func TestModel_PendingOperations(t *testing.T) {
+	m := newTestModel()
+
+	// Initially empty
+	if len(m.pendingOperations) != 0 {
+		t.Error("pendingOperations should be empty initially")
+	}
+
+	// Can add pending operation
+	m.setPending("abc123", "start")
+	if op, ok := m.pendingOperations["abc123"]; !ok || op != "start" {
+		t.Errorf("pendingOperations[abc123] = %q, want 'start'", op)
+	}
+
+	// Can check if pending
+	if !m.isPending("abc123") {
+		t.Error("abc123 should be pending")
+	}
+	if m.isPending("xyz789") {
+		t.Error("xyz789 should not be pending")
+	}
+
+	// Can clear pending operation
+	m.clearPending("abc123")
+	if m.isPending("abc123") {
+		t.Error("abc123 should not be pending after clear")
+	}
+}
