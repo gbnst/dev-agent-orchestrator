@@ -11,6 +11,26 @@ import (
 	"devagent/internal/container"
 )
 
+// TabMode represents which tab is currently active.
+type TabMode int
+
+const (
+	TabContainers TabMode = iota
+	TabSessions
+)
+
+// String returns the display name for the tab.
+func (t TabMode) String() string {
+	switch t {
+	case TabContainers:
+		return "Containers"
+	case TabSessions:
+		return "Sessions"
+	default:
+		return "Unknown"
+	}
+}
+
 // Model represents the TUI application state.
 type Model struct {
 	width     int
@@ -39,6 +59,10 @@ type Model struct {
 	// Session creation form state
 	sessionFormOpen bool
 	sessionFormName string
+
+	// Tab navigation
+	currentTab   TabMode
+	logPanelOpen bool
 
 	err error
 }
