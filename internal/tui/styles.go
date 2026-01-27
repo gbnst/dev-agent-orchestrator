@@ -96,3 +96,21 @@ func (s *Styles) TabGapStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(s.flavor.Surface1().Hex))
 }
+
+// SuccessStyle returns the style for success messages.
+func (s *Styles) SuccessStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Green().Hex))
+}
+
+// InfoStatusStyle returns the style for info status messages.
+func (s *Styles) InfoStatusStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Text().Hex))
+}
+
+// StatusBarStyle returns the style for the status bar container.
+func (s *Styles) StatusBarStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Subtext0().Hex))
+}
