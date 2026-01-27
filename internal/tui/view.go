@@ -77,9 +77,8 @@ func (m Model) View() string {
 		content = m.renderSessionsTabContent(layout)
 	}
 
-	// Build status bar (placeholder for Phase 4)
-	help := m.styles.HelpStyle().Render("q: quit • r: refresh • c: create • s: start • x: stop • d: destroy")
-	statusBar := lipgloss.NewStyle().Width(layout.StatusBar.Width).Render(help)
+	// Build status bar with contextual help
+	statusBar := lipgloss.NewStyle().Width(layout.StatusBar.Width).Render(m.renderContextualHelp())
 
 	// Error display (if any)
 	var errorDisplay string
@@ -470,4 +469,20 @@ func (m Model) renderSessionDetail(layout Layout) string {
 		Height(layout.Content.Height).
 		Padding(1).
 		Render(content)
+}
+
+// renderContextualHelp returns help text based on current state.
+func (m Model) renderContextualHelp() string {
+	var help string
+	switch m.currentTab {
+	case TabContainers:
+		help = "q: quit • r: refresh • c: create • s: start • x: stop • d: destroy • enter: sessions • 1/2: tabs"
+	case TabSessions:
+		if m.selectedContainer == nil {
+			help = "1/2: tabs • backspace: containers"
+		} else {
+			help = "↑/↓: navigate • t: create • k: kill • enter: detail • backspace: containers • 1/2: tabs"
+		}
+	}
+	return m.styles.HelpStyle().Render(help)
 }
