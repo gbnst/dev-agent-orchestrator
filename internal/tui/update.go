@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/container"
+	"devagent/internal/logging"
 )
 
 // containerCreateMsg is sent when container creation completes.
@@ -34,6 +35,11 @@ type containerActionMsg struct {
 
 type tickMsg struct {
 	time time.Time
+}
+
+// logEntriesMsg delivers log entries from the logging channel.
+type logEntriesMsg struct {
+	entries []logging.LogEntry
 }
 
 // Update handles messages and updates the model.

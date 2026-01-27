@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
@@ -113,6 +114,7 @@ type Model struct {
 	logFilter     string
 	logAutoScroll bool
 	logReady      bool // viewport initialized
+	logManager    interface{ Entries() <-chan logging.LogEntry } // Placeholder - will be properly wired in Phase 7
 
 	err error
 }
@@ -427,5 +429,62 @@ func (m *Model) setLogFilterFromContext() {
 		m.logFilter = fmt.Sprintf("container.%s", m.selectedContainer.ID[:12])
 	default:
 		m.logFilter = ""
+	}
+}
+
+// consumeLogEntries reads entries from the log manager channel.
+// Call this to start/continue log consumption.
+func (m Model) consumeLogEntries(logMgr interface{ Entries() <-chan logging.LogEntry }) tea.Cmd {
+	return func() tea.Msg {
+		// Batch read up to 50 entries
+		var entries []logging.LogEntry
+		for i := 0; i < 50; i++ {
+			select {
+			case entry, ok := <-logMgr.Entries():
+				if !ok {
+					// Channel closed
+					return logEntriesMsg{entries: entries}
+				}
+				entries = append(entries, entry)
+			default:
+				// No more entries ready
+				return logEntriesMsg{entries: entries}
+			}
+		}
+		return logEntriesMsg{entries: entries}
+	}
+}
+
+// updateLogViewportContent refreshes the viewport with current filtered entries.
+// Note: renderLogEntry is defined in view.go and will format entries.
+func (m *Model) updateLogViewportContent() {
+	entries := m.filteredLogEntries()
+	var lines []string
+	for _, entry := range entries {
+		// Basic format for now, renderLogEntry in view.go will be used when rendering
+		line := fmt.Sprintf("%s %s [%s] %s",
+			entry.Timestamp.Format("15:04:05"),
+			entry.Level,
+			entry.Scope,
+			entry.Message)
+		lines = append(lines, line)
+	}
+
+	content := ""
+	if len(lines) > 0 {
+		// Use strings import for Join
+		var sb strings.Builder
+		for i, line := range lines {
+			if i > 0 {
+				sb.WriteString("\n")
+			}
+			sb.WriteString(line)
+		}
+		content = sb.String()
+	}
+	m.logViewport.SetContent(content)
+
+	if m.logAutoScroll {
+		m.logViewport.GotoBottom()
 	}
 }
