@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"devagent/internal/config"
 	"devagent/internal/container"
@@ -120,13 +121,20 @@ func NewModelWithTemplates(cfg *config.Config, templates []config.Template) Mode
 	containerList.SetFilteringEnabled(false)
 	containerList.SetShowHelp(false)
 
+	// Initialize status spinner
+	styles := NewStyles(cfg.Theme)
+	s := spinner.New()
+	s.Spinner = spinner.MiniDot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(styles.flavor.Teal().Hex))
+
 	return Model{
 		themeName:     cfg.Theme,
-		styles:        NewStyles(cfg.Theme),
+		styles:        styles,
 		cfg:           cfg,
 		templates:     templates,
 		manager:       mgr,
 		containerList: containerList,
+		statusSpinner: s,
 	}
 }
 
