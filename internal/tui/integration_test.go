@@ -14,8 +14,9 @@ func TestIntegration_LogPanelToggle(t *testing.T) {
 		Theme: "mocha",
 	}
 
-	logPath := "/tmp/test-integration-log-panel.log"
-	lm, _ := logging.NewManager(logging.Config{
+	tmpDir := t.TempDir()
+	logPath := tmpDir + "/test-integration-log-panel.log"
+	lm, err := logging.NewManager(logging.Config{
 		FilePath:       logPath,
 		MaxSizeMB:      1,
 		MaxBackups:     1,
@@ -23,6 +24,9 @@ func TestIntegration_LogPanelToggle(t *testing.T) {
 		ChannelBufSize: 100,
 		Level:          "debug",
 	})
+	if err != nil {
+		t.Fatalf("failed to create LogManager: %v", err)
+	}
 	defer lm.Close()
 
 	model := NewModelWithTemplates(cfg, []config.Template{}, lm)
@@ -61,8 +65,9 @@ func TestIntegration_TabNavigation(t *testing.T) {
 		Theme: "mocha",
 	}
 
-	logPath := "/tmp/test-integration-tab-nav.log"
-	lm, _ := logging.NewManager(logging.Config{
+	tmpDir := t.TempDir()
+	logPath := tmpDir + "/test-integration-tab-nav.log"
+	lm, err := logging.NewManager(logging.Config{
 		FilePath:       logPath,
 		MaxSizeMB:      1,
 		MaxBackups:     1,
@@ -70,6 +75,9 @@ func TestIntegration_TabNavigation(t *testing.T) {
 		ChannelBufSize: 100,
 		Level:          "debug",
 	})
+	if err != nil {
+		t.Fatalf("failed to create LogManager: %v", err)
+	}
 	defer lm.Close()
 
 	model := NewModelWithTemplates(cfg, []config.Template{}, lm)
@@ -104,8 +112,9 @@ func TestIntegration_LogsAppearInPanel(t *testing.T) {
 		Theme: "mocha",
 	}
 
-	logPath := "/tmp/test-integration-logs-panel.log"
-	lm, _ := logging.NewManager(logging.Config{
+	tmpDir := t.TempDir()
+	logPath := tmpDir + "/test-integration-logs-panel.log"
+	lm, err := logging.NewManager(logging.Config{
 		FilePath:       logPath,
 		MaxSizeMB:      1,
 		MaxBackups:     1,
@@ -113,6 +122,9 @@ func TestIntegration_LogsAppearInPanel(t *testing.T) {
 		ChannelBufSize: 100,
 		Level:          "debug",
 	})
+	if err != nil {
+		t.Fatalf("failed to create LogManager: %v", err)
+	}
 	defer lm.Close()
 
 	model := NewModelWithTemplates(cfg, []config.Template{}, lm)
