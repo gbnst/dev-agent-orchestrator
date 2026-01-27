@@ -145,6 +145,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			// Start selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
+				m.setPending(item.container.ID, "start")
 				cmd := m.setLoading("Starting " + item.container.Name + "...")
 				return m, tea.Batch(cmd, m.startContainer(item.container.ID))
 			}
@@ -152,6 +153,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "x":
 			// Stop selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
+				m.setPending(item.container.ID, "stop")
 				cmd := m.setLoading("Stopping " + item.container.Name + "...")
 				return m, tea.Batch(cmd, m.stopContainer(item.container.ID))
 			}
@@ -159,6 +161,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "d":
 			// Destroy selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
+				m.setPending(item.container.ID, "destroy")
 				cmd := m.setLoading("Destroying " + item.container.Name + "...")
 				return m, tea.Batch(cmd, m.destroyContainer(item.container.ID))
 			}
@@ -210,6 +213,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case containerActionMsg:
+		// Clear pending state regardless of success/error
+		m.clearPending(msg.id)
+
 		if msg.err != nil {
 			m.setError(fmt.Sprintf("Failed to %s container", msg.action), msg.err)
 			return m, nil

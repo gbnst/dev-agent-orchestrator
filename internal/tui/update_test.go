@@ -328,3 +328,55 @@ func TestEscape_ClearsError(t *testing.T) {
 		t.Error("err should be nil after Escape")
 	}
 }
+
+func TestContainerAction_SetsPending(t *testing.T) {
+	m := newTestModel()
+
+	// Add a container
+	ctr := &container.Container{
+		ID:    "abc123def456",
+		Name:  "test-container",
+		State: container.StateStopped,
+	}
+	m.containerList.SetItems(toListItems([]*container.Container{ctr}))
+
+	// Press 's' to start
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if !m.isPending("abc123def456") {
+		t.Error("container should be pending after start action")
+	}
+	if m.getPendingOperation("abc123def456") != "start" {
+		t.Errorf("pending operation = %q, want 'start'", m.getPendingOperation("abc123def456"))
+	}
+}
+
+func TestContainerActionMsg_ClearsPending(t *testing.T) {
+	m := newTestModel()
+	m.setPending("abc123", "start")
+
+	// Simulate success message
+	msg := containerActionMsg{action: "start", id: "abc123", err: nil}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.isPending("abc123") {
+		t.Error("container should not be pending after action completes")
+	}
+}
+
+func TestContainerActionMsg_ClearsPendingOnError(t *testing.T) {
+	m := newTestModel()
+	m.setPending("abc123", "start")
+
+	// Simulate error message
+	msg := containerActionMsg{action: "start", id: "abc123", err: fmt.Errorf("failed")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.isPending("abc123") {
+		t.Error("container should not be pending after error")
+	}
+}
