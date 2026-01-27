@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/config"
+	"devagent/internal/logging"
 )
 
 func newTestModel() Model {
@@ -16,7 +17,20 @@ func newTestModel() Model {
 		{Name: "go-project", Description: "Go development"},
 		{Name: "python-project", Description: "Python development"},
 	}
-	return NewModelWithTemplates(cfg, templates)
+	logPath := "/tmp/test-" + testNameToString() + ".log"
+	lm, _ := logging.NewManager(logging.Config{
+		FilePath:       logPath,
+		MaxSizeMB:      1,
+		MaxBackups:     1,
+		MaxAgeDays:     1,
+		ChannelBufSize: 100,
+		Level:          "debug",
+	})
+	return NewModelWithTemplates(cfg, templates, lm)
+}
+
+func testNameToString() string {
+	return "test"
 }
 
 func TestForm_PressC_OpensForm(t *testing.T) {
@@ -270,8 +284,17 @@ func TestForm_Submit_EmptyProjectPath_ShowsError(t *testing.T) {
 
 func TestForm_NoTemplates_ShowsError(t *testing.T) {
 	cfg := &config.Config{Theme: "mocha"}
+	logPath := "/tmp/test-no-templates.log"
+	lm, _ := logging.NewManager(logging.Config{
+		FilePath:       logPath,
+		MaxSizeMB:      1,
+		MaxBackups:     1,
+		MaxAgeDays:     1,
+		ChannelBufSize: 100,
+		Level:          "debug",
+	})
 	// No templates
-	m := NewModelWithTemplates(cfg, nil)
+	m := NewModelWithTemplates(cfg, nil, lm)
 
 	// Press 'c' to open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})

@@ -114,19 +114,20 @@ type Model struct {
 	logFilter     string
 	logAutoScroll bool
 	logReady      bool // viewport initialized
-	logManager    interface{ Entries() <-chan logging.LogEntry } // Placeholder - will be properly wired in Phase 7
+	logManager    *logging.Manager
+	logger        *logging.ScopedLogger
 
 	err error
 }
 
 // NewModel creates a new TUI model with the given configuration.
-func NewModel(cfg *config.Config) Model {
+func NewModel(cfg *config.Config, logManager *logging.Manager) Model {
 	templates, _ := config.LoadTemplates()
-	return NewModelWithTemplates(cfg, templates)
+	return NewModelWithTemplates(cfg, templates, logManager)
 }
 
 // NewModelWithTemplates creates a new TUI model with explicit templates (for testing).
-func NewModelWithTemplates(cfg *config.Config, templates []config.Template) Model {
+func NewModelWithTemplates(cfg *config.Config, templates []config.Template, logManager *logging.Manager) Model {
 	mgr := container.NewManager(cfg, templates)
 
 	// Create container list
@@ -143,6 +144,9 @@ func NewModelWithTemplates(cfg *config.Config, templates []config.Template) Mode
 	s.Spinner = spinner.MiniDot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(styles.flavor.Teal().Hex))
 
+	logger := logManager.For("tui")
+	logger.Debug("TUI model initialized")
+
 	m := Model{
 		themeName:         cfg.Theme,
 		styles:            styles,
@@ -155,6 +159,8 @@ func NewModelWithTemplates(cfg *config.Config, templates []config.Template) Mode
 		pendingOperations: make(map[string]string),
 		logEntries:        make([]logging.LogEntry, 0, maxLogEntries),
 		logAutoScroll:     true,
+		logManager:        logManager,
+		logger:            logger,
 	}
 	return m
 }

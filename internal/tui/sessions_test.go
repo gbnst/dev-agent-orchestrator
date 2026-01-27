@@ -7,6 +7,7 @@ import (
 
 	"devagent/internal/config"
 	"devagent/internal/container"
+	"devagent/internal/logging"
 )
 
 func newTestModelWithContainers() Model {
@@ -17,7 +18,16 @@ func newTestModelWithContainers() Model {
 	templates := []config.Template{
 		{Name: "go-project", Description: "Go development"},
 	}
-	m := NewModelWithTemplates(cfg, templates)
+	logPath := "/tmp/test-sessions.log"
+	lm, _ := logging.NewManager(logging.Config{
+		FilePath:       logPath,
+		MaxSizeMB:      1,
+		MaxBackups:     1,
+		MaxAgeDays:     1,
+		ChannelBufSize: 100,
+		Level:          "debug",
+	})
+	m := NewModelWithTemplates(cfg, templates, lm)
 	// Set window size so list renders properly
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return updated.(Model)
