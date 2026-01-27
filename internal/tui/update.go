@@ -77,6 +77,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedSessionIdx = 0
 				m.currentTab = TabContainers
 				return m, nil
+			case tea.KeyEnter:
+				if len(m.selectedContainer.Sessions) > 0 {
+					m.sessionDetailOpen = true
+				}
+				return m, nil
+			case tea.KeyEscape:
+				if m.sessionDetailOpen {
+					m.sessionDetailOpen = false
+					return m, nil
+				}
+				// Escape without detail view goes back to Containers
+				m.selectedContainer = nil
+				m.selectedSessionIdx = 0
+				m.currentTab = TabContainers
+				return m, nil
 			}
 
 			// Vim-style navigation in Sessions tab

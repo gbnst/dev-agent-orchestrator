@@ -60,6 +60,9 @@ type Model struct {
 	sessionFormOpen bool
 	sessionFormName string
 
+	// Session detail view
+	sessionDetailOpen bool
+
 	// Tab navigation
 	currentTab   TabMode
 	logPanelOpen bool

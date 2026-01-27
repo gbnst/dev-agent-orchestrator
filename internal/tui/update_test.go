@@ -206,3 +206,45 @@ func TestSessionsTab_Backspace_ReturnsToContainers(t *testing.T) {
 		t.Error("selectedContainer should be nil after backspace")
 	}
 }
+
+func TestSessionsTab_Enter_OpensSessionDetail(t *testing.T) {
+	m := newTestModel()
+	m.currentTab = TabSessions
+	m.selectedContainer = &container.Container{
+		ID:   "abc123",
+		Name: "test-container",
+		Sessions: []container.Session{
+			{Name: "dev", ContainerID: "abc123"},
+		},
+	}
+	m.selectedSessionIdx = 0
+
+	// Press Enter
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if !m.sessionDetailOpen {
+		t.Error("sessionDetailOpen should be true after Enter on session")
+	}
+}
+
+func TestSessionDetail_Escape_Returns(t *testing.T) {
+	m := newTestModel()
+	m.currentTab = TabSessions
+	m.selectedContainer = &container.Container{
+		ID:       "abc123",
+		Name:     "test-container",
+		Sessions: []container.Session{{Name: "dev", ContainerID: "abc123"}},
+	}
+	m.sessionDetailOpen = true
+
+	// Press Escape
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.sessionDetailOpen {
+		t.Error("sessionDetailOpen should be false after Escape")
+	}
+}
