@@ -1,3 +1,5 @@
+// pattern: Functional Core
+
 package tmux
 
 import (

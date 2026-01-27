@@ -9,7 +9,7 @@ import (
 	"devagent/internal/logging"
 )
 
-func newTestModel() Model {
+func newTestModel(t *testing.T) Model {
 	cfg := &config.Config{
 		Theme: "mocha",
 	}
@@ -17,7 +17,8 @@ func newTestModel() Model {
 		{Name: "go-project", Description: "Go development"},
 		{Name: "python-project", Description: "Python development"},
 	}
-	logPath := "/tmp/test-" + testNameToString() + ".log"
+	tmpDir := t.TempDir()
+	logPath := tmpDir + "/test.log"
 	lm, _ := logging.NewManager(logging.Config{
 		FilePath:       logPath,
 		MaxSizeMB:      1,
@@ -29,12 +30,8 @@ func newTestModel() Model {
 	return NewModelWithTemplates(cfg, templates, lm)
 }
 
-func testNameToString() string {
-	return "test"
-}
-
 func TestForm_PressC_OpensForm(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Initially form should be closed
 	if m.IsFormOpen() {
@@ -51,7 +48,7 @@ func TestForm_PressC_OpensForm(t *testing.T) {
 }
 
 func TestForm_PressEscape_ClosesForm(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -67,7 +64,7 @@ func TestForm_PressEscape_ClosesForm(t *testing.T) {
 }
 
 func TestForm_TextInput_UpdatesProjectPath(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -88,7 +85,7 @@ func TestForm_TextInput_UpdatesProjectPath(t *testing.T) {
 }
 
 func TestForm_TextInput_UpdatesContainerName(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -110,7 +107,7 @@ func TestForm_TextInput_UpdatesContainerName(t *testing.T) {
 }
 
 func TestForm_TemplateSelection_ArrowKeys(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -139,7 +136,7 @@ func TestForm_TemplateSelection_ArrowKeys(t *testing.T) {
 }
 
 func TestForm_TemplateSelection_BoundsCheck(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -166,7 +163,7 @@ func TestForm_TemplateSelection_BoundsCheck(t *testing.T) {
 }
 
 func TestForm_TabCycles_ThroughFields(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -200,7 +197,7 @@ func TestForm_TabCycles_ThroughFields(t *testing.T) {
 }
 
 func TestForm_Backspace_DeletesCharacter(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form and move to project path field
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -222,7 +219,7 @@ func TestForm_Backspace_DeletesCharacter(t *testing.T) {
 }
 
 func TestForm_Submit_ReturnsCreateCommand(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -256,7 +253,7 @@ func TestForm_Submit_ReturnsCreateCommand(t *testing.T) {
 }
 
 func TestForm_Submit_EmptyProjectPath_ShowsError(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -284,7 +281,8 @@ func TestForm_Submit_EmptyProjectPath_ShowsError(t *testing.T) {
 
 func TestForm_NoTemplates_ShowsError(t *testing.T) {
 	cfg := &config.Config{Theme: "mocha"}
-	logPath := "/tmp/test-no-templates.log"
+	tmpDir := t.TempDir()
+	logPath := tmpDir + "/test-no-templates.log"
 	lm, _ := logging.NewManager(logging.Config{
 		FilePath:       logPath,
 		MaxSizeMB:      1,
@@ -311,7 +309,7 @@ func TestForm_NoTemplates_ShowsError(t *testing.T) {
 }
 
 func TestForm_KeysIgnored_WhenFormClosed(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Type some text without opening form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a', 'b', 'c'}})
@@ -329,7 +327,7 @@ func TestForm_KeysIgnored_WhenFormClosed(t *testing.T) {
 }
 
 func TestForm_ListNavigation_Disabled_WhenFormOpen(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -350,7 +348,7 @@ func TestForm_ListNavigation_Disabled_WhenFormOpen(t *testing.T) {
 }
 
 func TestFormView_ShowsTemplates(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -370,7 +368,7 @@ func TestFormView_ShowsTemplates(t *testing.T) {
 }
 
 func TestFormView_ShowsInputFields(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -391,7 +389,7 @@ func TestFormView_ShowsInputFields(t *testing.T) {
 }
 
 func TestFormView_ShowsFormHelp(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -409,7 +407,7 @@ func TestFormView_ShowsFormHelp(t *testing.T) {
 }
 
 func TestFormView_ShowsError(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
@@ -428,7 +426,7 @@ func TestFormView_ShowsError(t *testing.T) {
 }
 
 func TestFormView_HighlightsFocusedField(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Open form
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})

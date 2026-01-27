@@ -25,7 +25,7 @@ func TestTabSwitching_NumberKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := newTestModel()
+			m := newTestModel(t)
 			m.currentTab = tt.startTab
 
 			msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)}
@@ -54,7 +54,7 @@ func TestTabSwitching_HLKeys(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := newTestModel()
+			m := newTestModel(t)
 			m.currentTab = tt.startTab
 
 			msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)}
@@ -69,7 +69,7 @@ func TestTabSwitching_HLKeys(t *testing.T) {
 }
 
 func TestEnterOnContainer_SwitchesToSessionsTab(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Add a container to the list
 	ctr := &container.Container{
@@ -100,7 +100,7 @@ func TestEnterOnContainer_SwitchesToSessionsTab(t *testing.T) {
 }
 
 func TestEnterOnContainer_RefreshesSessions(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Add a container
 	ctr := &container.Container{
@@ -122,7 +122,7 @@ func TestEnterOnContainer_RefreshesSessions(t *testing.T) {
 }
 
 func TestSessionsTab_UpDownNavigation(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.currentTab = TabSessions
 	m.selectedContainer = &container.Container{
 		ID:   "abc123",
@@ -157,7 +157,7 @@ func TestSessionsTab_UpDownNavigation(t *testing.T) {
 }
 
 func TestSessionsTab_JKNavigation(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.currentTab = TabSessions
 	m.selectedContainer = &container.Container{
 		ID:   "abc123",
@@ -189,7 +189,7 @@ func TestSessionsTab_JKNavigation(t *testing.T) {
 }
 
 func TestSessionsTab_Backspace_ReturnsToContainers(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.currentTab = TabSessions
 	m.selectedContainer = &container.Container{
 		ID:   "abc123",
@@ -210,7 +210,7 @@ func TestSessionsTab_Backspace_ReturnsToContainers(t *testing.T) {
 }
 
 func TestSessionsTab_Enter_OpensSessionDetail(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.currentTab = TabSessions
 	m.selectedContainer = &container.Container{
 		ID:   "abc123",
@@ -232,7 +232,7 @@ func TestSessionsTab_Enter_OpensSessionDetail(t *testing.T) {
 }
 
 func TestSessionDetail_Escape_Returns(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.currentTab = TabSessions
 	m.selectedContainer = &container.Container{
 		ID:       "abc123",
@@ -252,7 +252,7 @@ func TestSessionDetail_Escape_Returns(t *testing.T) {
 }
 
 func TestContainerAction_ShowsLoading(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Add a container
 	ctr := &container.Container{
@@ -279,7 +279,7 @@ func TestContainerAction_ShowsLoading(t *testing.T) {
 }
 
 func TestContainerActionMsg_Success(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.statusLevel = StatusLoading
 	m.statusMessage = "Starting..."
 
@@ -294,7 +294,7 @@ func TestContainerActionMsg_Success(t *testing.T) {
 }
 
 func TestContainerActionMsg_Error(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.statusLevel = StatusLoading
 
 	// Simulate error message
@@ -311,7 +311,7 @@ func TestContainerActionMsg_Error(t *testing.T) {
 }
 
 func TestEscape_ClearsError(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.statusLevel = StatusError
 	m.statusMessage = "Something failed"
 	m.err = fmt.Errorf("test error")
@@ -330,7 +330,7 @@ func TestEscape_ClearsError(t *testing.T) {
 }
 
 func TestContainerAction_SetsPending(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Add a container
 	ctr := &container.Container{
@@ -354,7 +354,7 @@ func TestContainerAction_SetsPending(t *testing.T) {
 }
 
 func TestContainerActionMsg_ClearsPending(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.setPending("abc123", "start")
 
 	// Simulate success message
@@ -368,7 +368,7 @@ func TestContainerActionMsg_ClearsPending(t *testing.T) {
 }
 
 func TestContainerActionMsg_ClearsPendingOnError(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.setPending("abc123", "start")
 
 	// Simulate error message
@@ -383,7 +383,7 @@ func TestContainerActionMsg_ClearsPendingOnError(t *testing.T) {
 
 // Task 7: Add L key toggle for log panel
 func TestLKey_TogglesLogPanel(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.logPanelOpen = false
 
 	// Press L to open
@@ -405,7 +405,7 @@ func TestLKey_TogglesLogPanel(t *testing.T) {
 }
 
 func TestLKey_SetsFilterFromContext(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.selectedContainer = &container.Container{ID: "abc123456789", Name: "test"}
 	m.currentTab = TabSessions
 
@@ -424,7 +424,7 @@ func TestLKey_SetsFilterFromContext(t *testing.T) {
 
 // Task 8: Add log viewport navigation
 func TestJKey_ScrollsLogPanel(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.logPanelOpen = true
 	m.logReady = true
 
@@ -444,7 +444,7 @@ func TestJKey_ScrollsLogPanel(t *testing.T) {
 }
 
 func TestKKey_ScrollsLogPanelUp(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.logPanelOpen = true
 	m.logReady = true
 
@@ -466,7 +466,7 @@ func TestKKey_ScrollsLogPanelUp(t *testing.T) {
 }
 
 func TestGKey_GoesToTopOfLogs(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.logPanelOpen = true
 	m.logReady = true
 
@@ -489,7 +489,7 @@ func TestGKey_GoesToTopOfLogs(t *testing.T) {
 }
 
 func TestCapitalGKey_GoesToBottomOfLogs(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.logPanelOpen = true
 	m.logReady = true
 
@@ -512,7 +512,7 @@ func TestCapitalGKey_GoesToBottomOfLogs(t *testing.T) {
 
 // Task 9: Error state auto-opens filtered logs
 func TestSetError_SetsLogFilter(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.selectedContainer = &container.Container{ID: "abc123456789", Name: "test"}
 	m.currentTab = TabContainers
 

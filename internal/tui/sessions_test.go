@@ -10,7 +10,7 @@ import (
 	"devagent/internal/logging"
 )
 
-func newTestModelWithContainers() Model {
+func newTestModelWithContainers(t *testing.T) Model {
 	cfg := &config.Config{
 		Theme:   "mocha",
 		Runtime: "docker",
@@ -18,7 +18,8 @@ func newTestModelWithContainers() Model {
 	templates := []config.Template{
 		{Name: "go-project", Description: "Go development"},
 	}
-	logPath := "/tmp/test-sessions.log"
+	tmpDir := t.TempDir()
+	logPath := tmpDir + "/test-sessions.log"
 	lm, _ := logging.NewManager(logging.Config{
 		FilePath:       logPath,
 		MaxSizeMB:      1,
@@ -34,7 +35,7 @@ func newTestModelWithContainers() Model {
 }
 
 func TestSessionView_PressEnter_ExpandsContainer(t *testing.T) {
-	m := newTestModelWithContainers()
+	m := newTestModelWithContainers(t)
 
 	// Simulate containers refreshed with sessions
 	containers := []*container.Container{
@@ -67,7 +68,7 @@ func TestSessionView_PressEnter_ExpandsContainer(t *testing.T) {
 }
 
 func TestSessionView_PressEscape_ClosesSessionView(t *testing.T) {
-	m := newTestModelWithContainers()
+	m := newTestModelWithContainers(t)
 
 	// Add container with sessions
 	containers := []*container.Container{
@@ -97,7 +98,7 @@ func TestSessionView_PressEscape_ClosesSessionView(t *testing.T) {
 }
 
 func TestSessionView_SelectedSession(t *testing.T) {
-	m := newTestModelWithContainers()
+	m := newTestModelWithContainers(t)
 
 	containers := []*container.Container{
 		{
@@ -131,7 +132,7 @@ func TestSessionView_SelectedSession(t *testing.T) {
 }
 
 func TestSessionView_NoSessionsMessage(t *testing.T) {
-	m := newTestModelWithContainers()
+	m := newTestModelWithContainers(t)
 
 	// Container with no sessions
 	containers := []*container.Container{
@@ -155,7 +156,7 @@ func TestSessionView_NoSessionsMessage(t *testing.T) {
 }
 
 func TestSessionView_AttachCommand(t *testing.T) {
-	m := newTestModelWithContainers()
+	m := newTestModelWithContainers(t)
 
 	containers := []*container.Container{
 		{

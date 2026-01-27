@@ -11,7 +11,7 @@ import (
 )
 
 func TestRenderSessionsTabContent_NoContainer(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.currentTab = TabSessions
 	m.selectedContainer = nil
 
@@ -24,7 +24,7 @@ func TestRenderSessionsTabContent_NoContainer(t *testing.T) {
 }
 
 func TestRenderSessionsTabContent_WithContainer(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.currentTab = TabSessions
 	m.selectedContainer = &container.Container{
 		ID:   "abc123",
@@ -51,7 +51,7 @@ func TestRenderSessionsTabContent_WithContainer(t *testing.T) {
 }
 
 func TestRenderSessionsTabContent_EmptySessions(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.currentTab = TabSessions
 	m.selectedContainer = &container.Container{
 		ID:       "abc123",
@@ -118,7 +118,7 @@ func TestRenderTabs_FillsWidth(t *testing.T) {
 }
 
 func TestRenderSessionDetail_ShowsSessionInfo(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.currentTab = TabSessions
 	m.selectedContainer = &container.Container{
 		ID:   "abc123",
@@ -145,7 +145,7 @@ func TestRenderSessionDetail_ShowsSessionInfo(t *testing.T) {
 }
 
 func TestRenderSessionDetail_ShowsStatus(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.currentTab = TabSessions
 	m.selectedContainer = &container.Container{
 		ID:   "abc123",
@@ -166,7 +166,7 @@ func TestRenderSessionDetail_ShowsStatus(t *testing.T) {
 }
 
 func TestRenderStatusBar_Info(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.statusLevel = StatusInfo
 	m.statusMessage = "Ready"
 
@@ -178,7 +178,7 @@ func TestRenderStatusBar_Info(t *testing.T) {
 }
 
 func TestRenderStatusBar_Success(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.statusLevel = StatusSuccess
 	m.statusMessage = "Container started"
 
@@ -193,7 +193,7 @@ func TestRenderStatusBar_Success(t *testing.T) {
 }
 
 func TestRenderStatusBar_Error(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.statusLevel = StatusError
 	m.statusMessage = "Failed to start"
 	m.err = fmt.Errorf("connection refused")
@@ -212,7 +212,7 @@ func TestRenderStatusBar_Error(t *testing.T) {
 }
 
 func TestRenderStatusBar_Loading(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.statusLevel = StatusLoading
 	m.statusMessage = "Starting container..."
 
@@ -225,7 +225,7 @@ func TestRenderStatusBar_Loading(t *testing.T) {
 }
 
 func TestRenderLogEntry(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	entry := logging.LogEntry{
 		Timestamp: time.Date(2025, 1, 27, 10, 30, 0, 0, time.UTC),

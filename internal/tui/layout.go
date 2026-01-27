@@ -1,3 +1,5 @@
+// pattern: Functional Core
+
 package tui
 
 // Region defines a rectangular area within the terminal.

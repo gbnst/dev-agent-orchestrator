@@ -1,3 +1,5 @@
+// pattern: Imperative Shell
+
 package tui
 
 import (
@@ -171,6 +173,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.refreshContainers(),
 		m.tick(),
+		m.consumeLogEntries(m.logManager),
 	)
 }
 

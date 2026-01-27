@@ -60,7 +60,7 @@ func TestStatusLevel_String(t *testing.T) {
 }
 
 func TestModel_PendingOperations(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Initially empty
 	if len(m.pendingOperations) != 0 {
@@ -89,7 +89,7 @@ func TestModel_PendingOperations(t *testing.T) {
 }
 
 func TestModel_LogEntries(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Initially empty
 	if len(m.logEntries) != 0 {
@@ -109,7 +109,7 @@ func TestModel_LogEntries(t *testing.T) {
 }
 
 func TestModel_LogEntriesRingBuffer(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	// Add more than max entries
 	for i := 0; i < 1050; i++ {
@@ -123,7 +123,7 @@ func TestModel_LogEntriesRingBuffer(t *testing.T) {
 }
 
 func TestModel_FilteredLogEntries(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 
 	m.addLogEntry(logging.LogEntry{Message: "app log", Scope: "app"})
 	m.addLogEntry(logging.LogEntry{Message: "container log", Scope: "container.abc123"})
@@ -144,7 +144,7 @@ func TestModel_FilteredLogEntries(t *testing.T) {
 }
 
 func TestSetLogFilterFromContext_NoContainerSelected(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.selectedContainer = nil
 	m.currentTab = TabContainers
 
@@ -156,7 +156,7 @@ func TestSetLogFilterFromContext_NoContainerSelected(t *testing.T) {
 }
 
 func TestSetLogFilterFromContext_ContainerSelectedInContainersTab(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.selectedContainer = &container.Container{
 		ID:   "abc123456789abcdef",
 		Name: "test-container",
@@ -172,7 +172,7 @@ func TestSetLogFilterFromContext_ContainerSelectedInContainersTab(t *testing.T) 
 }
 
 func TestSetLogFilterFromContext_ContainerWithSessionInSessionsTab(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.selectedContainer = &container.Container{
 		ID:   "abc123456789abcdef",
 		Name: "test-container",
@@ -193,7 +193,7 @@ func TestSetLogFilterFromContext_ContainerWithSessionInSessionsTab(t *testing.T)
 }
 
 func TestSetLogFilterFromContext_ContainerWithoutSessionInSessionsTab(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.selectedContainer = &container.Container{
 		ID:       "abc123456789abcdef",
 		Name:     "test-container",
@@ -211,7 +211,7 @@ func TestSetLogFilterFromContext_ContainerWithoutSessionInSessionsTab(t *testing
 }
 
 func TestSetLogFilterFromContext_ShortContainerID(t *testing.T) {
-	m := newTestModel()
+	m := newTestModel(t)
 	m.selectedContainer = &container.Container{
 		ID:   "abc12345",
 		Name: "test-container",

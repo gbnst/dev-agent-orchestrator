@@ -134,10 +134,37 @@ func TestIntegration_LogsAppearInPanel(t *testing.T) {
 	// Generate some log entries
 	logger := lm.For("test")
 	logger.Info("test log message")
+	logger.Debug("test debug message")
+
+	// Manually consume logs from the manager's channel into the model
+	// This simulates what the Init() -> consumeLogEntries() command does
+	entries := make([]logging.LogEntry, 0)
+	for i := 0; i < 50; i++ {
+		select {
+		case entry, ok := <-lm.Entries():
+			if !ok {
+				// Channel closed
+				break
+			}
+			entries = append(entries, entry)
+		default:
+			// No more entries ready
+			break
+		}
+	}
+
+	if len(entries) == 0 {
+		t.Fatalf("expected log entries to be available, got none")
+	}
 
 	// Consume logs into model
-	updated, _ = model.Update(logEntriesMsg{})
+	updated, _ = model.Update(logEntriesMsg{entries: entries})
 	model = updated.(Model)
+
+	// Verify logs were added to the model
+	if len(model.logEntries) == 0 {
+		t.Error("log entries should be added to model")
+	}
 
 	// Open log panel
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'L'}})
@@ -145,9 +172,13 @@ func TestIntegration_LogsAppearInPanel(t *testing.T) {
 
 	view := model.View()
 
-	// View should contain the log message (or at least show logs area)
-	// Actual content depends on viewport implementation
+	// View should contain the log panel and some log content
 	if !strings.Contains(view, "Logs") {
 		t.Error("log panel should be visible")
+	}
+
+	// Verify logs flow from manager through the model
+	if !model.logPanelOpen {
+		t.Error("log panel should be open after pressing L")
 	}
 }
