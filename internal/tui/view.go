@@ -45,78 +45,105 @@ func renderTabs(currentTab TabMode, width int, styles *Styles) string {
 
 // View renders the TUI.
 func (m Model) View() string {
-	// If form is open, render the form instead
+	// Modal forms render on top of everything
 	if m.formOpen {
 		return m.renderCreateForm()
 	}
 
-	// If session view is open, render sessions
+	// Session detail is also a modal overlay
 	if m.sessionViewOpen {
 		return m.renderSessionView()
 	}
 
+	// Compute layout regions
+	layout := ComputeLayout(m.width, m.height, m.logPanelOpen)
+
+	// Build header (title + subtitle)
 	title := m.styles.TitleStyle().Render("devagent")
 	subtitle := m.styles.SubtitleStyle().Render("Development Agent Orchestrator")
+	themeInfo := m.styles.InfoStyle().Render("theme: " + m.themeName)
+	header := lipgloss.JoinVertical(lipgloss.Left, title, subtitle+" "+themeInfo)
+	header = lipgloss.NewStyle().Width(layout.Header.Width).Render(header)
 
-	themeInfo := m.styles.InfoStyle().Render(
-		fmt.Sprintf("Theme: %s", m.styles.AccentStyle().Render(m.themeName)),
-	)
+	// Build tab bar
+	tabs := renderTabs(m.currentTab, layout.Tabs.Width, m.styles)
 
+	// Build content based on current tab
+	var content string
+	switch m.currentTab {
+	case TabContainers:
+		content = m.renderContainerContent(layout)
+	case TabSessions:
+		content = m.renderSessionsTabContent(layout)
+	}
+
+	// Build status bar (placeholder for Phase 4)
+	help := m.styles.HelpStyle().Render("q: quit • r: refresh • c: create • s: start • x: stop • d: destroy • 1/2: tabs")
+	statusBar := lipgloss.NewStyle().Width(layout.StatusBar.Width).Render(help)
+
+	// Error display (if any)
+	var errorDisplay string
+	if m.err != nil {
+		errorDisplay = m.styles.ErrorStyle().Render("Error: " + m.err.Error())
+	}
+
+	// Compose full layout
+	parts := []string{header, tabs, content}
+	if errorDisplay != "" {
+		parts = append(parts, errorDisplay)
+	}
+	parts = append(parts, statusBar)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderContainerContent renders the container list for the Containers tab.
+func (m Model) renderContainerContent(layout Layout) string {
 	var content string
 	if len(m.containerList.Items()) == 0 {
-		content = m.renderEmptyState()
+		emptyMsg := m.styles.InfoStyle().Render("No containers. Press 'c' to create one.")
+		content = lipgloss.Place(
+			layout.Content.Width,
+			layout.Content.Height,
+			lipgloss.Center,
+			lipgloss.Center,
+			emptyMsg,
+		)
 	} else {
 		content = m.containerList.View()
 	}
 
-	// Error display
-	var errorDisplay string
-	if m.err != nil {
-		errorDisplay = m.styles.ErrorStyle().Render(fmt.Sprintf("Error: %v", m.err))
-	}
+	return lipgloss.NewStyle().
+		Width(layout.Content.Width).
+		Height(layout.Content.Height).
+		Render(content)
+}
 
-	help := m.styles.HelpStyle().Render("c: create • s: start • x: stop • d: destroy • r: refresh • q: quit")
-
-	parts := []string{
-		title,
-		subtitle,
-		themeInfo,
-		"",
-		content,
-	}
-
-	if errorDisplay != "" {
-		parts = append(parts, "", errorDisplay)
-	}
-
-	parts = append(parts, help)
-
-	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
-
-	if m.width > 0 && m.height > 0 {
+// renderSessionsTabContent renders the sessions tab content.
+// Shows "Select container" if no container selected, otherwise session list.
+func (m Model) renderSessionsTabContent(layout Layout) string {
+	if m.selectedContainer == nil {
+		placeholder := m.styles.InfoStyle().Render("Select a container from Tab 1 to view sessions")
 		return lipgloss.Place(
-			m.width,
-			m.height,
+			layout.Content.Width,
+			layout.Content.Height,
 			lipgloss.Center,
 			lipgloss.Center,
-			view,
+			placeholder,
 		)
 	}
 
-	return view
-}
-
-// renderEmptyState renders the placeholder when no containers exist.
-func (m Model) renderEmptyState() string {
-	return m.styles.BoxStyle().Render(
-		lipgloss.JoinVertical(
-			lipgloss.Center,
-			"No containers running",
-			"",
-			m.styles.InfoStyle().Render("Press 'c' to create a new container"),
-		),
+	// TODO: Phase 3 will add session list rendering here
+	sessionInfo := m.styles.InfoStyle().Render("Sessions for: " + m.selectedContainer.Name)
+	return lipgloss.Place(
+		layout.Content.Width,
+		layout.Content.Height,
+		lipgloss.Center,
+		lipgloss.Center,
+		sessionInfo,
 	)
 }
+
 
 // renderCreateForm renders the container creation form.
 func (m Model) renderCreateForm() string {
