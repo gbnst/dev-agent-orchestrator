@@ -54,6 +54,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.statusLevel == StatusLoading {
 			var cmd tea.Cmd
 			m.statusSpinner, cmd = m.statusSpinner.Update(msg)
+
+			// Update list delegate with new spinner frame
+			m.containerDelegate = m.containerDelegate.WithSpinnerState(m.statusSpinner.View(), m.pendingOperations)
+			m.containerList.SetDelegate(m.containerDelegate)
+
 			return m, cmd
 		}
 		return m, nil

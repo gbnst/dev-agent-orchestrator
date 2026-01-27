@@ -66,10 +66,11 @@ type Model struct {
 	themeName string
 	styles    *Styles
 
-	cfg           *config.Config
-	templates     []config.Template
-	manager       *container.Manager
-	containerList list.Model
+	cfg                *config.Config
+	templates          []config.Template
+	manager            *container.Manager
+	containerList      list.Model
+	containerDelegate  containerDelegate
 
 	// Form state for container creation
 	formOpen          bool
@@ -137,6 +138,7 @@ func NewModelWithTemplates(cfg *config.Config, templates []config.Template) Mode
 		templates:         templates,
 		manager:           mgr,
 		containerList:     containerList,
+		containerDelegate: delegate,
 		statusSpinner:     s,
 		pendingOperations: make(map[string]string),
 	}
