@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"devagent/internal/config"
+	"devagent/internal/logging"
 )
 
 // RuntimeInterface abstracts container runtime operations for testing.
@@ -24,6 +25,7 @@ type Manager struct {
 	generator  *DevcontainerGenerator
 	devCLI     *DevcontainerCLI
 	containers map[string]*Container
+	logger     *logging.ScopedLogger
 }
 
 // NewManager creates a new Manager with the given config and templates.
@@ -45,6 +47,7 @@ func NewManager(cfg *config.Config, templates []config.Template) *Manager {
 		generator:  generator,
 		devCLI:     devCLI,
 		containers: make(map[string]*Container),
+		logger:     logging.NopLogger(),
 	}
 }
 
@@ -53,6 +56,7 @@ func NewManagerWithRuntime(runtime RuntimeInterface) *Manager {
 	return &Manager{
 		runtime:    runtime,
 		containers: make(map[string]*Container),
+		logger:     logging.NopLogger(),
 	}
 }
 
@@ -63,13 +67,30 @@ func NewManagerWithDeps(runtime RuntimeInterface, generator *DevcontainerGenerat
 		generator:  generator,
 		devCLI:     devCLI,
 		containers: make(map[string]*Container),
+		logger:     logging.NopLogger(),
+	}
+}
+
+// NewManagerWithRuntimeAndLogger creates a Manager with a mock runtime and logger for testing.
+// Accepts any type with a For(scope string) -> *ScopedLogger method.
+func NewManagerWithRuntimeAndLogger(runtime RuntimeInterface, logManager interface{ For(string) *logging.ScopedLogger }) *Manager {
+	logger := logManager.For("container")
+	logger.Debug("container manager initialized")
+
+	return &Manager{
+		runtime:    runtime,
+		containers: make(map[string]*Container),
+		logger:     logger,
 	}
 }
 
 // Refresh updates the container list from the runtime.
 func (m *Manager) Refresh(ctx context.Context) error {
+	m.logger.Debug("refreshing container list")
+
 	containers, err := m.runtime.ListContainers(ctx)
 	if err != nil {
+		m.logger.Error("failed to list containers", "error", err)
 		return err
 	}
 
@@ -79,6 +100,7 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		m.containers[c.ID] = &c
 	}
 
+	m.logger.Debug("container list refreshed", "count", len(m.containers))
 	return nil
 }
 
