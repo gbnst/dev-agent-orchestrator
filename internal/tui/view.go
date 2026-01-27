@@ -77,8 +77,8 @@ func (m Model) View() string {
 		content = m.renderSessionsTabContent(layout)
 	}
 
-	// Build status bar with contextual help
-	statusBar := lipgloss.NewStyle().Width(layout.StatusBar.Width).Render(m.renderContextualHelp())
+	// Build status bar with operation feedback and contextual help
+	statusBar := lipgloss.NewStyle().Width(layout.StatusBar.Width).Render(m.renderStatusBar(layout.StatusBar.Width))
 
 	// Error display (if any)
 	var errorDisplay string
