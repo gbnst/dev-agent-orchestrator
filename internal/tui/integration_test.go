@@ -139,17 +139,18 @@ func TestIntegration_LogsAppearInPanel(t *testing.T) {
 	// Manually consume logs from the manager's channel into the model
 	// This simulates what the Init() -> consumeLogEntries() command does
 	entries := make([]logging.LogEntry, 0)
+consumeLoop:
 	for i := 0; i < 50; i++ {
 		select {
 		case entry, ok := <-lm.Entries():
 			if !ok {
 				// Channel closed
-				break
+				break consumeLoop
 			}
 			entries = append(entries, entry)
 		default:
 			// No more entries ready
-			break
+			break consumeLoop
 		}
 	}
 
