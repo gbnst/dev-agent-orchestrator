@@ -121,26 +121,37 @@ func (m *Manager) Get(id string) (*Container, bool) {
 
 // Create generates a devcontainer.json and starts a new container.
 func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Container, error) {
+	scopedLogger := m.logger.With("projectPath", opts.ProjectPath, "template", opts.Template, "name", opts.Name)
+	scopedLogger.Info("creating container")
+
 	if m.generator == nil {
+		scopedLogger.Error("generator not configured", "error", "generator is nil")
 		return nil, errors.New("generator not configured")
 	}
 
 	// Generate devcontainer.json
 	dc, err := m.generator.Generate(opts)
 	if err != nil {
+		scopedLogger.Error("failed to generate devcontainer config", "error", err)
 		return nil, err
 	}
 
 	// Write to project
 	if err := m.generator.WriteToProject(opts.ProjectPath, dc); err != nil {
+		scopedLogger.Error("failed to write devcontainer.json", "error", err)
 		return nil, err
 	}
+
+	scopedLogger.Debug("devcontainer.json written")
 
 	// Start container using devcontainer CLI
 	containerID, err := m.devCLI.Up(ctx, opts.ProjectPath)
 	if err != nil {
+		scopedLogger.Error("devcontainer up failed", "error", err)
 		return nil, err
 	}
+
+	scopedLogger.Info("container created successfully", "containerID", containerID)
 
 	// Refresh to get the new container
 	if err := m.Refresh(ctx); err != nil {
@@ -149,6 +160,7 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Container, e
 
 	container, ok := m.containers[containerID]
 	if !ok {
+		scopedLogger.Error("container created but not found in refresh", "containerID", containerID)
 		return nil, errors.New("container created but not found in refresh")
 	}
 
@@ -157,77 +169,120 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Container, e
 
 // Start starts a stopped container.
 func (m *Manager) Start(ctx context.Context, id string) error {
+	scopedLogger := m.logger.With("containerID", id)
+	scopedLogger.Info("starting container")
+
 	c, ok := m.containers[id]
 	if !ok {
+		scopedLogger.Error("failed to start container", "error", "container not found")
 		return errors.New("container not found: " + id)
 	}
 
 	if err := m.runtime.StartContainer(ctx, c.ID); err != nil {
+		scopedLogger.Error("failed to start container", "error", err)
 		return err
 	}
 
 	c.State = StateRunning
+	scopedLogger.Info("container started")
 	return nil
 }
 
 // Stop stops a running container.
 func (m *Manager) Stop(ctx context.Context, id string) error {
+	scopedLogger := m.logger.With("containerID", id)
+	scopedLogger.Info("stopping container")
+
 	c, ok := m.containers[id]
 	if !ok {
+		scopedLogger.Error("failed to stop container", "error", "container not found")
 		return errors.New("container not found: " + id)
 	}
 
 	if err := m.runtime.StopContainer(ctx, c.ID); err != nil {
+		scopedLogger.Error("failed to stop container", "error", err)
 		return err
 	}
 
 	c.State = StateStopped
+	scopedLogger.Info("container stopped")
 	return nil
 }
 
 // Destroy stops (if running) and removes a container.
 func (m *Manager) Destroy(ctx context.Context, id string) error {
+	scopedLogger := m.logger.With("containerID", id)
+	scopedLogger.Info("destroying container")
+
 	c, ok := m.containers[id]
 	if !ok {
+		scopedLogger.Error("failed to destroy container", "error", "container not found")
 		return errors.New("container not found: " + id)
 	}
 
 	// Stop first if running
 	if c.State == StateRunning {
+		scopedLogger.Debug("stopping running container before removal")
 		if err := m.runtime.StopContainer(ctx, c.ID); err != nil {
-			return err
+			scopedLogger.Warn("failed to stop container before removal", "error", err)
 		}
 	}
 
 	if err := m.runtime.RemoveContainer(ctx, c.ID); err != nil {
+		scopedLogger.Error("failed to remove container", "error", err)
 		return err
 	}
 
 	delete(m.containers, id)
+	scopedLogger.Info("container destroyed")
 	return nil
 }
 
 // CreateSession creates a tmux session inside a container.
 func (m *Manager) CreateSession(ctx context.Context, containerID, sessionName string) error {
+	scopedLogger := m.logger.With("containerID", containerID, "session", sessionName)
+	scopedLogger.Info("creating tmux session")
+
 	_, err := m.runtime.Exec(ctx, containerID, []string{"tmux", "new-session", "-d", "-s", sessionName})
-	return err
+	if err != nil {
+		scopedLogger.Error("failed to create session", "error", err)
+		return err
+	}
+
+	scopedLogger.Info("session created")
+	return nil
 }
 
 // KillSession destroys a tmux session inside a container.
 func (m *Manager) KillSession(ctx context.Context, containerID, sessionName string) error {
+	scopedLogger := m.logger.With("containerID", containerID, "session", sessionName)
+	scopedLogger.Info("killing tmux session")
+
 	_, err := m.runtime.Exec(ctx, containerID, []string{"tmux", "kill-session", "-t", sessionName})
-	return err
+	if err != nil {
+		scopedLogger.Error("failed to kill session", "error", err)
+		return err
+	}
+
+	scopedLogger.Info("session killed")
+	return nil
 }
 
 // ListSessions lists tmux sessions inside a container.
 func (m *Manager) ListSessions(ctx context.Context, containerID string) ([]Session, error) {
+	scopedLogger := m.logger.With("containerID", containerID)
+	scopedLogger.Debug("listing tmux sessions")
+
 	output, err := m.runtime.Exec(ctx, containerID, []string{"tmux", "list-sessions"})
 	if err != nil {
 		// No tmux server running = no sessions
+		scopedLogger.Debug("no tmux server running or no sessions", "error", err)
 		return []Session{}, nil
 	}
 
-	return parseTmuxSessions(containerID, output), nil
+	sessions := parseTmuxSessions(containerID, output)
+	scopedLogger.Debug("sessions listed", "count", len(sessions))
+	return sessions, nil
 }
 
 // parseTmuxSessions parses tmux list-sessions output.
