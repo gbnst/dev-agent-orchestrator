@@ -2,15 +2,18 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"devagent/internal/config"
 	"devagent/internal/container"
+	"devagent/internal/logging"
 )
 
 // TabMode represents which tab is currently active.
@@ -104,6 +107,13 @@ type Model struct {
 	// Pending operations (containerID -> operation type)
 	pendingOperations map[string]string
 
+	// Log panel
+	logEntries    []logging.LogEntry
+	logViewport   viewport.Model
+	logFilter     string
+	logAutoScroll bool
+	logReady      bool // viewport initialized
+
 	err error
 }
 
@@ -131,7 +141,7 @@ func NewModelWithTemplates(cfg *config.Config, templates []config.Template) Mode
 	s.Spinner = spinner.MiniDot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(styles.flavor.Teal().Hex))
 
-	return Model{
+	m := Model{
 		themeName:         cfg.Theme,
 		styles:            styles,
 		cfg:               cfg,
@@ -141,7 +151,10 @@ func NewModelWithTemplates(cfg *config.Config, templates []config.Template) Mode
 		containerDelegate: delegate,
 		statusSpinner:     s,
 		pendingOperations: make(map[string]string),
+		logEntries:        make([]logging.LogEntry, 0, maxLogEntries),
+		logAutoScroll:     true,
 	}
+	return m
 }
 
 // Init returns the initial command to run.
@@ -372,4 +385,47 @@ func (m Model) isPending(containerID string) bool {
 // getPendingOperation returns the pending operation type for a container.
 func (m Model) getPendingOperation(containerID string) string {
 	return m.pendingOperations[containerID]
+}
+
+// Ring buffer constant
+const maxLogEntries = 1000
+
+// addLogEntry adds an entry to the ring buffer, dropping oldest if full.
+func (m *Model) addLogEntry(entry logging.LogEntry) {
+	m.logEntries = append(m.logEntries, entry)
+	if len(m.logEntries) > maxLogEntries {
+		// Drop oldest entries
+		m.logEntries = m.logEntries[len(m.logEntries)-maxLogEntries:]
+	}
+}
+
+// filteredLogEntries returns entries matching the current filter.
+func (m Model) filteredLogEntries() []logging.LogEntry {
+	if m.logFilter == "" {
+		return m.logEntries
+	}
+
+	var filtered []logging.LogEntry
+	for _, entry := range m.logEntries {
+		if entry.MatchesScope(m.logFilter) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
+// setLogFilterFromContext sets the log filter based on current UI state.
+func (m *Model) setLogFilterFromContext() {
+	switch {
+	case m.selectedContainer != nil && m.currentTab == TabSessions:
+		if session := m.SelectedSession(); session != nil {
+			m.logFilter = fmt.Sprintf("session.%s.%s", m.selectedContainer.ID[:12], session.Name)
+		} else {
+			m.logFilter = fmt.Sprintf("container.%s", m.selectedContainer.ID[:12])
+		}
+	case m.selectedContainer != nil:
+		m.logFilter = fmt.Sprintf("container.%s", m.selectedContainer.ID[:12])
+	default:
+		m.logFilter = ""
+	}
 }

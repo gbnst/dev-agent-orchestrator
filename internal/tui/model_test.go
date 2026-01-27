@@ -1,6 +1,11 @@
 package tui
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+
+	"devagent/internal/logging"
+)
 
 func TestTabMode_String(t *testing.T) {
 	tests := []struct {
@@ -79,5 +84,60 @@ func TestModel_PendingOperations(t *testing.T) {
 	m.clearPending("abc123")
 	if m.isPending("abc123") {
 		t.Error("abc123 should not be pending after clear")
+	}
+}
+
+func TestModel_LogEntries(t *testing.T) {
+	m := newTestModel()
+
+	// Initially empty
+	if len(m.logEntries) != 0 {
+		t.Error("logEntries should be empty initially")
+	}
+
+	// Add entries
+	entry1 := logging.LogEntry{Message: "test1", Scope: "app"}
+	entry2 := logging.LogEntry{Message: "test2", Scope: "container.abc"}
+
+	m.addLogEntry(entry1)
+	m.addLogEntry(entry2)
+
+	if len(m.logEntries) != 2 {
+		t.Errorf("logEntries length = %d, want 2", len(m.logEntries))
+	}
+}
+
+func TestModel_LogEntriesRingBuffer(t *testing.T) {
+	m := newTestModel()
+
+	// Add more than max entries
+	for i := 0; i < 1050; i++ {
+		m.addLogEntry(logging.LogEntry{Message: fmt.Sprintf("entry %d", i), Scope: "app"})
+	}
+
+	// Should be capped at 1000
+	if len(m.logEntries) > 1000 {
+		t.Errorf("logEntries length = %d, should be capped at 1000", len(m.logEntries))
+	}
+}
+
+func TestModel_FilteredLogEntries(t *testing.T) {
+	m := newTestModel()
+
+	m.addLogEntry(logging.LogEntry{Message: "app log", Scope: "app"})
+	m.addLogEntry(logging.LogEntry{Message: "container log", Scope: "container.abc123"})
+	m.addLogEntry(logging.LogEntry{Message: "session log", Scope: "session.abc123.dev"})
+
+	// No filter = all entries
+	m.logFilter = ""
+	if len(m.filteredLogEntries()) != 3 {
+		t.Errorf("no filter should return all entries, got %d", len(m.filteredLogEntries()))
+	}
+
+	// Container filter
+	m.logFilter = "container.abc123"
+	filtered := m.filteredLogEntries()
+	if len(filtered) != 1 {
+		t.Errorf("container filter should return 1 entry, got %d", len(filtered))
 	}
 }
