@@ -177,14 +177,19 @@ func (m Model) Init() tea.Cmd {
 // refreshContainers returns a command to refresh the container list.
 func (m Model) refreshContainers() tea.Cmd {
 	return func() tea.Msg {
+		m.logger.Debug("refreshing containers")
+
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := m.manager.Refresh(ctx); err != nil {
+			m.logger.Error("container refresh failed", "error", err)
 			return containerErrorMsg{err: err}
 		}
 
-		return containersRefreshedMsg{containers: m.manager.List()}
+		containers := m.manager.List()
+		m.logger.Debug("containers refreshed", "count", len(containers))
+		return containersRefreshedMsg{containers: containers}
 	}
 }
 
@@ -209,14 +214,18 @@ func (m Model) refreshSessions() tea.Cmd {
 	containerID := m.selectedContainer.ID
 
 	return func() tea.Msg {
+		m.logger.Debug("refreshing sessions", "containerID", containerID)
+
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		sessions, err := m.manager.ListSessions(ctx, containerID)
 		if err != nil {
+			m.logger.Error("session refresh failed", "containerID", containerID, "error", err)
 			return containerErrorMsg{err: err}
 		}
 
+		m.logger.Debug("sessions refreshed", "containerID", containerID, "count", len(sessions))
 		return sessionsRefreshedMsg{containerID: containerID, sessions: sessions}
 	}
 }
