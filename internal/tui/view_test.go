@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"devagent/internal/container"
+	"devagent/internal/logging"
 )
 
 func TestRenderSessionsTabContent_NoContainer(t *testing.T) {
@@ -219,5 +221,31 @@ func TestRenderStatusBar_Loading(t *testing.T) {
 	// Spinner renders differently each frame, just check message
 	if !strings.Contains(result, "Starting container...") {
 		t.Error("status bar should contain loading message")
+	}
+}
+
+func TestRenderLogEntry(t *testing.T) {
+	m := newTestModel()
+
+	entry := logging.LogEntry{
+		Timestamp: time.Date(2025, 1, 27, 10, 30, 0, 0, time.UTC),
+		Level:     "INFO",
+		Scope:     "container.abc123",
+		Message:   "container started",
+	}
+
+	result := m.renderLogEntry(entry)
+
+	if !strings.Contains(result, "10:30:00") {
+		t.Error("should contain timestamp")
+	}
+	if !strings.Contains(result, "INFO") {
+		t.Error("should contain level")
+	}
+	if !strings.Contains(result, "container.abc123") {
+		t.Error("should contain scope")
+	}
+	if !strings.Contains(result, "container started") {
+		t.Error("should contain message")
 	}
 }

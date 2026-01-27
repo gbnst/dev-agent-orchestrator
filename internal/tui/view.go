@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"devagent/internal/logging"
 )
 
 // renderTabs renders the tab bar with active/inactive styling.
@@ -539,4 +541,72 @@ func (m Model) renderContextualHelp() string {
 		}
 	}
 	return m.styles.HelpStyle().Render(help)
+}
+
+// renderLogEntry formats a single log entry for display.
+func (m Model) renderLogEntry(entry logging.LogEntry) string {
+	// Timestamp
+	ts := m.styles.LogTimestampStyle().Render(entry.Timestamp.Format("15:04:05"))
+
+	// Level badge
+	var level string
+	switch entry.Level {
+	case "DEBUG":
+		level = m.styles.LogDebugStyle().Render("DEBUG")
+	case "INFO":
+		level = m.styles.LogInfoStyle().Render("INFO")
+	case "WARN":
+		level = m.styles.LogWarnStyle().Render("WARN")
+	case "ERROR":
+		level = m.styles.LogErrorStyle().Render("ERROR")
+	default:
+		level = m.styles.LogInfoStyle().Render(entry.Level)
+	}
+
+	// Scope
+	scope := m.styles.LogScopeStyle().Render("[" + entry.Scope + "]")
+
+	// Message
+	message := entry.Message
+
+	return fmt.Sprintf("%s %s %s %s", ts, level, scope, message)
+}
+
+// renderLogPanel renders the log panel content.
+func (m Model) renderLogPanel(layout Layout) string {
+	// Header
+	filterInfo := "all logs"
+	if m.logFilter != "" {
+		filterInfo = "filtered: " + m.logFilter
+	}
+	header := m.styles.LogHeaderStyle().Render(fmt.Sprintf("Logs (%s)", filterInfo))
+
+	// Build log content
+	entries := m.filteredLogEntries()
+	var lines []string
+	for _, entry := range entries {
+		lines = append(lines, m.renderLogEntry(entry))
+	}
+
+	if len(lines) == 0 {
+		lines = []string{m.styles.InfoStyle().Render("No log entries")}
+	}
+
+	content := strings.Join(lines, "\n")
+
+	// Use viewport if ready, otherwise render directly
+	if m.logReady {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			m.logViewport.View(),
+		)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		lipgloss.NewStyle().
+			Width(layout.Logs.Width).
+			Height(layout.Logs.Height-1).
+			Render(content),
+	)
 }
