@@ -84,6 +84,33 @@ func NewManagerWithRuntimeAndLogger(runtime RuntimeInterface, logManager interfa
 	}
 }
 
+// NewManagerWithConfigAndLogger creates a Manager with config, templates, and logger.
+// Used by TUI to create a fully-initialized manager with logging.
+func NewManagerWithConfigAndLogger(cfg *config.Config, templates []config.Template, logManager interface{ For(string) *logging.ScopedLogger }) *Manager {
+	runtime := NewRuntime(cfg.DetectedRuntime())
+	generator := NewDevcontainerGenerator(cfg, templates)
+
+	// Use explicit runtime for devcontainer CLI if configured
+	var devCLI *DevcontainerCLI
+	if cfg.Runtime != "" {
+		devCLI = NewDevcontainerCLIWithRuntime(cfg.Runtime)
+	} else {
+		devCLI = NewDevcontainerCLI()
+	}
+
+	logger := logManager.For("container")
+	logger.Debug("container manager initialized")
+
+	return &Manager{
+		cfg:        cfg,
+		runtime:    runtime,
+		generator:  generator,
+		devCLI:     devCLI,
+		containers: make(map[string]*Container),
+		logger:     logger,
+	}
+}
+
 // Refresh updates the container list from the runtime.
 func (m *Manager) Refresh(ctx context.Context) error {
 	m.logger.Debug("refreshing container list")

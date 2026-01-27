@@ -128,7 +128,8 @@ func NewModel(cfg *config.Config, logManager *logging.Manager) Model {
 
 // NewModelWithTemplates creates a new TUI model with explicit templates (for testing).
 func NewModelWithTemplates(cfg *config.Config, templates []config.Template, logManager *logging.Manager) Model {
-	mgr := container.NewManager(cfg, templates)
+	// Create container manager with logger
+	mgr := container.NewManagerWithConfigAndLogger(cfg, templates, logManager)
 
 	// Create container list
 	delegate := newContainerDelegate(NewStyles(cfg.Theme))

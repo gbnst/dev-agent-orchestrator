@@ -20,7 +20,7 @@ func TestModel_LogsInitialization(t *testing.T) {
 		MaxSizeMB:      1,
 		MaxBackups:     1,
 		MaxAgeDays:     1,
-		ChannelBufSize: 10,
+		ChannelBufSize: 100,
 		Level:          "debug",
 	})
 	if err != nil {
@@ -30,14 +30,30 @@ func TestModel_LogsInitialization(t *testing.T) {
 
 	model := NewModel(cfg, lm)
 
-	// Model should have logged initialization
-	select {
-	case entry := <-lm.Entries():
-		if entry.Scope != "tui" {
-			t.Errorf("expected scope 'tui', got %q", entry.Scope)
+	// Collect all entries during initialization
+	// Container manager logs first, then TUI logs
+	foundTUI := false
+	foundContainer := false
+
+	for i := 0; i < 2; i++ {
+		select {
+		case entry := <-lm.Entries():
+			if entry.Scope == "tui" {
+				foundTUI = true
+			}
+			if entry.Scope == "container" {
+				foundContainer = true
+			}
+		default:
+			break
 		}
-	default:
-		t.Error("no initialization log entry received")
+	}
+
+	if !foundTUI {
+		t.Error("expected to find 'tui' scope log entry")
+	}
+	if !foundContainer {
+		t.Error("expected to find 'container' scope log entry")
 	}
 
 	_ = model // Use model to avoid unused variable
