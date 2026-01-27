@@ -113,3 +113,51 @@ func TestRenderTabs_FillsWidth(t *testing.T) {
 		t.Error("renderTabs() should contain gap fill characters")
 	}
 }
+
+func TestRenderSessionDetail_ShowsSessionInfo(t *testing.T) {
+	m := newTestModel()
+	m.currentTab = TabSessions
+	m.selectedContainer = &container.Container{
+		ID:   "abc123",
+		Name: "test-container",
+		Sessions: []container.Session{
+			{Name: "dev", ContainerID: "abc123", Windows: 2, Attached: false},
+		},
+	}
+	m.selectedSessionIdx = 0
+	m.sessionDetailOpen = true
+
+	layout := ComputeLayout(80, 24, false)
+	content := m.renderSessionsTabContent(layout)
+
+	if !strings.Contains(content, "dev") {
+		t.Error("should show session name")
+	}
+	if !strings.Contains(content, "test-container") {
+		t.Error("should show container name")
+	}
+	if !strings.Contains(content, "2") {
+		t.Error("should show window count")
+	}
+}
+
+func TestRenderSessionDetail_ShowsStatus(t *testing.T) {
+	m := newTestModel()
+	m.currentTab = TabSessions
+	m.selectedContainer = &container.Container{
+		ID:   "abc123",
+		Name: "test-container",
+		Sessions: []container.Session{
+			{Name: "dev", ContainerID: "abc123", Attached: true},
+		},
+	}
+	m.selectedSessionIdx = 0
+	m.sessionDetailOpen = true
+
+	layout := ComputeLayout(80, 24, false)
+	content := m.renderSessionsTabContent(layout)
+
+	if !strings.Contains(content, "Attached") {
+		t.Error("should show attached status")
+	}
+}

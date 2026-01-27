@@ -122,6 +122,11 @@ func (m Model) renderContainerContent(layout Layout) string {
 // renderSessionsTabContent renders the sessions tab content.
 // Shows "Select container" if no container selected, otherwise session list.
 func (m Model) renderSessionsTabContent(layout Layout) string {
+	// If session detail is open, render that instead
+	if m.sessionDetailOpen && m.selectedContainer != nil && len(m.selectedContainer.Sessions) > 0 {
+		return m.renderSessionDetail(layout)
+	}
+
 	if m.selectedContainer == nil {
 		placeholder := m.styles.InfoStyle().Render("Select a container from Tab 1 to view sessions")
 		return lipgloss.Place(
@@ -421,4 +426,48 @@ func (m Model) renderSessionForm() string {
 	}
 
 	return boxed
+}
+
+// renderSessionDetail renders the detail view for a selected session.
+func (m Model) renderSessionDetail(layout Layout) string {
+	session := m.selectedContainer.Sessions[m.selectedSessionIdx]
+
+	// Title: Session name
+	title := m.styles.TitleStyle().Render(session.Name)
+
+	// Session info
+	info := []string{
+		m.styles.InfoStyle().Render(fmt.Sprintf("Container: %s", m.selectedContainer.Name)),
+		m.styles.InfoStyle().Render(fmt.Sprintf("Windows: %d", session.Windows)),
+	}
+
+	if session.Attached {
+		info = append(info, m.styles.AccentStyle().Render("Status: Attached"))
+	} else {
+		info = append(info, m.styles.InfoStyle().Render("Status: Detached"))
+	}
+
+	// Attach command
+	cmd := m.AttachCommand()
+	if cmd != "" {
+		info = append(info, "")
+		info = append(info, m.styles.HelpStyle().Render("To attach, run:"))
+		info = append(info, m.styles.AccentStyle().Render(cmd))
+	}
+
+	// Help
+	help := m.styles.HelpStyle().Render("esc: back to session list")
+
+	// Compose
+	parts := []string{title, ""}
+	parts = append(parts, info...)
+	parts = append(parts, "", help)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	return lipgloss.NewStyle().
+		Width(layout.Content.Width).
+		Height(layout.Content.Height).
+		Padding(1).
+		Render(content)
 }
