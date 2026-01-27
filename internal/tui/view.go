@@ -78,7 +78,7 @@ func (m Model) View() string {
 	}
 
 	// Build status bar (placeholder for Phase 4)
-	help := m.styles.HelpStyle().Render("q: quit • r: refresh • c: create • s: start • x: stop • d: destroy • 1/2: tabs")
+	help := m.styles.HelpStyle().Render("q: quit • r: refresh • c: create • s: start • x: stop • d: destroy")
 	statusBar := lipgloss.NewStyle().Width(layout.StatusBar.Width).Render(help)
 
 	// Error display (if any)
@@ -143,7 +143,6 @@ func (m Model) renderSessionsTabContent(layout Layout) string {
 		sessionInfo,
 	)
 }
-
 
 // renderCreateForm renders the container creation form.
 func (m Model) renderCreateForm() string {

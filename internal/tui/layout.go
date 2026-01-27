@@ -42,7 +42,7 @@ func ComputeLayout(width, height int, logPanelOpen bool) Layout {
 	var contentHeight, logsHeight int
 	if logPanelOpen {
 		// When logs are open, split available height 40/60
-		// The separator is added on top of the layout
+		// The separator height is included in logsHeight allocation
 		contentHeight = int(float64(availableHeight) * 0.4)
 		logsHeight = availableHeight - contentHeight
 	} else {
