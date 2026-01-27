@@ -31,6 +31,15 @@ type Model struct {
 	formFocusedField  FormField
 	formError         string
 
+	// Session view state
+	sessionViewOpen     bool
+	selectedContainer   *container.Container
+	selectedSessionIdx  int
+
+	// Session creation form state
+	sessionFormOpen bool
+	sessionFormName string
+
 	err error
 }
 
@@ -91,6 +100,32 @@ func (m Model) tick() tea.Cmd {
 	})
 }
 
+// sessionsRefreshedMsg is sent when session list is updated.
+type sessionsRefreshedMsg struct {
+	containerID string
+	sessions    []container.Session
+}
+
+// refreshSessions returns a command to refresh sessions for the selected container.
+func (m Model) refreshSessions() tea.Cmd {
+	if m.selectedContainer == nil {
+		return nil
+	}
+	containerID := m.selectedContainer.ID
+
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		sessions, err := m.manager.ListSessions(ctx, containerID)
+		if err != nil {
+			return containerErrorMsg{err: err}
+		}
+
+		return sessionsRefreshedMsg{containerID: containerID, sessions: sessions}
+	}
+}
+
 // ContainerCount returns the number of containers in the list.
 // This is an accessor for E2E testing.
 func (m Model) ContainerCount() int {
@@ -120,4 +155,78 @@ func (m Model) Manager() *container.Manager {
 // This is an accessor for E2E testing.
 func (m Model) FormOpen() bool {
 	return m.formOpen
+}
+
+// IsSessionViewOpen returns whether the session view is open.
+func (m Model) IsSessionViewOpen() bool {
+	return m.sessionViewOpen
+}
+
+// VisibleSessionCount returns the number of sessions in the selected container.
+func (m Model) VisibleSessionCount() int {
+	if m.selectedContainer == nil {
+		return 0
+	}
+	return len(m.selectedContainer.Sessions)
+}
+
+// SelectedSession returns the currently selected session, or nil if none.
+func (m Model) SelectedSession() *container.Session {
+	if m.selectedContainer == nil || len(m.selectedContainer.Sessions) == 0 {
+		return nil
+	}
+	if m.selectedSessionIdx >= len(m.selectedContainer.Sessions) {
+		return nil
+	}
+	return &m.selectedContainer.Sessions[m.selectedSessionIdx]
+}
+
+// AttachCommand returns the command to attach to the selected session.
+func (m Model) AttachCommand() string {
+	session := m.SelectedSession()
+	if session == nil {
+		return ""
+	}
+	runtime := m.cfg.DetectedRuntime()
+	return session.AttachCommand(runtime)
+}
+
+// openSessionView opens the session view for the selected container.
+func (m *Model) openSessionView() {
+	if item, ok := m.containerList.SelectedItem().(containerItem); ok {
+		m.sessionViewOpen = true
+		m.selectedContainer = item.container
+		m.selectedSessionIdx = 0
+	}
+}
+
+// closeSessionView closes the session view.
+func (m *Model) closeSessionView() {
+	m.sessionViewOpen = false
+	m.selectedContainer = nil
+	m.selectedSessionIdx = 0
+	m.sessionFormOpen = false
+	m.sessionFormName = ""
+}
+
+// IsSessionFormOpen returns whether the session creation form is open.
+func (m Model) IsSessionFormOpen() bool {
+	return m.sessionFormOpen
+}
+
+// SessionFormName returns the current session form name value.
+func (m Model) SessionFormName() string {
+	return m.sessionFormName
+}
+
+// openSessionForm opens the session creation form.
+func (m *Model) openSessionForm() {
+	m.sessionFormOpen = true
+	m.sessionFormName = ""
+}
+
+// closeSessionForm closes the session creation form.
+func (m *Model) closeSessionForm() {
+	m.sessionFormOpen = false
+	m.sessionFormName = ""
 }

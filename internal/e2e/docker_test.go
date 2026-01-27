@@ -16,3 +16,15 @@ func TestDockerStartStopContainer(t *testing.T) {
 func TestDockerDestroyContainer(t *testing.T) {
 	testDestroyContainer(t, "docker")
 }
+
+func TestDockerCreateTmuxSession(t *testing.T) {
+	testCreateTmuxSession(t, "docker")
+}
+
+func TestDockerKillTmuxSession(t *testing.T) {
+	testKillTmuxSession(t, "docker")
+}
+
+func TestDockerTmuxAttachCommand(t *testing.T) {
+	testTmuxAttachCommand(t, "docker")
+}

@@ -85,6 +85,8 @@ make dev
 
 ### Keybindings
 
+#### Container List View
+
 | Key | Action |
 |-----|--------|
 | `c` | Create new container |
@@ -92,12 +94,24 @@ make dev
 | `x` | Stop selected container |
 | `d` | Destroy selected container |
 | `r` | Refresh container list |
+| `Enter` | Open session view for selected container |
 | `q` | Quit |
+
+#### Session View
+
+| Key | Action |
+|-----|--------|
+| `t` | Create new tmux session |
+| `k` | Kill selected session |
+| `↑/↓` | Navigate sessions |
+| `Esc` | Back to container list |
+| `q` | Back to container list |
 
 ## Development
 
 ```bash
-make test    # Run tests
-make lint    # Run linter
-make clean   # Clean build artifacts
+make test         # Run unit tests
+make test-e2e     # Run E2E tests (requires Docker/Podman)
+make lint         # Run linter
+make clean        # Clean build artifacts
 ```

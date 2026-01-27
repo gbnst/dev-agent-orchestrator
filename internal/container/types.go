@@ -1,6 +1,7 @@
 package container
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -13,6 +14,21 @@ const (
 	StateStopped ContainerState = "stopped"
 )
 
+// Session represents a tmux session inside a container.
+// This is a copy of tmux.Session to avoid import cycles.
+type Session struct {
+	Name        string
+	ContainerID string
+	Windows     int
+	Attached    bool
+	CreatedAt   time.Time
+}
+
+// AttachCommand returns the command to attach to this session.
+func (s Session) AttachCommand(runtime string) string {
+	return fmt.Sprintf("%s exec -it %s tmux attach -t %s", runtime, s.ContainerID, s.Name)
+}
+
 // Container represents a devagent-managed container.
 type Container struct {
 	ID          string
@@ -23,6 +39,17 @@ type Container struct {
 	State       ContainerState
 	CreatedAt   time.Time
 	Labels      map[string]string
+	Sessions    []Session
+}
+
+// HasSessions returns true if the container has any tmux sessions.
+func (c *Container) HasSessions() bool {
+	return len(c.Sessions) > 0
+}
+
+// SessionCount returns the number of tmux sessions in the container.
+func (c *Container) SessionCount() int {
+	return len(c.Sessions)
 }
 
 // DevcontainerJSON represents the structure of a devcontainer.json file.

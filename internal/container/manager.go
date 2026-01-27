@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"devagent/internal/config"
 )
@@ -182,4 +183,53 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 
 	delete(m.containers, id)
 	return nil
+}
+
+// CreateSession creates a tmux session inside a container.
+func (m *Manager) CreateSession(ctx context.Context, containerID, sessionName string) error {
+	_, err := m.runtime.Exec(ctx, containerID, []string{"tmux", "new-session", "-d", "-s", sessionName})
+	return err
+}
+
+// KillSession destroys a tmux session inside a container.
+func (m *Manager) KillSession(ctx context.Context, containerID, sessionName string) error {
+	_, err := m.runtime.Exec(ctx, containerID, []string{"tmux", "kill-session", "-t", sessionName})
+	return err
+}
+
+// ListSessions lists tmux sessions inside a container.
+func (m *Manager) ListSessions(ctx context.Context, containerID string) ([]Session, error) {
+	output, err := m.runtime.Exec(ctx, containerID, []string{"tmux", "list-sessions"})
+	if err != nil {
+		// No tmux server running = no sessions
+		return []Session{}, nil
+	}
+
+	return parseTmuxSessions(containerID, output), nil
+}
+
+// parseTmuxSessions parses tmux list-sessions output.
+func parseTmuxSessions(containerID, output string) []Session {
+	var sessions []Session
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		// Format: "name: N windows (created DATE) [(attached)]"
+		parts := strings.SplitN(line, ": ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+
+		session := Session{
+			Name:        parts[0],
+			ContainerID: containerID,
+			Attached:    strings.Contains(line, "(attached)"),
+		}
+		sessions = append(sessions, session)
+	}
+
+	return sessions
 }

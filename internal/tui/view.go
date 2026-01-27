@@ -13,6 +13,11 @@ func (m Model) View() string {
 		return m.renderCreateForm()
 	}
 
+	// If session view is open, render sessions
+	if m.sessionViewOpen {
+		return m.renderSessionView()
+	}
+
 	title := m.styles.TitleStyle().Render("devagent")
 	subtitle := m.styles.SubtitleStyle().Render("Development Agent Orchestrator")
 
@@ -158,6 +163,137 @@ func (m Model) renderCreateForm() string {
 	}
 
 	parts = append(parts, "", help)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	boxed := m.styles.BoxStyle().Render(content)
+
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			boxed,
+		)
+	}
+
+	return boxed
+}
+
+// renderSessionView renders the session list for a container.
+func (m Model) renderSessionView() string {
+	if m.sessionFormOpen {
+		return m.renderSessionForm()
+	}
+
+	containerName := ""
+	if m.selectedContainer != nil {
+		containerName = m.selectedContainer.Name
+	}
+
+	title := m.styles.TitleStyle().Render("Sessions")
+	subtitle := m.styles.SubtitleStyle().Render(fmt.Sprintf("Container: %s", containerName))
+
+	var content string
+	if m.selectedContainer == nil || len(m.selectedContainer.Sessions) == 0 {
+		content = m.styles.InfoStyle().Render("No sessions. Press 't' to create one.")
+	} else {
+		var lines []string
+		for i, session := range m.selectedContainer.Sessions {
+			indicator := "  "
+			if i == m.selectedSessionIdx {
+				indicator = m.styles.AccentStyle().Render("▸ ")
+			}
+
+			status := ""
+			if session.Attached {
+				status = m.styles.AccentStyle().Render(" (attached)")
+			}
+
+			line := fmt.Sprintf("%s%s%s", indicator, session.Name, status)
+			if i == m.selectedSessionIdx {
+				line = m.styles.AccentStyle().Render(fmt.Sprintf("▸ %s%s", session.Name, status))
+			}
+			lines = append(lines, line)
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left, lines...)
+	}
+
+	// Show attach command for selected session
+	var attachCmd string
+	if cmd := m.AttachCommand(); cmd != "" {
+		attachCmd = m.styles.InfoStyle().Render(fmt.Sprintf("Attach: %s", cmd))
+	}
+
+	// Error display
+	var errorDisplay string
+	if m.err != nil {
+		errorDisplay = m.styles.ErrorStyle().Render(fmt.Sprintf("Error: %v", m.err))
+	}
+
+	help := m.styles.HelpStyle().Render("t: create session • k: kill session • ↑↓: navigate • Esc: back • q: quit")
+
+	parts := []string{
+		title,
+		subtitle,
+		"",
+		content,
+	}
+
+	if attachCmd != "" {
+		parts = append(parts, "", attachCmd)
+	}
+
+	if errorDisplay != "" {
+		parts = append(parts, "", errorDisplay)
+	}
+
+	parts = append(parts, "", help)
+
+	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	boxed := m.styles.BoxStyle().Render(view)
+
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			boxed,
+		)
+	}
+
+	return boxed
+}
+
+// renderSessionForm renders the session creation form.
+func (m Model) renderSessionForm() string {
+	title := m.styles.TitleStyle().Render("Create Session")
+
+	containerName := ""
+	if m.selectedContainer != nil {
+		containerName = m.selectedContainer.Name
+	}
+	subtitle := m.styles.SubtitleStyle().Render(fmt.Sprintf("Container: %s", containerName))
+
+	nameLabel := m.styles.AccentStyle().Render("▸ Session Name")
+	nameValue := m.sessionFormName
+	if nameValue == "" {
+		nameValue = m.styles.SubtitleStyle().Render("(enter name)")
+	}
+	nameValue += "_" // cursor
+
+	help := m.styles.HelpStyle().Render("Enter: create • Esc: cancel")
+
+	parts := []string{
+		title,
+		subtitle,
+		"",
+		nameLabel,
+		nameValue,
+		"",
+		help,
+	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	boxed := m.styles.BoxStyle().Render(content)

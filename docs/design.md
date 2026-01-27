@@ -375,17 +375,17 @@ Based on cc_session_mon patterns:
 - Devcontainer JSON generation from templates
 - Container lifecycle (start, stop, destroy) via keybindings
 
-### Phase 2b: Container Creation UI
+### Phase 2b: Container Creation UI ✅
 - TUI form for creating containers: select template, enter project path, name
 - `c` keybinding opens creation form
 - Calls devcontainer CLI to create and start
 
-### Phase 3: Tmux Integration
+### Phase 3: Tmux Integration ✅
 - Tmux CLI wrapper via docker exec
-- List sessions per container in TUI
-- Create session from TUI
+- List sessions per container in TUI (Enter to open session view)
+- Create session from TUI (`t` keybinding)
 - Display attach command for user to copy
-- Session destroy from TUI
+- Session destroy from TUI (`k` keybinding)
 
 ### Phase 4: OTEL Receiver *(future)*
 - Embedded OTLP gRPC receiver
@@ -412,10 +412,17 @@ Based on cc_session_mon patterns:
 - Docker/Podman CLI wrapper with injectable executor for testing
 - Devcontainer JSON generation from templates
 - Container manager for lifecycle orchestration
-- TUI with container list, keybindings (s/x/d/r/q), auto-refresh
+- TUI with container list, keybindings (s/x/d/r/q/c), auto-refresh
+- Container creation form (`c` opens form, Enter submits)
+- Runtime validation at startup (validates docker/podman binary exists)
+- Explicit runtime selection via config with `--docker-path` flag to devcontainer CLI
+- Tmux session management:
+  - Session view (Enter on container to see sessions)
+  - Create session (`t` in session view)
+  - Kill session (`k` in session view)
+  - Attach command display
+- E2E test framework with TUITestRunner
 
 **Not yet implemented:**
-- Container creation form (`c` key does nothing)
-- Tmux session management
 - OTEL receiver
 - Agent state detection

@@ -72,3 +72,45 @@ func TestLabelConstants(t *testing.T) {
 		t.Errorf("LabelAgent = %q", LabelAgent)
 	}
 }
+
+func TestContainer_HasSessions(t *testing.T) {
+	tests := []struct {
+		name     string
+		sessions []Session
+		want     bool
+	}{
+		{"no sessions", nil, false},
+		{"empty sessions", []Session{}, false},
+		{"one session", []Session{{Name: "dev"}}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Container{Sessions: tt.sessions}
+			if got := c.HasSessions(); got != tt.want {
+				t.Errorf("HasSessions() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestContainer_SessionCount(t *testing.T) {
+	tests := []struct {
+		name     string
+		sessions []Session
+		want     int
+	}{
+		{"no sessions", nil, 0},
+		{"one session", []Session{{Name: "dev"}}, 1},
+		{"two sessions", []Session{{Name: "dev"}, {Name: "test"}}, 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Container{Sessions: tt.sessions}
+			if got := c.SessionCount(); got != tt.want {
+				t.Errorf("SessionCount() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

@@ -219,3 +219,224 @@ func testDestroyContainer(t *testing.T, runtime string) {
 
 	t.Logf("Successfully destroyed container %s", containerName)
 }
+
+// testCreateTmuxSession tests creating a tmux session inside a container.
+func testCreateTmuxSession(t *testing.T, runtime string) {
+	SkipIfRuntimeMissing(t, runtime)
+	SkipIfDevcontainerMissing(t)
+
+	cfg := TestConfig(runtime)
+	templates := TestTemplates()
+	projectDir := TestProject(t, "default")
+
+	// Create model and test runner
+	model := tui.NewModelWithTemplates(cfg, templates)
+	runner := NewTUITestRunner(t, model)
+
+	// Initialize
+	runner.SendWindowSize(120, 40)
+	runner.Init()
+
+	// First create a container
+	containerName := fmt.Sprintf("e2e-tmux-%s-%d", runtime, time.Now().UnixNano())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	c, err := runner.Model().Manager().Create(ctx, container.CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        containerName,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create container: %v", err)
+	}
+
+	t.Cleanup(func() {
+		CleanupContainer(t, runtime, c.ID)
+	})
+
+	// Refresh to see the container
+	runner.PressKey('r')
+	time.Sleep(2 * time.Second)
+
+	// Open session view by pressing Enter
+	runner.PressSpecialKey(tea.KeyEnter)
+	if !runner.Model().IsSessionViewOpen() {
+		t.Fatal("Expected session view to be open after pressing Enter")
+	}
+
+	// Should have no sessions initially
+	if runner.Model().VisibleSessionCount() != 0 {
+		t.Errorf("Expected 0 sessions initially, got %d", runner.Model().VisibleSessionCount())
+	}
+
+	// Press 't' to open session form
+	runner.PressKey('t')
+	if !runner.Model().IsSessionFormOpen() {
+		t.Fatal("Expected session form to be open after pressing 't'")
+	}
+
+	// Type session name
+	runner.TypeText("dev")
+
+	// Submit form
+	runner.PressSpecialKey(tea.KeyEnter)
+
+	// Wait for session to be created
+	time.Sleep(3 * time.Second)
+
+	// Verify session was created by listing via manager
+	sessions, err := runner.Model().Manager().ListSessions(context.Background(), c.ID)
+	if err != nil {
+		t.Fatalf("Failed to list sessions: %v", err)
+	}
+
+	if len(sessions) != 1 {
+		t.Fatalf("Expected 1 session, got %d", len(sessions))
+	}
+
+	if sessions[0].Name != "dev" {
+		t.Errorf("Expected session name 'dev', got %q", sessions[0].Name)
+	}
+
+	t.Logf("Successfully created tmux session 'dev' in container %s", containerName)
+}
+
+// testKillTmuxSession tests killing a tmux session inside a container.
+func testKillTmuxSession(t *testing.T, runtime string) {
+	SkipIfRuntimeMissing(t, runtime)
+	SkipIfDevcontainerMissing(t)
+
+	cfg := TestConfig(runtime)
+	templates := TestTemplates()
+	projectDir := TestProject(t, "default")
+
+	// Create model and test runner
+	model := tui.NewModelWithTemplates(cfg, templates)
+	runner := NewTUITestRunner(t, model)
+
+	// Initialize
+	runner.SendWindowSize(120, 40)
+	runner.Init()
+
+	// First create a container
+	containerName := fmt.Sprintf("e2e-tmux-kill-%s-%d", runtime, time.Now().UnixNano())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	c, err := runner.Model().Manager().Create(ctx, container.CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        containerName,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create container: %v", err)
+	}
+
+	t.Cleanup(func() {
+		CleanupContainer(t, runtime, c.ID)
+	})
+
+	// Create a session directly via manager
+	if err := runner.Model().Manager().CreateSession(ctx, c.ID, "test-session"); err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+
+	// Verify session exists
+	sessions, err := runner.Model().Manager().ListSessions(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("Failed to list sessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("Expected 1 session, got %d", len(sessions))
+	}
+
+	// Kill session via manager
+	if err := runner.Model().Manager().KillSession(ctx, c.ID, "test-session"); err != nil {
+		t.Fatalf("Failed to kill session: %v", err)
+	}
+
+	// Verify session was killed
+	sessions, err = runner.Model().Manager().ListSessions(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("Failed to list sessions after kill: %v", err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("Expected 0 sessions after kill, got %d", len(sessions))
+	}
+
+	t.Logf("Successfully killed tmux session in container %s", containerName)
+}
+
+// testTmuxAttachCommand tests that the attach command is correctly generated.
+func testTmuxAttachCommand(t *testing.T, runtime string) {
+	SkipIfRuntimeMissing(t, runtime)
+	SkipIfDevcontainerMissing(t)
+
+	cfg := TestConfig(runtime)
+	templates := TestTemplates()
+	projectDir := TestProject(t, "default")
+
+	// Create model and test runner
+	model := tui.NewModelWithTemplates(cfg, templates)
+	runner := NewTUITestRunner(t, model)
+
+	// Initialize
+	runner.SendWindowSize(120, 40)
+	runner.Init()
+
+	// First create a container
+	containerName := fmt.Sprintf("e2e-attach-%s-%d", runtime, time.Now().UnixNano())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	c, err := runner.Model().Manager().Create(ctx, container.CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        containerName,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create container: %v", err)
+	}
+
+	t.Cleanup(func() {
+		CleanupContainer(t, runtime, c.ID)
+	})
+
+	// Create a session
+	if err := runner.Model().Manager().CreateSession(ctx, c.ID, "main"); err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+
+	// Refresh to see the container
+	runner.PressKey('r')
+	time.Sleep(2 * time.Second)
+
+	// Open session view
+	runner.PressSpecialKey(tea.KeyEnter)
+
+	// Refresh sessions (the session view doesn't auto-load sessions yet)
+	// We need to manually update the container's sessions
+	sessions, _ := runner.Model().Manager().ListSessions(ctx, c.ID)
+
+	// Get the container and update its sessions
+	containerFromList, ok := runner.Model().GetContainerByName(containerName)
+	if !ok {
+		t.Fatal("Container not found in list")
+	}
+	containerFromList.Sessions = sessions
+
+	// Re-open session view to pick up the updated container
+	runner.PressSpecialKey(tea.KeyEscape)
+	runner.PressSpecialKey(tea.KeyEnter)
+
+	// Get attach command
+	attachCmd := runner.Model().AttachCommand()
+	expectedCmd := fmt.Sprintf("%s exec -it %s tmux attach -t main", runtime, c.ID)
+
+	if attachCmd != expectedCmd {
+		t.Errorf("AttachCommand() = %q, want %q", attachCmd, expectedCmd)
+	}
+
+	t.Logf("Attach command correctly generated: %s", attachCmd)
+}

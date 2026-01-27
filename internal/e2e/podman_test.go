@@ -16,3 +16,15 @@ func TestPodmanStartStopContainer(t *testing.T) {
 func TestPodmanDestroyContainer(t *testing.T) {
 	testDestroyContainer(t, "podman")
 }
+
+func TestPodmanCreateTmuxSession(t *testing.T) {
+	testCreateTmuxSession(t, "podman")
+}
+
+func TestPodmanKillTmuxSession(t *testing.T) {
+	testKillTmuxSession(t, "podman")
+}
+
+func TestPodmanTmuxAttachCommand(t *testing.T) {
+	testTmuxAttachCommand(t, "podman")
+}

@@ -55,6 +55,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleFormKey(msg)
 		}
 
+		// Handle session view navigation
+		if m.sessionViewOpen {
+			return m.handleSessionViewKey(msg)
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -85,6 +90,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
 				return m, m.destroyContainer(item.container.ID)
 			}
+
+		case "enter":
+			// Open session view for selected container
+			m.openSessionView()
+			return m, nil
 		}
 
 		// Forward to list for navigation
@@ -116,6 +126,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refreshContainers(),
 			m.tick(),
 		)
+
+	case sessionActionMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			return m, nil
+		}
+		// Refresh sessions after action
+		return m, m.refreshSessions()
+
+	case sessionsRefreshedMsg:
+		// Update sessions for the container
+		if m.selectedContainer != nil && m.selectedContainer.ID == msg.containerID {
+			m.selectedContainer.Sessions = msg.sessions
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -251,5 +276,122 @@ func (m Model) createContainer() tea.Cmd {
 			Name:        containerName,
 		})
 		return containerActionMsg{action: "create", id: containerName, err: err}
+	}
+}
+
+// handleSessionViewKey processes key events when the session view is open.
+func (m Model) handleSessionViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// If session form is open, handle form input
+	if m.sessionFormOpen {
+		return m.handleSessionFormKey(msg)
+	}
+
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.closeSessionView()
+		return m, nil
+
+	case tea.KeyUp:
+		if m.selectedSessionIdx > 0 {
+			m.selectedSessionIdx--
+		}
+		return m, nil
+
+	case tea.KeyDown:
+		if m.selectedContainer != nil && m.selectedSessionIdx < len(m.selectedContainer.Sessions)-1 {
+			m.selectedSessionIdx++
+		}
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "q":
+		m.closeSessionView()
+		return m, nil
+
+	case "t":
+		// Open session creation form
+		m.openSessionForm()
+		return m, nil
+
+	case "k":
+		// Kill selected session
+		session := m.SelectedSession()
+		if session != nil && m.selectedContainer != nil {
+			return m, m.killSession(m.selectedContainer.ID, session.Name)
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// handleSessionFormKey processes key events when the session form is open.
+func (m Model) handleSessionFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.closeSessionForm()
+		return m, nil
+
+	case tea.KeyEnter:
+		// Submit form - create session
+		if m.sessionFormName != "" && m.selectedContainer != nil {
+			cmd := m.createSession(m.selectedContainer.ID, m.sessionFormName)
+			m.closeSessionForm()
+			return m, cmd
+		}
+		return m, nil
+
+	case tea.KeyBackspace:
+		if len(m.sessionFormName) > 0 {
+			m.sessionFormName = m.sessionFormName[:len(m.sessionFormName)-1]
+		}
+		return m, nil
+
+	case tea.KeyRunes:
+		m.sessionFormName += string(msg.Runes)
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// sessionActionMsg is sent when a session action completes.
+type sessionActionMsg struct {
+	action      string
+	containerID string
+	sessionName string
+	err         error
+}
+
+// createSession returns a command to create a tmux session in a container.
+func (m Model) createSession(containerID, sessionName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := m.manager.CreateSession(ctx, containerID, sessionName)
+		return sessionActionMsg{
+			action:      "create",
+			containerID: containerID,
+			sessionName: sessionName,
+			err:         err,
+		}
+	}
+}
+
+// killSession returns a command to kill a tmux session in a container.
+func (m Model) killSession(containerID, sessionName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := m.manager.KillSession(ctx, containerID, sessionName)
+		return sessionActionMsg{
+			action:      "kill",
+			containerID: containerID,
+			sessionName: sessionName,
+			err:         err,
+		}
 	}
 }
