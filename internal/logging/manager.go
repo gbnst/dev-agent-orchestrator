@@ -26,6 +26,12 @@ type Config struct {
 	ChannelBufSize int    // Buffer size for TUI channel (default 1000)
 }
 
+// LoggerProvider is an interface for obtaining scoped loggers.
+// Both Manager and TestLogManager implement this interface.
+type LoggerProvider interface {
+	For(scope string) *ScopedLogger
+}
+
 // ScopedLogger provides a logger with scope context and additional field support.
 // This is the public interface returned by LogManager.For().
 type ScopedLogger struct {
