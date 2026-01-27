@@ -108,3 +108,47 @@ func (s *Styles) InfoStatusStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(s.flavor.Text().Hex))
 }
+
+// LogHeaderStyle returns the style for log panel header.
+func (s *Styles) LogHeaderStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Subtext0().Hex)).
+		Bold(true)
+}
+
+// LogDebugStyle returns the style for DEBUG level logs.
+func (s *Styles) LogDebugStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Overlay0().Hex))
+}
+
+// LogInfoStyle returns the style for INFO level logs.
+func (s *Styles) LogInfoStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Blue().Hex))
+}
+
+// LogWarnStyle returns the style for WARN level logs.
+func (s *Styles) LogWarnStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Yellow().Hex))
+}
+
+// LogErrorStyle returns the style for ERROR level logs.
+func (s *Styles) LogErrorStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Red().Hex)).
+		Bold(true)
+}
+
+// LogTimestampStyle returns the style for log timestamps.
+func (s *Styles) LogTimestampStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Overlay0().Hex))
+}
+
+// LogScopeStyle returns the style for log scope.
+func (s *Styles) LogScopeStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Teal().Hex))
+}

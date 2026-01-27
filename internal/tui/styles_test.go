@@ -68,3 +68,42 @@ func TestStyles_StatusStyles(t *testing.T) {
 		t.Error("ErrorStyle should be bold")
 	}
 }
+
+func TestStyles_LogLevelBadges(t *testing.T) {
+	styles := NewStyles("mocha")
+
+	// All log styles should exist and be callable
+	_ = styles.LogDebugStyle()
+	_ = styles.LogInfoStyle()
+	_ = styles.LogWarnStyle()
+	_ = styles.LogErrorStyle()
+
+	// ERROR style should be bold
+	errorStyle := styles.LogErrorStyle()
+	if !errorStyle.GetBold() {
+		t.Error("LogErrorStyle should be bold")
+	}
+
+	// All styles should be renderable (not nil)
+	debugStyle := styles.LogDebugStyle()
+	rendered := debugStyle.Render("DEBUG")
+	if rendered == "" {
+		t.Error("LogDebugStyle should render content")
+	}
+}
+
+func TestStyles_LogHeaderStyle(t *testing.T) {
+	styles := NewStyles("mocha")
+	style := styles.LogHeaderStyle()
+
+	// Should be bold
+	if !style.GetBold() {
+		t.Error("LogHeaderStyle should be bold")
+	}
+
+	// Should render
+	rendered := style.Render("Logs")
+	if rendered == "" {
+		t.Error("LogHeaderStyle should render content")
+	}
+}
