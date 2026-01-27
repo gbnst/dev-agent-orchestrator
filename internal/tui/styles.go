@@ -70,3 +70,29 @@ func (s *Styles) ErrorStyle() lipgloss.Style {
 		Foreground(lipgloss.Color(s.flavor.Red().Hex)).
 		Bold(true)
 }
+
+// ActiveTabStyle returns the style for the currently selected tab.
+func (s *Styles) ActiveTabStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(s.flavor.Mauve().Hex)).
+		Padding(0, 2)
+}
+
+// InactiveTabStyle returns the style for non-selected tabs.
+func (s *Styles) InactiveTabStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Overlay0().Hex)).
+		Padding(0, 2)
+}
+
+// TabGapFill returns the character used to fill the tab bar gap.
+func (s *Styles) TabGapFill() string {
+	return "─"
+}
+
+// TabGapStyle returns the style for the tab bar gap fill.
+func (s *Styles) TabGapStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Surface1().Hex))
+}
