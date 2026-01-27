@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/container"
@@ -54,6 +55,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		listHeight := layout.ContentListHeight()
 
 		m.containerList.SetSize(m.width-4, listHeight)
+
+		// Initialize or update log viewport
+		if m.logPanelOpen {
+			if !m.logReady {
+				m.logViewport = viewport.New(layout.Logs.Width, layout.Logs.Height-1)
+				m.logReady = true
+			} else {
+				m.logViewport.Width = layout.Logs.Width
+				m.logViewport.Height = layout.Logs.Height - 1
+			}
+			m.updateLogViewportContent()
+		}
+
 		return m, nil
 
 	case spinner.TickMsg:
@@ -258,6 +272,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update sessions for the container
 		if m.selectedContainer != nil && m.selectedContainer.ID == msg.containerID {
 			m.selectedContainer.Sessions = msg.sessions
+		}
+		return m, nil
+
+	case logEntriesMsg:
+		for _, entry := range msg.entries {
+			m.addLogEntry(entry)
+		}
+		if m.logPanelOpen && m.logReady {
+			m.updateLogViewportContent()
+		}
+		// Continue consuming logs (logManager added in Phase 7)
+		if m.logManager != nil {
+			return m, m.consumeLogEntries(m.logManager)
 		}
 		return m, nil
 	}
