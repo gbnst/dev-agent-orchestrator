@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -246,5 +248,83 @@ func TestSessionDetail_Escape_Returns(t *testing.T) {
 
 	if m.sessionDetailOpen {
 		t.Error("sessionDetailOpen should be false after Escape")
+	}
+}
+
+func TestContainerAction_ShowsLoading(t *testing.T) {
+	m := newTestModel()
+
+	// Add a container
+	ctr := &container.Container{
+		ID:    "abc123def456",
+		Name:  "test-container",
+		State: container.StateStopped,
+	}
+	m.containerList.SetItems(toListItems([]*container.Container{ctr}))
+
+	// Press 's' to start
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")}
+	updated, cmd := m.Update(msg)
+	m = updated.(Model)
+
+	if m.statusLevel != StatusLoading {
+		t.Errorf("statusLevel = %v, want %v", m.statusLevel, StatusLoading)
+	}
+	if !strings.Contains(m.statusMessage, "Starting") {
+		t.Errorf("statusMessage = %q, should contain 'Starting'", m.statusMessage)
+	}
+	if cmd == nil {
+		t.Error("should return command for spinner")
+	}
+}
+
+func TestContainerActionMsg_Success(t *testing.T) {
+	m := newTestModel()
+	m.statusLevel = StatusLoading
+	m.statusMessage = "Starting..."
+
+	// Simulate success message
+	msg := containerActionMsg{action: "start", id: "abc123", err: nil}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.statusLevel != StatusSuccess {
+		t.Errorf("statusLevel = %v, want %v", m.statusLevel, StatusSuccess)
+	}
+}
+
+func TestContainerActionMsg_Error(t *testing.T) {
+	m := newTestModel()
+	m.statusLevel = StatusLoading
+
+	// Simulate error message
+	msg := containerActionMsg{action: "start", id: "abc123", err: fmt.Errorf("connection refused")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.statusLevel != StatusError {
+		t.Errorf("statusLevel = %v, want %v", m.statusLevel, StatusError)
+	}
+	if m.err == nil {
+		t.Error("err should be set")
+	}
+}
+
+func TestEscape_ClearsError(t *testing.T) {
+	m := newTestModel()
+	m.statusLevel = StatusError
+	m.statusMessage = "Something failed"
+	m.err = fmt.Errorf("test error")
+
+	// Press Escape
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.statusLevel == StatusError {
+		t.Error("statusLevel should not be Error after Escape")
+	}
+	if m.err != nil {
+		t.Error("err should be nil after Escape")
 	}
 }

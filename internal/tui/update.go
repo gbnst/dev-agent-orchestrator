@@ -2,8 +2,10 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/container"
@@ -48,7 +50,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.containerList.SetSize(m.width-4, listHeight)
 		return m, nil
 
+	case spinner.TickMsg:
+		if m.statusLevel == StatusLoading {
+			var cmd tea.Cmd
+			m.statusSpinner, cmd = m.statusSpinner.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+
 	case tea.KeyMsg:
+		// Clear error with Escape
+		if msg.Type == tea.KeyEscape && m.statusLevel == StatusError {
+			m.clearStatus()
+			return m, nil
+		}
+
 		// Handle form input when form is open
 		if m.formOpen {
 			return m.handleFormKey(msg)
@@ -129,19 +145,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			// Start selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
-				return m, m.startContainer(item.container.ID)
+				cmd := m.setLoading("Starting " + item.container.Name + "...")
+				return m, tea.Batch(cmd, m.startContainer(item.container.ID))
 			}
 
 		case "x":
 			// Stop selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
-				return m, m.stopContainer(item.container.ID)
+				cmd := m.setLoading("Stopping " + item.container.Name + "...")
+				return m, tea.Batch(cmd, m.stopContainer(item.container.ID))
 			}
 
 		case "d":
 			// Destroy selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
-				return m, m.destroyContainer(item.container.ID)
+				cmd := m.setLoading("Destroying " + item.container.Name + "...")
+				return m, tea.Batch(cmd, m.destroyContainer(item.container.ID))
 			}
 
 		case "1":
@@ -192,10 +211,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case containerActionMsg:
 		if msg.err != nil {
-			m.err = msg.err
+			m.setError(fmt.Sprintf("Failed to %s container", msg.action), msg.err)
 			return m, nil
 		}
-		// Refresh after action
+		actionNames := map[string]string{
+			"start":   "started",
+			"stop":    "stopped",
+			"destroy": "destroyed",
+		}
+		m.setSuccess(fmt.Sprintf("Container %s", actionNames[msg.action]))
 		return m, m.refreshContainers()
 
 	case tickMsg:
