@@ -204,6 +204,9 @@ func TestRenderStatusBar_Error(t *testing.T) {
 	if !strings.Contains(result, "Failed to start") {
 		t.Error("status bar should contain message")
 	}
+	if !strings.Contains(result, "esc to clear") {
+		t.Error("error status should contain '(esc to clear)' hint")
+	}
 }
 
 func TestRenderStatusBar_Loading(t *testing.T) {

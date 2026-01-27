@@ -62,13 +62,6 @@ func TestStyles_StatusStyles(t *testing.T) {
 		t.Error("InfoStatusStyle should render content")
 	}
 
-	// StatusBarStyle should exist
-	barStyle := styles.StatusBarStyle()
-	rendered = barStyle.Render("test")
-	if rendered == "" {
-		t.Error("StatusBarStyle should render content")
-	}
-
 	// ErrorStyle already exists, just verify it works
 	errorStyle := styles.ErrorStyle()
 	if !errorStyle.GetBold() {

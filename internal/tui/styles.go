@@ -108,9 +108,3 @@ func (s *Styles) InfoStatusStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(s.flavor.Text().Hex))
 }
-
-// StatusBarStyle returns the style for the status bar container.
-func (s *Styles) StatusBarStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(s.flavor.Subtext0().Hex))
-}
