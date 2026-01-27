@@ -59,6 +59,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleSessionViewKey(msg)
 		}
 
+		// Sessions tab navigation
+		if m.currentTab == TabSessions && m.selectedContainer != nil {
+			switch msg.Type {
+			case tea.KeyUp:
+				if m.selectedSessionIdx > 0 {
+					m.selectedSessionIdx--
+				}
+				return m, nil
+			case tea.KeyDown:
+				if m.selectedSessionIdx < len(m.selectedContainer.Sessions)-1 {
+					m.selectedSessionIdx++
+				}
+				return m, nil
+			case tea.KeyBackspace:
+				m.selectedContainer = nil
+				m.selectedSessionIdx = 0
+				m.currentTab = TabContainers
+				return m, nil
+			}
+
+			// Vim-style navigation in Sessions tab
+			switch msg.String() {
+			case "j":
+				if m.selectedSessionIdx < len(m.selectedContainer.Sessions)-1 {
+					m.selectedSessionIdx++
+				}
+				return m, nil
+			case "k":
+				if m.selectedSessionIdx > 0 {
+					m.selectedSessionIdx--
+				}
+				return m, nil
+			case "t":
+				m.sessionFormOpen = true
+				m.sessionFormName = ""
+				return m, nil
+			}
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit

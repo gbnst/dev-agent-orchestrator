@@ -118,3 +118,91 @@ func TestEnterOnContainer_RefreshesSessions(t *testing.T) {
 		t.Error("Update should return a command to refresh sessions")
 	}
 }
+
+func TestSessionsTab_UpDownNavigation(t *testing.T) {
+	m := newTestModel()
+	m.currentTab = TabSessions
+	m.selectedContainer = &container.Container{
+		ID:   "abc123",
+		Name: "test-container",
+		Sessions: []container.Session{
+			{Name: "dev", ContainerID: "abc123"},
+			{Name: "test", ContainerID: "abc123"},
+			{Name: "prod", ContainerID: "abc123"},
+		},
+	}
+	m.selectedSessionIdx = 0
+
+	// Press down twice
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+	updated, _ = m.Update(msg)
+	m = updated.(Model)
+
+	if m.selectedSessionIdx != 2 {
+		t.Errorf("selectedSessionIdx = %d, want 2", m.selectedSessionIdx)
+	}
+
+	// Press up once
+	msg = tea.KeyMsg{Type: tea.KeyUp}
+	updated, _ = m.Update(msg)
+	m = updated.(Model)
+
+	if m.selectedSessionIdx != 1 {
+		t.Errorf("selectedSessionIdx = %d, want 1", m.selectedSessionIdx)
+	}
+}
+
+func TestSessionsTab_JKNavigation(t *testing.T) {
+	m := newTestModel()
+	m.currentTab = TabSessions
+	m.selectedContainer = &container.Container{
+		ID:   "abc123",
+		Name: "test-container",
+		Sessions: []container.Session{
+			{Name: "dev", ContainerID: "abc123"},
+			{Name: "test", ContainerID: "abc123"},
+		},
+	}
+	m.selectedSessionIdx = 0
+
+	// Press j (down)
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.selectedSessionIdx != 1 {
+		t.Errorf("selectedSessionIdx = %d, want 1 after 'j'", m.selectedSessionIdx)
+	}
+
+	// Press k (up)
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")}
+	updated, _ = m.Update(msg)
+	m = updated.(Model)
+
+	if m.selectedSessionIdx != 0 {
+		t.Errorf("selectedSessionIdx = %d, want 0 after 'k'", m.selectedSessionIdx)
+	}
+}
+
+func TestSessionsTab_Backspace_ReturnsToContainers(t *testing.T) {
+	m := newTestModel()
+	m.currentTab = TabSessions
+	m.selectedContainer = &container.Container{
+		ID:   "abc123",
+		Name: "test-container",
+	}
+
+	// Press backspace
+	msg := tea.KeyMsg{Type: tea.KeyBackspace}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.currentTab != TabContainers {
+		t.Errorf("currentTab = %v, want %v after backspace", m.currentTab, TabContainers)
+	}
+	if m.selectedContainer != nil {
+		t.Error("selectedContainer should be nil after backspace")
+	}
+}
