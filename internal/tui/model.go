@@ -418,17 +418,26 @@ func (m Model) filteredLogEntries() []logging.LogEntry {
 	return filtered
 }
 
+// truncateContainerID safely returns up to 12 characters of a container ID.
+// If the ID is shorter than 12 characters, returns the full ID.
+func truncateContainerID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
 // setLogFilterFromContext sets the log filter based on current UI state.
 func (m *Model) setLogFilterFromContext() {
 	switch {
 	case m.selectedContainer != nil && m.currentTab == TabSessions:
 		if session := m.SelectedSession(); session != nil {
-			m.logFilter = fmt.Sprintf("session.%s.%s", m.selectedContainer.ID[:12], session.Name)
+			m.logFilter = fmt.Sprintf("session.%s.%s", truncateContainerID(m.selectedContainer.ID), session.Name)
 		} else {
-			m.logFilter = fmt.Sprintf("container.%s", m.selectedContainer.ID[:12])
+			m.logFilter = fmt.Sprintf("container.%s", truncateContainerID(m.selectedContainer.ID))
 		}
 	case m.selectedContainer != nil:
-		m.logFilter = fmt.Sprintf("container.%s", m.selectedContainer.ID[:12])
+		m.logFilter = fmt.Sprintf("container.%s", truncateContainerID(m.selectedContainer.ID))
 	default:
 		m.logFilter = ""
 	}
@@ -458,32 +467,16 @@ func (m Model) consumeLogEntries(logMgr interface{ Entries() <-chan logging.LogE
 }
 
 // updateLogViewportContent refreshes the viewport with current filtered entries.
-// Note: renderLogEntry is defined in view.go and will format entries.
+// Uses renderLogEntry for consistent formatting across all log displays.
 func (m *Model) updateLogViewportContent() {
 	entries := m.filteredLogEntries()
 	var lines []string
 	for _, entry := range entries {
-		// Basic format for now, renderLogEntry in view.go will be used when rendering
-		line := fmt.Sprintf("%s %s [%s] %s",
-			entry.Timestamp.Format("15:04:05"),
-			entry.Level,
-			entry.Scope,
-			entry.Message)
-		lines = append(lines, line)
+		// Use renderLogEntry for consistent formatting with view rendering
+		lines = append(lines, m.renderLogEntry(entry))
 	}
 
-	content := ""
-	if len(lines) > 0 {
-		// Use strings import for Join
-		var sb strings.Builder
-		for i, line := range lines {
-			if i > 0 {
-				sb.WriteString("\n")
-			}
-			sb.WriteString(line)
-		}
-		content = sb.String()
-	}
+	content := strings.Join(lines, "\n")
 	m.logViewport.SetContent(content)
 
 	if m.logAutoScroll {

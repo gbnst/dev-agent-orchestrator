@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"devagent/internal/container"
 	"devagent/internal/logging"
 )
 
@@ -139,5 +140,120 @@ func TestModel_FilteredLogEntries(t *testing.T) {
 	filtered := m.filteredLogEntries()
 	if len(filtered) != 1 {
 		t.Errorf("container filter should return 1 entry, got %d", len(filtered))
+	}
+}
+
+func TestSetLogFilterFromContext_NoContainerSelected(t *testing.T) {
+	m := newTestModel()
+	m.selectedContainer = nil
+	m.currentTab = TabContainers
+
+	m.setLogFilterFromContext()
+
+	if m.logFilter != "" {
+		t.Errorf("logFilter should be empty when no container selected, got %q", m.logFilter)
+	}
+}
+
+func TestSetLogFilterFromContext_ContainerSelectedInContainersTab(t *testing.T) {
+	m := newTestModel()
+	m.selectedContainer = &container.Container{
+		ID:   "abc123456789abcdef",
+		Name: "test-container",
+	}
+	m.currentTab = TabContainers
+
+	m.setLogFilterFromContext()
+
+	expected := "container.abc123456789"
+	if m.logFilter != expected {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, expected)
+	}
+}
+
+func TestSetLogFilterFromContext_ContainerWithSessionInSessionsTab(t *testing.T) {
+	m := newTestModel()
+	m.selectedContainer = &container.Container{
+		ID:   "abc123456789abcdef",
+		Name: "test-container",
+		Sessions: []container.Session{
+			{Name: "dev", Windows: 1},
+			{Name: "build", Windows: 2},
+		},
+	}
+	m.currentTab = TabSessions
+	m.selectedSessionIdx = 0 // Select first session
+
+	m.setLogFilterFromContext()
+
+	expected := "session.abc123456789.dev"
+	if m.logFilter != expected {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, expected)
+	}
+}
+
+func TestSetLogFilterFromContext_ContainerWithoutSessionInSessionsTab(t *testing.T) {
+	m := newTestModel()
+	m.selectedContainer = &container.Container{
+		ID:       "abc123456789abcdef",
+		Name:     "test-container",
+		Sessions: []container.Session{},
+	}
+	m.currentTab = TabSessions
+	m.selectedSessionIdx = 0
+
+	m.setLogFilterFromContext()
+
+	expected := "container.abc123456789"
+	if m.logFilter != expected {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, expected)
+	}
+}
+
+func TestSetLogFilterFromContext_ShortContainerID(t *testing.T) {
+	m := newTestModel()
+	m.selectedContainer = &container.Container{
+		ID:   "abc12345",
+		Name: "test-container",
+	}
+	m.currentTab = TabContainers
+
+	// Should not panic and should use full ID
+	m.setLogFilterFromContext()
+
+	expected := "container.abc12345"
+	if m.logFilter != expected {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, expected)
+	}
+}
+
+func TestTruncateContainerID_LongID(t *testing.T) {
+	id := "abc123456789abcdefghij"
+	result := truncateContainerID(id)
+
+	if len(result) > 12 {
+		t.Errorf("truncateContainerID should return at most 12 chars, got %d: %q", len(result), result)
+	}
+
+	if result != "abc123456789" {
+		t.Errorf("truncateContainerID(%q) = %q, want %q", id, result, "abc123456789")
+	}
+}
+
+func TestTruncateContainerID_ShortID(t *testing.T) {
+	id := "abc12345"
+	result := truncateContainerID(id)
+
+	if result != id {
+		t.Errorf("truncateContainerID should return full ID when < 12 chars, got %q, want %q", result, id)
+	}
+}
+
+func TestTruncateContainerID_ExactlyTwelve(t *testing.T) {
+	id := "123456789012"
+	result := truncateContainerID(id)
+
+	if result != id {
+		t.Errorf("truncateContainerID should return full ID when exactly 12 chars, got %q, want %q", result, id)
 	}
 }
