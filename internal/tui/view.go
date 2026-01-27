@@ -133,15 +133,64 @@ func (m Model) renderSessionsTabContent(layout Layout) string {
 		)
 	}
 
-	// TODO: Phase 3 will add session list rendering here
-	sessionInfo := m.styles.InfoStyle().Render("Sessions for: " + m.selectedContainer.Name)
-	return lipgloss.Place(
-		layout.Content.Width,
-		layout.Content.Height,
-		lipgloss.Center,
-		lipgloss.Center,
-		sessionInfo,
+	// Build header with container name
+	containerName := m.styles.TitleStyle().Render(m.selectedContainer.Name)
+	sessionCount := fmt.Sprintf("%d session(s)", len(m.selectedContainer.Sessions))
+	header := lipgloss.JoinVertical(lipgloss.Left,
+		containerName,
+		m.styles.InfoStyle().Render(sessionCount),
 	)
+
+	// Build session list or empty message
+	var sessionList string
+	if len(m.selectedContainer.Sessions) == 0 {
+		sessionList = m.styles.InfoStyle().Render("No sessions. Press 't' to create one.")
+	} else {
+		var lines []string
+		for i, session := range m.selectedContainer.Sessions {
+			indicator := "  "
+			nameStyle := m.styles.InfoStyle()
+
+			if i == m.selectedSessionIdx {
+				indicator = m.styles.AccentStyle().Render("▸ ")
+				nameStyle = m.styles.AccentStyle()
+			}
+
+			status := ""
+			if session.Attached {
+				status = m.styles.AccentStyle().Render(" (attached)")
+			}
+
+			windowInfo := fmt.Sprintf(" [%d windows]", session.Windows)
+			line := indicator + nameStyle.Render(session.Name) + status + m.styles.HelpStyle().Render(windowInfo)
+			lines = append(lines, line)
+		}
+		sessionList = lipgloss.JoinVertical(lipgloss.Left, lines...)
+	}
+
+	// Show attach command if session selected
+	var attachCmd string
+	if cmd := m.AttachCommand(); cmd != "" {
+		attachCmd = m.styles.HelpStyle().Render("Attach: " + cmd)
+	}
+
+	// Build help text
+	help := m.styles.HelpStyle().Render("↑/↓: navigate • t: create • k: kill • backspace: back to containers")
+
+	// Compose content
+	parts := []string{header, "", sessionList}
+	if attachCmd != "" {
+		parts = append(parts, "", attachCmd)
+	}
+	parts = append(parts, "", help)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
+
+	return lipgloss.NewStyle().
+		Width(layout.Content.Width).
+		Height(layout.Content.Height).
+		Padding(1).
+		Render(content)
 }
 
 // renderCreateForm renders the container creation form.

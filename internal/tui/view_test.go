@@ -3,7 +3,66 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"devagent/internal/container"
 )
+
+func TestRenderSessionsTabContent_NoContainer(t *testing.T) {
+	m := newTestModel()
+	m.currentTab = TabSessions
+	m.selectedContainer = nil
+
+	layout := ComputeLayout(80, 24, false)
+	content := m.renderSessionsTabContent(layout)
+
+	if !strings.Contains(content, "Select a container") {
+		t.Error("should show 'Select a container' when no container selected")
+	}
+}
+
+func TestRenderSessionsTabContent_WithContainer(t *testing.T) {
+	m := newTestModel()
+	m.currentTab = TabSessions
+	m.selectedContainer = &container.Container{
+		ID:   "abc123",
+		Name: "test-container",
+		Sessions: []container.Session{
+			{Name: "dev", ContainerID: "abc123", Windows: 2},
+			{Name: "test", ContainerID: "abc123", Windows: 1},
+		},
+	}
+	m.selectedSessionIdx = 0
+
+	layout := ComputeLayout(80, 24, false)
+	content := m.renderSessionsTabContent(layout)
+
+	if !strings.Contains(content, "test-container") {
+		t.Error("should show container name")
+	}
+	if !strings.Contains(content, "dev") {
+		t.Error("should show first session")
+	}
+	if !strings.Contains(content, "test") {
+		t.Error("should show second session")
+	}
+}
+
+func TestRenderSessionsTabContent_EmptySessions(t *testing.T) {
+	m := newTestModel()
+	m.currentTab = TabSessions
+	m.selectedContainer = &container.Container{
+		ID:       "abc123",
+		Name:     "test-container",
+		Sessions: []container.Session{},
+	}
+
+	layout := ComputeLayout(80, 24, false)
+	content := m.renderSessionsTabContent(layout)
+
+	if !strings.Contains(content, "No sessions") {
+		t.Error("should show 'No sessions' when container has no sessions")
+	}
+}
 
 func TestRenderTabs(t *testing.T) {
 	styles := NewStyles("mocha")
