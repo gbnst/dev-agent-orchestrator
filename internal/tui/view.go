@@ -316,15 +316,22 @@ func (m Model) renderStatusBar(width int) string {
 	)
 }
 
-// renderContextualHelp returns help text based on current state.
+// renderContextualHelp returns help text based on current state and panel focus.
 func (m Model) renderContextualHelp() string {
 	var help string
-	if m.detailPanelOpen {
-		help = "←/esc: close detail • ↑/↓: navigate • t: new session • l: logs • q: quit"
-	} else if len(m.treeItems) > 0 {
-		help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: session • l: logs • q: quit"
-	} else {
-		help = "c: create container • l: logs • q: quit"
+	switch m.panelFocus {
+	case FocusDetail:
+		help = "tab: next panel • esc: tree • l: logs • q: quit"
+	case FocusLogs:
+		help = "↑/↓: scroll • g/G: top/bottom • tab: next panel • esc: tree • q: quit"
+	default: // FocusTree
+		if m.detailPanelOpen {
+			help = "←/esc: close detail • ↑/↓: navigate • tab: next panel • l: logs • q: quit"
+		} else if len(m.treeItems) > 0 {
+			help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: session • tab: next panel • l: logs • q: quit"
+		} else {
+			help = "c: create container • l: logs • q: quit"
+		}
 	}
 	return m.styles.HelpStyle().Render(help)
 }
@@ -360,12 +367,16 @@ func (m Model) renderLogEntry(entry logging.LogEntry) string {
 
 // renderLogPanel renders the log panel content.
 func (m Model) renderLogPanel(layout Layout) string {
-	// Header
+	// Header with focus indicator
 	filterInfo := "all logs"
-	if m.logFilter != "" {
-		filterInfo = "filtered: " + m.logFilter
+	if m.logFilterLabel != "" {
+		filterInfo = m.logFilterLabel
 	}
-	header := m.styles.LogHeaderStyle().Render(fmt.Sprintf("Logs (%s)", filterInfo))
+	headerStyle := m.styles.PanelHeaderUnfocusedStyle()
+	if m.panelFocus == FocusLogs {
+		headerStyle = m.styles.PanelHeaderFocusedStyle()
+	}
+	header := headerStyle.Width(layout.Logs.Width).Render(fmt.Sprintf(" Logs (%s)", filterInfo))
 
 	// Build log content
 	entries := m.filteredLogEntries()
@@ -399,12 +410,19 @@ func (m Model) renderLogPanel(layout Layout) string {
 
 // renderTree renders the tree view with containers and their sessions.
 func (m Model) renderTree(layout Layout) string {
+	headerStyle := m.styles.PanelHeaderUnfocusedStyle()
+	if m.panelFocus == FocusTree {
+		headerStyle = m.styles.PanelHeaderFocusedStyle()
+	}
+	header := headerStyle.Width(layout.Tree.Width).Render(" Containers")
+
 	if len(m.treeItems) == 0 {
-		return lipgloss.NewStyle().
+		body := lipgloss.NewStyle().
 			Width(layout.Tree.Width).
-			Height(layout.Tree.Height).
+			Height(layout.Tree.Height - 1).
 			Padding(1).
 			Render(m.styles.InfoStyle().Render("No containers. Press 'c' to create one."))
+		return lipgloss.JoinVertical(lipgloss.Left, header, body)
 	}
 
 	var lines []string
@@ -416,10 +434,12 @@ func (m Model) renderTree(layout Layout) string {
 
 	content := strings.Join(lines, "\n")
 
-	return lipgloss.NewStyle().
+	body := lipgloss.NewStyle().
 		Width(layout.Tree.Width).
-		Height(layout.Tree.Height).
+		Height(layout.Tree.Height - 1).
 		Render(content)
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, body)
 }
 
 // renderTreeItem renders a single tree item (container or session).
@@ -516,25 +536,39 @@ func (m Model) renderDetailPanel(layout Layout) string {
 		return ""
 	}
 
-	// Panel styling
+	// Panel header with focus indicator
+	headerStyle := m.styles.PanelHeaderUnfocusedStyle()
+	if m.panelFocus == FocusDetail {
+		headerStyle = m.styles.PanelHeaderFocusedStyle()
+	}
+	header := headerStyle.Width(layout.Detail.Width).Render(" Details")
+
+	// Body styling (keep left border, subtract 1 for header)
 	panelStyle := lipgloss.NewStyle().
 		Width(layout.Detail.Width - 2).
-		Height(layout.Detail.Height).
+		Height(layout.Detail.Height - 1).
 		Padding(1).
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(lipgloss.Color(m.styles.flavor.Surface1().Hex))
 
 	// Check if we have a selection
 	if m.selectedIdx < 0 || m.selectedIdx >= len(m.treeItems) || m.selectedContainer == nil {
-		return panelStyle.Render(m.styles.InfoStyle().Render("Select an item to view details"))
+		return lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			panelStyle.Render(m.styles.InfoStyle().Render("Select an item to view details")),
+		)
 	}
 
 	item := m.treeItems[m.selectedIdx]
 
+	var content string
 	if item.Type == TreeItemContainer {
-		return panelStyle.Render(m.renderContainerDetailContent())
+		content = m.renderContainerDetailContent()
+	} else {
+		content = m.renderSessionDetailContent()
 	}
-	return panelStyle.Render(m.renderSessionDetailContent())
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, panelStyle.Render(content))
 }
 
 // renderContainerDetailContent renders detail content for a container.
@@ -545,13 +579,8 @@ func (m Model) renderContainerDetailContent() string {
 
 	c := m.selectedContainer
 
-	// Header
-	header := m.styles.TitleStyle().Render("Container Details")
-
-	// Build info lines
+	// Build info lines (panel header replaces TitleStyle header)
 	lines := []string{
-		header,
-		"",
 		fmt.Sprintf("Name:     %s", c.Name),
 		fmt.Sprintf("ID:       %s", c.ID),
 		fmt.Sprintf("State:    %s", string(c.State)),
@@ -586,19 +615,14 @@ func (m Model) renderSessionDetailContent() string {
 		return "No session selected"
 	}
 
-	// Header
-	header := m.styles.TitleStyle().Render("Session Details")
-
 	// Attached status
 	attachedStr := "No"
 	if sess.Attached {
 		attachedStr = "Yes"
 	}
 
-	// Build info lines
+	// Build info lines (panel header replaces TitleStyle header)
 	lines := []string{
-		header,
-		"",
 		fmt.Sprintf("Name:      %s", sess.Name),
 		fmt.Sprintf("Container: %s", m.selectedContainer.Name),
 		fmt.Sprintf("Windows:   %d", sess.Windows),
