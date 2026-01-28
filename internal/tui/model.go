@@ -23,7 +23,8 @@ import (
 type TreeItemType int
 
 const (
-	TreeItemContainer TreeItemType = iota
+	TreeItemAll TreeItemType = iota
+	TreeItemContainer
 	TreeItemSession
 )
 
@@ -34,6 +35,9 @@ type TreeItem struct {
 	SessionName string // empty for containers
 	Expanded    bool   // only meaningful for containers
 }
+
+// IsAll returns true if this is the "All Containers" item.
+func (t TreeItem) IsAll() bool { return t.Type == TreeItemAll }
 
 // IsContainer returns true if this is a container item.
 func (t TreeItem) IsContainer() bool { return t.Type == TreeItemContainer }
@@ -134,6 +138,10 @@ type Model struct {
 	logManager     *logging.Manager
 	logger         *logging.ScopedLogger
 
+	// Quit tracking
+	lastCtrlCTime time.Time // for double ctrl+c detection
+	quitHintCount int // consecutive esc/q presses with nothing to close
+
 	err error
 }
 
@@ -155,6 +163,8 @@ func NewModelWithTemplates(cfg *config.Config, templates []config.Template, logM
 	containerList.SetShowStatusBar(false)
 	containerList.SetFilteringEnabled(false)
 	containerList.SetShowHelp(false)
+	// Disable built-in quit keys — we handle quitting ourselves
+	containerList.DisableQuitKeybindings()
 
 	// Initialize status spinner
 	styles := NewStyles(cfg.Theme)
@@ -245,6 +255,42 @@ func (m Model) refreshSessions() tea.Cmd {
 
 		m.logger.Debug("sessions refreshed", "containerID", containerID, "count", len(sessions))
 		return sessionsRefreshedMsg{containerID: containerID, sessions: sessions}
+	}
+}
+
+// allSessionsRefreshedMsg is sent when sessions for all containers are updated.
+type allSessionsRefreshedMsg struct {
+	sessionsByContainer map[string][]container.Session
+}
+
+// refreshAllSessions returns a command to refresh sessions for all running containers.
+func (m Model) refreshAllSessions() tea.Cmd {
+	var runningIDs []string
+	for _, item := range m.containerList.Items() {
+		if ci, ok := item.(containerItem); ok {
+			if ci.container.State == container.StateRunning {
+				runningIDs = append(runningIDs, ci.container.ID)
+			}
+		}
+	}
+
+	if len(runningIDs) == 0 {
+		return nil
+	}
+
+	return func() tea.Msg {
+		result := make(map[string][]container.Session)
+		for _, id := range runningIDs {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			sessions, err := m.manager.ListSessions(ctx, id)
+			cancel()
+			if err != nil {
+				m.logger.Error("session refresh failed", "containerID", id, "error", err)
+				continue
+			}
+			result[id] = sessions
+		}
+		return allSessionsRefreshedMsg{sessionsByContainer: result}
 	}
 }
 
@@ -501,6 +547,7 @@ func (m *Model) updateLogViewportContent() {
 // container expansion state. Call this after containers change or expansion toggles.
 func (m *Model) rebuildTreeItems() {
 	m.treeItems = nil
+	m.treeItems = append(m.treeItems, TreeItem{Type: TreeItemAll})
 
 	for _, item := range m.containerList.Items() {
 		ci, ok := item.(containerItem)
@@ -560,6 +607,13 @@ func (m *Model) syncSelectionFromTree() {
 	}
 
 	item := m.treeItems[m.selectedIdx]
+
+	if item.Type == TreeItemAll {
+		m.selectedContainer = nil
+		m.selectedSessionIdx = 0
+		m.setLogFilterFromContext()
+		return
+	}
 
 	// Find the container for this item
 	for _, listItem := range m.containerList.Items() {

@@ -1,7 +1,7 @@
 # Example configuration for devagent
 # Copy to ~/.config/devagent/config.yaml
 
-theme: mocha  # Catppuccin theme: mocha, macchiato, frappe, latte
+theme: macchiato  # Catppuccin theme: mocha, macchiato, frappe, latte
 log_level: info  # debug, info, warn, error
 
 # Container runtime (auto-detected if not specified)

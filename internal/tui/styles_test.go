@@ -69,6 +69,20 @@ func TestStyles_StatusStyles(t *testing.T) {
 	}
 }
 
+func TestStyles_TreeItemSelectedStyle(t *testing.T) {
+	styles := NewStyles("mocha")
+
+	selectedStyle := styles.TreeItemSelectedStyle()
+	rendered := selectedStyle.Render("test")
+	if rendered == "" {
+		t.Error("TreeItemSelectedStyle should render content")
+	}
+
+	if !selectedStyle.GetBold() {
+		t.Error("TreeItemSelectedStyle should be bold")
+	}
+}
+
 func TestStyles_PanelHeaderStyles(t *testing.T) {
 	styles := NewStyles("mocha")
 

@@ -109,6 +109,11 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*DevcontainerJSON,
 		)
 	}
 
+	// Set Docker container name via runArgs
+	if opts.Name != "" {
+		dc.RunArgs = append(dc.RunArgs, "--name", opts.Name)
+	}
+
 	return dc, nil
 }
 

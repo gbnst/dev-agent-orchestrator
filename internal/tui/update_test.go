@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
@@ -53,13 +54,16 @@ func TestLogPanelToggle_LKey(t *testing.T) {
 func TestContainerAction_ShowsLoading(t *testing.T) {
 	m := newTestModel(t)
 
-	// Add a container
+	// Add a container and select it
 	ctr := &container.Container{
 		ID:    "abc123def456",
 		Name:  "test-container",
 		State: container.StateStopped,
 	}
 	m.containerList.SetItems(toListItems([]*container.Container{ctr}))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1 // Container (after All)
+	m.syncSelectionFromTree()
 
 	// Press 's' to start
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")}
@@ -131,13 +135,16 @@ func TestEscape_ClearsError(t *testing.T) {
 func TestContainerAction_SetsPending(t *testing.T) {
 	m := newTestModel(t)
 
-	// Add a container
+	// Add a container and select it
 	ctr := &container.Container{
 		ID:    "abc123def456",
 		Name:  "test-container",
 		State: container.StateStopped,
 	}
 	m.containerList.SetItems(toListItems([]*container.Container{ctr}))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1 // Container (after All)
+	m.syncSelectionFromTree()
 
 	// Press 's' to start
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")}
@@ -210,9 +217,10 @@ func TestLogFilter_SyncsOnTreeNavigation(t *testing.T) {
 	c := &container.Container{ID: "abc123456789", Name: "test", State: container.StateRunning}
 	m.containerList.SetItems([]list.Item{containerItem{container: c}})
 	m.treeItems = []TreeItem{
+		{Type: TreeItemAll},
 		{Type: TreeItemContainer, ContainerID: c.ID},
 	}
-	m.selectedIdx = 0
+	m.selectedIdx = 1 // Container (after All)
 
 	// syncSelectionFromTree now syncs the log filter
 	m.syncSelectionFromTree()
@@ -513,7 +521,7 @@ func TestClosingDetailPanel_ReturnsFocusToTree(t *testing.T) {
 	}
 	m.containerList.SetItems(toListItems(containers))
 	m.rebuildTreeItems()
-	m.selectedIdx = 0
+	m.selectedIdx = 1 // Container (after All)
 
 	// Press left to close detail panel
 	msg := tea.KeyMsg{Type: tea.KeyLeft}
@@ -547,5 +555,312 @@ func TestNextFocus_SkipsClosedPanels(t *testing.T) {
 	got = m.nextFocus()
 	if got != FocusLogs {
 		t.Errorf("nextFocus() = %d, want FocusLogs when only logs open", got)
+	}
+}
+
+// Quit behavior tests
+
+func TestCtrlD_Quits(t *testing.T) {
+	m := newTestModel(t)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	_, cmd := m.Update(msg)
+
+	if cmd == nil {
+		t.Fatal("ctrl+d should return a command")
+	}
+	// tea.Quit returns a special quit message
+	quitMsg := cmd()
+	if _, ok := quitMsg.(tea.QuitMsg); !ok {
+		t.Errorf("ctrl+d should return tea.Quit, got %T", quitMsg)
+	}
+}
+
+func TestSingleCtrlC_DoesNotQuit(t *testing.T) {
+	m := newTestModel(t)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
+	_, cmd := m.Update(msg)
+
+	if cmd != nil {
+		t.Error("single ctrl+c should not return a command")
+	}
+}
+
+func TestDoubleCtrlC_Quits(t *testing.T) {
+	m := newTestModel(t)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
+
+	// First press
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.lastCtrlCTime.IsZero() {
+		t.Fatal("lastCtrlCTime should be set after first ctrl+c")
+	}
+
+	// Second press (immediately after)
+	_, cmd := m.Update(msg)
+	if cmd == nil {
+		t.Fatal("double ctrl+c should return a command")
+	}
+	quitMsg := cmd()
+	if _, ok := quitMsg.(tea.QuitMsg); !ok {
+		t.Errorf("double ctrl+c should return tea.Quit, got %T", quitMsg)
+	}
+}
+
+func TestCtrlC_ExpiredWindow_DoesNotQuit(t *testing.T) {
+	m := newTestModel(t)
+
+	// Simulate a ctrl+c that happened long ago
+	m.lastCtrlCTime = time.Now().Add(-1 * time.Second)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
+	_, cmd := m.Update(msg)
+
+	if cmd != nil {
+		t.Error("ctrl+c after expired window should not quit")
+	}
+}
+
+func TestQKey_DoesNotQuit(t *testing.T) {
+	m := newTestModel(t)
+
+	// Set up tree items so we have context for the key handler
+	containers := []*container.Container{
+		{ID: "aaa111222333", Name: "container-1", State: container.StateRunning},
+	}
+	m.containerList.SetItems(toListItems(containers))
+	m.rebuildTreeItems()
+	m.selectedIdx = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}
+	_, cmd := m.Update(msg)
+
+	// q should not produce a quit command
+	if cmd != nil {
+		result := cmd()
+		if _, ok := result.(tea.QuitMsg); ok {
+			t.Error("q key should not quit the application")
+		}
+	}
+}
+
+// Escape behavior tests
+
+func TestEscape_ClosesDetailPanel_WhenTreeFocused(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusTree
+	m.detailPanelOpen = true
+
+	containers := []*container.Container{
+		{ID: "aaa111222333", Name: "container-1", State: container.StateRunning},
+	}
+	m.containerList.SetItems(toListItems(containers))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	updated, _ := m.Update(msg)
+	result := updated.(Model)
+
+	if result.detailPanelOpen {
+		t.Error("escape should close detail panel when tree focused")
+	}
+	if result.quitHintCount != 0 {
+		t.Errorf("quitHintCount should be 0 after closing panel, got %d", result.quitHintCount)
+	}
+}
+
+func TestEscape_ShowsQuitHint_AfterTwoPresses(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusTree
+	m.detailPanelOpen = false
+
+	containers := []*container.Container{
+		{ID: "aaa111222333", Name: "container-1", State: container.StateRunning},
+	}
+	m.containerList.SetItems(toListItems(containers))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+
+	// First press — nothing to close
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+	if m.quitHintCount != 1 {
+		t.Errorf("quitHintCount = %d after first esc, want 1", m.quitHintCount)
+	}
+
+	// Second press — should show hint and return a delayed clear command
+	updated, cmd := m.Update(msg)
+	m = updated.(Model)
+	if m.statusMessage != "ctrl+c ctrl+c to quit" {
+		t.Errorf("statusMessage = %q, want %q", m.statusMessage, "ctrl+c ctrl+c to quit")
+	}
+	if m.quitHintCount != 0 {
+		t.Errorf("quitHintCount should reset to 0 after showing hint, got %d", m.quitHintCount)
+	}
+	if cmd == nil {
+		t.Error("should return a delayed clear command")
+	}
+}
+
+func TestClearStatusMsg_ClearsQuitHint(t *testing.T) {
+	m := newTestModel(t)
+	m.statusLevel = StatusInfo
+	m.statusMessage = "ctrl+c ctrl+c to quit"
+
+	updated, _ := m.Update(clearStatusMsg{})
+	result := updated.(Model)
+
+	if result.statusMessage != "" {
+		t.Errorf("statusMessage = %q, want empty after clearStatusMsg", result.statusMessage)
+	}
+}
+
+func TestClearStatusMsg_DoesNotClobberOtherStatus(t *testing.T) {
+	m := newTestModel(t)
+	m.statusLevel = StatusSuccess
+	m.statusMessage = "Container started"
+
+	updated, _ := m.Update(clearStatusMsg{})
+	result := updated.(Model)
+
+	if result.statusMessage != "Container started" {
+		t.Errorf("statusMessage = %q, should not be cleared when not quit hint", result.statusMessage)
+	}
+	if result.statusLevel != StatusSuccess {
+		t.Errorf("statusLevel = %v, should remain StatusSuccess", result.statusLevel)
+	}
+}
+
+func TestEscape_ResetsCountOnOtherKey(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusTree
+	m.detailPanelOpen = false
+
+	containers := []*container.Container{
+		{ID: "aaa111222333", Name: "container-1", State: container.StateRunning},
+	}
+	m.containerList.SetItems(toListItems(containers))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1
+
+	// Press escape once
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+	if m.quitHintCount != 1 {
+		t.Fatalf("quitHintCount = %d after first esc, want 1", m.quitHintCount)
+	}
+
+	// Press a different key (r for refresh)
+	otherMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")}
+	updated, _ = m.Update(otherMsg)
+	m = updated.(Model)
+	if m.quitHintCount != 0 {
+		t.Errorf("quitHintCount should reset on non-escape key, got %d", m.quitHintCount)
+	}
+}
+
+func TestEscape_ReturnsLogsFocusToTree(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusLogs
+	m.logPanelOpen = true
+	m.logReady = true
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	updated, _ := m.Update(msg)
+	result := updated.(Model)
+
+	if result.panelFocus != FocusTree {
+		t.Errorf("panelFocus = %d, want FocusTree after esc from logs", result.panelFocus)
+	}
+	if result.quitHintCount != 0 {
+		t.Errorf("quitHintCount should be 0 after closing panel focus, got %d", result.quitHintCount)
+	}
+}
+
+func TestEscape_ReturnsDetailFocusToTree(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusDetail
+	m.detailPanelOpen = true
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	updated, _ := m.Update(msg)
+	result := updated.(Model)
+
+	if result.panelFocus != FocusTree {
+		t.Errorf("panelFocus = %d, want FocusTree after esc from detail", result.panelFocus)
+	}
+	if result.quitHintCount != 0 {
+		t.Errorf("quitHintCount should be 0 after returning focus, got %d", result.quitHintCount)
+	}
+}
+
+func TestQKey_ShowsQuitHint_AfterTwoPresses(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusTree
+
+	containers := []*container.Container{
+		{ID: "aaa111222333", Name: "container-1", State: container.StateRunning},
+	}
+	m.containerList.SetItems(toListItems(containers))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}
+
+	// First press
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+	if m.quitHintCount != 1 {
+		t.Errorf("quitHintCount = %d after first q, want 1", m.quitHintCount)
+	}
+
+	// Second press — should show hint
+	updated, cmd := m.Update(msg)
+	m = updated.(Model)
+	if m.statusMessage != "ctrl+c ctrl+c to quit" {
+		t.Errorf("statusMessage = %q, want %q", m.statusMessage, "ctrl+c ctrl+c to quit")
+	}
+	if cmd == nil {
+		t.Error("should return a delayed clear command")
+	}
+}
+
+func TestEscThenQ_ShowsQuitHint(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusTree
+	m.detailPanelOpen = false
+
+	containers := []*container.Container{
+		{ID: "aaa111222333", Name: "container-1", State: container.StateRunning},
+	}
+	m.containerList.SetItems(toListItems(containers))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1
+
+	// First press — esc with nothing to close
+	escMsg := tea.KeyMsg{Type: tea.KeyEscape}
+	updated, _ := m.Update(escMsg)
+	m = updated.(Model)
+	if m.quitHintCount != 1 {
+		t.Fatalf("quitHintCount = %d after esc, want 1", m.quitHintCount)
+	}
+
+	// Second press — q
+	qMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")}
+	updated, cmd := m.Update(qMsg)
+	m = updated.(Model)
+	if m.statusMessage != "ctrl+c ctrl+c to quit" {
+		t.Errorf("statusMessage = %q, want %q", m.statusMessage, "ctrl+c ctrl+c to quit")
+	}
+	if cmd == nil {
+		t.Error("should return a delayed clear command")
 	}
 }

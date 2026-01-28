@@ -200,7 +200,7 @@ func (m Model) renderSessionView() string {
 		errorDisplay = m.styles.ErrorStyle().Render(fmt.Sprintf("Error: %v", m.err))
 	}
 
-	help := m.styles.HelpStyle().Render("t: create session • k: kill session • ↑↓: navigate • Esc: back • q: quit")
+	help := m.styles.HelpStyle().Render("t: create session • k: kill session • ↑↓: navigate • esc: back")
 
 	parts := []string{
 		title,
@@ -321,16 +321,22 @@ func (m Model) renderContextualHelp() string {
 	var help string
 	switch m.panelFocus {
 	case FocusDetail:
-		help = "tab: next panel • esc: tree • l: logs • q: quit"
+		help = "tab: next panel • esc: tree • l: logs"
 	case FocusLogs:
-		help = "↑/↓: scroll • g/G: top/bottom • tab: next panel • esc: tree • q: quit"
+		help = "↑/↓: scroll • g/G: top/bottom • tab: next panel • esc: tree"
 	default: // FocusTree
+		sessionSelected := m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) && m.treeItems[m.selectedIdx].Type == TreeItemSession
+		allSelected := m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) && m.treeItems[m.selectedIdx].Type == TreeItemAll
 		if m.detailPanelOpen {
-			help = "←/esc: close detail • ↑/↓: navigate • tab: next panel • l: logs • q: quit"
+			help = "←/esc: close detail • ↑/↓: navigate • tab: next panel • l: logs"
+		} else if len(m.treeItems) > 0 && sessionSelected {
+			help = "↑/↓: navigate • →: details • k: kill session • tab: next panel • l: logs"
+		} else if len(m.treeItems) > 0 && allSelected {
+			help = "↑/↓: navigate • →: details • c: create • tab: next panel • l: logs"
 		} else if len(m.treeItems) > 0 {
-			help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: session • tab: next panel • l: logs • q: quit"
+			help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: session • tab: next panel • l: logs"
 		} else {
-			help = "c: create container • l: logs • q: quit"
+			help = "c: create container • l: logs"
 		}
 	}
 	return m.styles.HelpStyle().Render(help)
@@ -442,21 +448,41 @@ func (m Model) renderTree(layout Layout) string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, body)
 }
 
-// renderTreeItem renders a single tree item (container or session).
+// renderTreeItem renders a single tree item (container, session, or All Containers).
 func (m Model) renderTreeItem(item TreeItem, selected bool) string {
 	cursor := "  "
 	if selected {
 		cursor = "> "
 	}
 
-	if item.Type == TreeItemContainer {
-		return m.renderContainerTreeItem(item, cursor)
+	var line string
+	switch item.Type {
+	case TreeItemAll:
+		line = m.renderAllContainersTreeItem(cursor, selected)
+	case TreeItemContainer:
+		line = m.renderContainerTreeItem(item, cursor, selected)
+	default:
+		line = m.renderSessionTreeItem(item, cursor, selected)
 	}
-	return m.renderSessionTreeItem(item, cursor)
+
+	if selected {
+		line = m.styles.TreeItemSelectedStyle().Render(line)
+	}
+	return line
+}
+
+// renderAllContainersTreeItem renders the "All Containers" virtual row.
+func (m Model) renderAllContainersTreeItem(cursor string, selected bool) string {
+	icon := "◈"
+	if !selected {
+		icon = m.styles.AccentStyle().Render("◈")
+	}
+	return fmt.Sprintf("%s%s All Containers (%d)",
+		cursor, icon, len(m.containerList.Items()))
 }
 
 // renderContainerTreeItem renders a container in the tree.
-func (m Model) renderContainerTreeItem(item TreeItem, cursor string) string {
+func (m Model) renderContainerTreeItem(item TreeItem, cursor string, selected bool) string {
 	// Find the container to get its details
 	var c *container.Container
 	for _, listItem := range m.containerList.Items() {
@@ -478,15 +504,27 @@ func (m Model) renderContainerTreeItem(item TreeItem, cursor string) string {
 		indicator = "▾"
 	}
 
-	// State indicator
+	// State indicator — plain text when selected so the selected style
+	// applies uniformly (inner ANSI resets would override it).
 	var stateIcon string
-	switch c.State {
-	case container.StateRunning:
-		stateIcon = m.styles.SuccessStyle().Render("●")
-	case container.StateStopped:
-		stateIcon = m.styles.InfoStyle().Render("○")
-	default:
-		stateIcon = m.styles.InfoStyle().Render("◌")
+	if selected {
+		switch c.State {
+		case container.StateRunning:
+			stateIcon = "●"
+		case container.StateStopped:
+			stateIcon = "○"
+		default:
+			stateIcon = "◌"
+		}
+	} else {
+		switch c.State {
+		case container.StateRunning:
+			stateIcon = m.styles.SuccessStyle().Render("●")
+		case container.StateStopped:
+			stateIcon = m.styles.InfoStyle().Render("○")
+		default:
+			stateIcon = m.styles.InfoStyle().Render("◌")
+		}
 	}
 
 	name := c.Name
@@ -496,7 +534,7 @@ func (m Model) renderContainerTreeItem(item TreeItem, cursor string) string {
 }
 
 // renderSessionTreeItem renders a session in the tree (indented under container).
-func (m Model) renderSessionTreeItem(item TreeItem, cursor string) string {
+func (m Model) renderSessionTreeItem(item TreeItem, cursor string, _ bool) string {
 	// Find the session
 	var sess *container.Session
 	for _, listItem := range m.containerList.Items() {
@@ -552,7 +590,7 @@ func (m Model) renderDetailPanel(layout Layout) string {
 		BorderForeground(lipgloss.Color(m.styles.flavor.Surface1().Hex))
 
 	// Check if we have a selection
-	if m.selectedIdx < 0 || m.selectedIdx >= len(m.treeItems) || m.selectedContainer == nil {
+	if m.selectedIdx < 0 || m.selectedIdx >= len(m.treeItems) {
 		return lipgloss.JoinVertical(lipgloss.Left,
 			header,
 			panelStyle.Render(m.styles.InfoStyle().Render("Select an item to view details")),
@@ -562,13 +600,57 @@ func (m Model) renderDetailPanel(layout Layout) string {
 	item := m.treeItems[m.selectedIdx]
 
 	var content string
-	if item.Type == TreeItemContainer {
-		content = m.renderContainerDetailContent()
-	} else {
-		content = m.renderSessionDetailContent()
+	switch item.Type {
+	case TreeItemAll:
+		content = m.renderAllContainersDetailContent()
+	case TreeItemContainer:
+		if m.selectedContainer == nil {
+			content = m.styles.InfoStyle().Render("Select an item to view details")
+		} else {
+			content = m.renderContainerDetailContent()
+		}
+	default:
+		if m.selectedContainer == nil {
+			content = m.styles.InfoStyle().Render("Select an item to view details")
+		} else {
+			content = m.renderSessionDetailContent()
+		}
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, panelStyle.Render(content))
+}
+
+// renderAllContainersDetailContent renders the summary detail for "All Containers".
+func (m Model) renderAllContainersDetailContent() string {
+	var running, stopped, created, totalSessions int
+	for _, item := range m.containerList.Items() {
+		ci, ok := item.(containerItem)
+		if !ok {
+			continue
+		}
+		switch ci.container.State {
+		case container.StateRunning:
+			running++
+		case container.StateStopped:
+			stopped++
+		default:
+			created++
+		}
+		totalSessions += len(ci.container.Sessions)
+	}
+
+	lines := []string{
+		fmt.Sprintf("Total:    %d containers", len(m.containerList.Items())),
+		fmt.Sprintf("Running:  %d", running),
+		fmt.Sprintf("Stopped:  %d", stopped),
+	}
+	if created > 0 {
+		lines = append(lines, fmt.Sprintf("Created:  %d", created))
+	}
+	lines = append(lines, fmt.Sprintf("Sessions: %d", totalSessions))
+	lines = append(lines, fmt.Sprintf("Runtime:  %s", m.manager.RuntimeName()))
+
+	return strings.Join(lines, "\n")
 }
 
 // renderContainerDetailContent renders detail content for a container.

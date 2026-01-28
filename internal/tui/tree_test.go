@@ -81,14 +81,18 @@ func TestRebuildTreeItems_CollapsedContainers(t *testing.T) {
 	// All collapsed by default (expandedContainers is empty/nil)
 	m.rebuildTreeItems()
 
-	if len(m.treeItems) != 2 {
-		t.Errorf("expected 2 items (collapsed containers only), got %d", len(m.treeItems))
+	// 1 All + 2 containers = 3 items
+	if len(m.treeItems) != 3 {
+		t.Errorf("expected 3 items (All + 2 collapsed containers), got %d", len(m.treeItems))
 	}
-	if m.treeItems[0].Type != TreeItemContainer {
-		t.Error("first item should be container")
+	if m.treeItems[0].Type != TreeItemAll {
+		t.Error("first item should be All")
 	}
 	if m.treeItems[1].Type != TreeItemContainer {
 		t.Error("second item should be container")
+	}
+	if m.treeItems[2].Type != TreeItemContainer {
+		t.Error("third item should be container")
 	}
 }
 
@@ -111,27 +115,30 @@ func TestRebuildTreeItems_ExpandedContainer(t *testing.T) {
 
 	m.rebuildTreeItems()
 
-	// 1 container + 2 sessions = 3 items
-	if len(m.treeItems) != 3 {
-		t.Errorf("expected 3 items, got %d", len(m.treeItems))
+	// 1 All + 1 container + 2 sessions = 4 items
+	if len(m.treeItems) != 4 {
+		t.Errorf("expected 4 items, got %d", len(m.treeItems))
 	}
-	if m.treeItems[0].Type != TreeItemContainer {
-		t.Error("first item should be container")
+	if m.treeItems[0].Type != TreeItemAll {
+		t.Error("first item should be All")
 	}
-	if m.treeItems[0].ContainerID != "c1" {
-		t.Errorf("first item should have ContainerID 'c1', got %s", m.treeItems[0].ContainerID)
+	if m.treeItems[1].Type != TreeItemContainer {
+		t.Error("second item should be container")
 	}
-	if m.treeItems[1].Type != TreeItemSession {
-		t.Error("second item should be session")
-	}
-	if m.treeItems[1].SessionName != "dev" {
-		t.Errorf("second item should be session 'dev', got %s", m.treeItems[1].SessionName)
+	if m.treeItems[1].ContainerID != "c1" {
+		t.Errorf("second item should have ContainerID 'c1', got %s", m.treeItems[1].ContainerID)
 	}
 	if m.treeItems[2].Type != TreeItemSession {
 		t.Error("third item should be session")
 	}
-	if m.treeItems[2].SessionName != "test" {
-		t.Errorf("third item should be session 'test', got %s", m.treeItems[2].SessionName)
+	if m.treeItems[2].SessionName != "dev" {
+		t.Errorf("third item should be session 'dev', got %s", m.treeItems[2].SessionName)
+	}
+	if m.treeItems[3].Type != TreeItemSession {
+		t.Error("fourth item should be session")
+	}
+	if m.treeItems[3].SessionName != "test" {
+		t.Errorf("fourth item should be session 'test', got %s", m.treeItems[3].SessionName)
 	}
 }
 
@@ -163,18 +170,21 @@ func TestRebuildTreeItems_MixedExpansion(t *testing.T) {
 
 	m.rebuildTreeItems()
 
-	// c1 (expanded) + dev session + c2 (collapsed) = 3 items
-	if len(m.treeItems) != 3 {
-		t.Errorf("expected 3 items, got %d", len(m.treeItems))
+	// All + c1 (expanded) + dev session + c2 (collapsed) = 4 items
+	if len(m.treeItems) != 4 {
+		t.Errorf("expected 4 items, got %d", len(m.treeItems))
 	}
-	if m.treeItems[0].ContainerID != "c1" || m.treeItems[0].Type != TreeItemContainer {
-		t.Error("first item should be container c1")
+	if m.treeItems[0].Type != TreeItemAll {
+		t.Error("first item should be All")
 	}
-	if m.treeItems[1].SessionName != "dev" || m.treeItems[1].Type != TreeItemSession {
-		t.Error("second item should be session dev")
+	if m.treeItems[1].ContainerID != "c1" || m.treeItems[1].Type != TreeItemContainer {
+		t.Error("second item should be container c1")
 	}
-	if m.treeItems[2].ContainerID != "c2" || m.treeItems[2].Type != TreeItemContainer {
-		t.Error("third item should be container c2")
+	if m.treeItems[2].SessionName != "dev" || m.treeItems[2].Type != TreeItemSession {
+		t.Error("third item should be session dev")
+	}
+	if m.treeItems[3].ContainerID != "c2" || m.treeItems[3].Type != TreeItemContainer {
+		t.Error("fourth item should be container c2")
 	}
 }
 
@@ -186,8 +196,12 @@ func TestRebuildTreeItems_EmptyContainers(t *testing.T) {
 
 	m.rebuildTreeItems()
 
-	if len(m.treeItems) != 0 {
-		t.Errorf("expected 0 items for empty container list, got %d", len(m.treeItems))
+	// All is always present, even with no containers
+	if len(m.treeItems) != 1 {
+		t.Errorf("expected 1 item (All) for empty container list, got %d", len(m.treeItems))
+	}
+	if m.treeItems[0].Type != TreeItemAll {
+		t.Error("only item should be All")
 	}
 }
 
@@ -207,8 +221,8 @@ func TestRebuildTreeItems_ExpandedState(t *testing.T) {
 
 	m.rebuildTreeItems()
 
-	// Container item should have Expanded = true
-	if !m.treeItems[0].Expanded {
+	// Container item should have Expanded = true (index 1, after All)
+	if !m.treeItems[1].Expanded {
 		t.Error("container tree item should have Expanded=true when in expandedContainers")
 	}
 }
@@ -252,15 +266,16 @@ func TestTreeNavigation_DownKey(t *testing.T) {
 
 func TestTreeNavigation_DownKey_StopsAtEnd(t *testing.T) {
 	m := newTreeTestModelWithContainers(t, 2)
-	m.selectedIdx = 1 // Last item (collapsed, so only 2 items)
+	// All + 2 containers = 3 items, last index is 2
+	m.selectedIdx = 2
 
 	msg := tea.KeyMsg{Type: tea.KeyDown}
 	updated, _ := m.Update(msg)
 	result := updated.(Model)
 
 	// Should stay at last item
-	if result.selectedIdx != 1 {
-		t.Errorf("expected selectedIdx=1 (stay at end), got %d", result.selectedIdx)
+	if result.selectedIdx != 2 {
+		t.Errorf("expected selectedIdx=2 (stay at end), got %d", result.selectedIdx)
 	}
 }
 
@@ -293,14 +308,14 @@ func TestTreeNavigation_UpKey_StopsAtStart(t *testing.T) {
 
 func TestTreeNavigation_EnterExpandsContainer(t *testing.T) {
 	m := newTreeTestModelWithContainers(t, 2)
-	m.selectedIdx = 0 // First container (collapsed)
+	m.selectedIdx = 1 // First container (after All, collapsed)
 	initialItems := len(m.treeItems)
 
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
 	updated, _ := m.Update(msg)
 	result := updated.(Model)
 
-	containerID := result.treeItems[0].ContainerID
+	containerID := result.treeItems[1].ContainerID
 	if !result.expandedContainers[containerID] {
 		t.Error("container should be expanded after Enter")
 	}
@@ -313,7 +328,7 @@ func TestTreeNavigation_EnterCollapsesExpandedContainer(t *testing.T) {
 	m := newTreeTestModelWithContainers(t, 1)
 	m.expandedContainers["c1"] = true
 	m.rebuildTreeItems()
-	m.selectedIdx = 0 // Select the expanded container
+	m.selectedIdx = 1 // Select the expanded container (after All)
 
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
 	updated, _ := m.Update(msg)
@@ -368,7 +383,7 @@ func TestTreeNavigation_EscapeClosesDetailPanel(t *testing.T) {
 
 func TestTreeNavigation_SelectionSyncsSelectedContainer(t *testing.T) {
 	m := newTreeTestModelWithContainers(t, 2)
-	m.selectedIdx = 0
+	m.selectedIdx = 1 // First container (after All)
 
 	// Move down to second container
 	msg := tea.KeyMsg{Type: tea.KeyDown}
@@ -388,9 +403,9 @@ func TestTreeNavigation_SelectionOnSessionSyncsSession(t *testing.T) {
 	m := newTreeTestModelWithContainers(t, 1)
 	m.expandedContainers["c1"] = true
 	m.rebuildTreeItems()
-	m.selectedIdx = 1 // First session under c1
+	m.selectedIdx = 2 // First session under c1 (All=0, c1=1, dev=2)
 
-	// Trigger sync by navigating (even staying in place)
+	// Trigger sync by navigating down to second session (test=3)
 	msg := tea.KeyMsg{Type: tea.KeyDown}
 	updated, _ := m.Update(msg)
 	result := updated.(Model)
@@ -399,7 +414,7 @@ func TestTreeNavigation_SelectionOnSessionSyncsSession(t *testing.T) {
 	if result.selectedContainer == nil {
 		t.Fatal("selectedContainer should be set")
 	}
-	// selectedSessionIdx should reflect the session
+	// selectedSessionIdx should reflect the second session
 	if result.selectedSessionIdx != 1 {
 		t.Errorf("selectedSessionIdx = %d, want 1", result.selectedSessionIdx)
 	}
@@ -465,7 +480,7 @@ func TestRenderTree_HighlightsSelectedItem(t *testing.T) {
 		containerItem{container: c2},
 	})
 	m.rebuildTreeItems()
-	m.selectedIdx = 1 // Second container selected
+	m.selectedIdx = 2 // Second container selected (after All + first container)
 
 	layout := ComputeLayout(80, 24, false, false)
 	result := m.renderTree(layout)
@@ -531,7 +546,7 @@ func TestRenderDetailPanel_Container(t *testing.T) {
 	}
 	m.containerList.SetItems([]list.Item{containerItem{container: c}})
 	m.rebuildTreeItems()
-	m.selectedIdx = 0
+	m.selectedIdx = 1 // Container (after All)
 	m.detailPanelOpen = true
 	m.syncSelectionFromTree()
 
@@ -564,7 +579,7 @@ func TestRenderDetailPanel_Session(t *testing.T) {
 	m.containerList.SetItems([]list.Item{containerItem{container: c}})
 	m.expandedContainers = map[string]bool{"c1": true}
 	m.rebuildTreeItems()
-	m.selectedIdx = 1 // Session item
+	m.selectedIdx = 2 // Session item (All=0, c1=1, dev=2)
 	m.detailPanelOpen = true
 	m.syncSelectionFromTree()
 
@@ -594,7 +609,7 @@ func TestRenderDetailPanel_ShowsContainerForSession(t *testing.T) {
 	m.containerList.SetItems([]list.Item{containerItem{container: c}})
 	m.expandedContainers = map[string]bool{"c1": true}
 	m.rebuildTreeItems()
-	m.selectedIdx = 1 // Session item
+	m.selectedIdx = 2 // Session item (All=0, c1=1, dev=2)
 	m.detailPanelOpen = true
 	m.syncSelectionFromTree()
 
@@ -619,5 +634,162 @@ func TestRenderDetailPanel_Empty(t *testing.T) {
 	// Should show something even with nothing selected
 	if result == "" {
 		t.Error("detail panel should render something even when empty")
+	}
+}
+
+// New tests for TreeItemAll
+
+func TestTreeItemAll_IsAll(t *testing.T) {
+	item := TreeItem{Type: TreeItemAll}
+	if !item.IsAll() {
+		t.Error("IsAll should return true for All items")
+	}
+	if item.IsContainer() {
+		t.Error("IsContainer should return false for All items")
+	}
+	if item.IsSession() {
+		t.Error("IsSession should return false for All items")
+	}
+}
+
+func TestRebuildTreeItems_AlwaysHasAll(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	// With no containers
+	m.containerList.SetItems([]list.Item{})
+	m.rebuildTreeItems()
+	if len(m.treeItems) < 1 || m.treeItems[0].Type != TreeItemAll {
+		t.Error("tree should always start with All item")
+	}
+
+	// With containers
+	m.containerList.SetItems([]list.Item{
+		containerItem{container: &container.Container{ID: "c1", Name: "c1"}},
+	})
+	m.rebuildTreeItems()
+	if m.treeItems[0].Type != TreeItemAll {
+		t.Error("tree should always start with All item even with containers")
+	}
+}
+
+func TestSyncSelection_AllContainersNilsSelectedContainer(t *testing.T) {
+	m := newTreeTestModel(t)
+	c := &container.Container{ID: "c1", Name: "test", State: container.StateRunning}
+	m.containerList.SetItems([]list.Item{containerItem{container: c}})
+	m.rebuildTreeItems()
+
+	// Select a container first
+	m.selectedIdx = 1
+	m.syncSelectionFromTree()
+	if m.selectedContainer == nil {
+		t.Fatal("selectedContainer should be set when container is selected")
+	}
+
+	// Select All
+	m.selectedIdx = 0
+	m.syncSelectionFromTree()
+	if m.selectedContainer != nil {
+		t.Error("selectedContainer should be nil when All is selected")
+	}
+	if m.logFilter != "" {
+		t.Errorf("logFilter should be empty when All is selected, got %q", m.logFilter)
+	}
+}
+
+func TestContainerAction_NoOpWhenAllSelected(t *testing.T) {
+	m := newTreeTestModel(t)
+	c := &container.Container{ID: "c1", Name: "test", State: container.StateStopped}
+	m.containerList.SetItems([]list.Item{containerItem{container: c}})
+	m.rebuildTreeItems()
+	m.selectedIdx = 0 // All selected
+	m.syncSelectionFromTree()
+
+	// Press 's' - should be no-op
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")}
+	updated, _ := m.Update(msg)
+	result := updated.(Model)
+
+	if result.statusLevel == StatusLoading {
+		t.Error("s key should be no-op when All is selected")
+	}
+
+	// Press 'x' - should be no-op
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")}
+	updated, _ = m.Update(msg)
+	result = updated.(Model)
+
+	if result.statusLevel == StatusLoading {
+		t.Error("x key should be no-op when All is selected")
+	}
+
+	// Press 'd' - should be no-op
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")}
+	updated, _ = m.Update(msg)
+	result = updated.(Model)
+
+	if result.statusLevel == StatusLoading {
+		t.Error("d key should be no-op when All is selected")
+	}
+
+	// Press 't' - should be no-op
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")}
+	updated, _ = m.Update(msg)
+	result = updated.(Model)
+
+	if result.sessionFormOpen {
+		t.Error("t key should be no-op when All is selected")
+	}
+}
+
+func TestRenderAllContainersDetailContent(t *testing.T) {
+	m := newTreeTestModel(t)
+	containers := []*container.Container{
+		{ID: "c1", Name: "running-1", State: container.StateRunning, Sessions: []container.Session{
+			{Name: "dev", ContainerID: "c1"},
+		}},
+		{ID: "c2", Name: "stopped-1", State: container.StateStopped},
+		{ID: "c3", Name: "running-2", State: container.StateRunning},
+	}
+	var items []list.Item
+	for _, c := range containers {
+		items = append(items, containerItem{container: c})
+	}
+	m.containerList.SetItems(items)
+	m.rebuildTreeItems()
+	m.selectedIdx = 0 // All
+	m.detailPanelOpen = true
+
+	layout := ComputeLayout(100, 40, false, true)
+	result := m.renderDetailPanel(layout)
+
+	if !strings.Contains(result, "3 containers") {
+		t.Errorf("should show total container count, got: %s", result)
+	}
+	if !strings.Contains(result, "Running:  2") {
+		t.Errorf("should show running count, got: %s", result)
+	}
+	if !strings.Contains(result, "Stopped:  1") {
+		t.Errorf("should show stopped count, got: %s", result)
+	}
+	if !strings.Contains(result, "Sessions: 1") {
+		t.Errorf("should show total session count, got: %s", result)
+	}
+}
+
+func TestRenderTree_ShowsAllContainersRow(t *testing.T) {
+	m := newTreeTestModel(t)
+	c := &container.Container{ID: "c1", Name: "test-container", State: container.StateRunning}
+	m.containerList.SetItems([]list.Item{containerItem{container: c}})
+	m.rebuildTreeItems()
+	m.selectedIdx = 0
+
+	layout := ComputeLayout(80, 24, false, false)
+	result := m.renderTree(layout)
+
+	if !strings.Contains(result, "All Containers") {
+		t.Errorf("tree should show All Containers row, got: %s", result)
+	}
+	if !strings.Contains(result, "(1)") {
+		t.Errorf("All Containers should show count, got: %s", result)
 	}
 }

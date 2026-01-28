@@ -388,6 +388,12 @@ func TestDevcontainerCLI_Up_CallsCorrectCommand(t *testing.T) {
 	if !hasWorkspace {
 		t.Error("Missing --workspace-folder argument")
 	}
+	// --container-name should NOT be passed (not a valid devcontainer CLI flag)
+	for _, arg := range capturedArgs {
+		if arg == "--container-name" {
+			t.Error("--container-name should not be passed to devcontainer CLI")
+		}
+	}
 	if containerID != "abc123" {
 		t.Errorf("containerID: got %q, want %q", containerID, "abc123")
 	}
@@ -438,6 +444,69 @@ func TestDevcontainerCLI_Up_WithoutDockerPath(t *testing.T) {
 	for _, arg := range capturedArgs {
 		if arg == "--docker-path" {
 			t.Errorf("--docker-path should not be present when runtime not set, got args: %v", capturedArgs)
+		}
+	}
+}
+
+func TestGenerate_AddsDockerNameToRunArgs(t *testing.T) {
+	cfg := &config.Config{
+		BaseImages: map[string]string{
+			"default": "ubuntu:22.04",
+		},
+	}
+	templates := []config.Template{
+		{
+			Name:      "default",
+			BaseImage: "default",
+		},
+	}
+
+	g := NewDevcontainerGenerator(cfg, templates)
+	dc, err := g.Generate(CreateOptions{
+		Template: "default",
+		Name:     "my-container",
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// Check RunArgs contains --name my-container
+	hasName := false
+	for i, arg := range dc.RunArgs {
+		if arg == "--name" && i+1 < len(dc.RunArgs) && dc.RunArgs[i+1] == "my-container" {
+			hasName = true
+		}
+	}
+	if !hasName {
+		t.Errorf("Expected --name my-container in RunArgs, got: %v", dc.RunArgs)
+	}
+}
+
+func TestGenerate_OmitsDockerNameWhenEmpty(t *testing.T) {
+	cfg := &config.Config{
+		BaseImages: map[string]string{
+			"default": "ubuntu:22.04",
+		},
+	}
+	templates := []config.Template{
+		{
+			Name:      "default",
+			BaseImage: "default",
+		},
+	}
+
+	g := NewDevcontainerGenerator(cfg, templates)
+	dc, err := g.Generate(CreateOptions{
+		Template: "default",
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// Check RunArgs does NOT contain --name
+	for _, arg := range dc.RunArgs {
+		if arg == "--name" {
+			t.Errorf("--name should not be in RunArgs when Name is empty, got: %v", dc.RunArgs)
 		}
 	}
 }

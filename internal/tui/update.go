@@ -15,6 +15,9 @@ import (
 	"devagent/internal/logging"
 )
 
+// doubleCtrlCWindow is the maximum time between two ctrl+c presses to trigger quit.
+const doubleCtrlCWindow = 500 * time.Millisecond
+
 // Message types for container operations.
 type containersRefreshedMsg struct {
 	containers []*container.Container
@@ -38,6 +41,9 @@ type tickMsg struct {
 type logEntriesMsg struct {
 	entries []logging.LogEntry
 }
+
+// clearStatusMsg is sent after a timed delay to clear the status bar.
+type clearStatusMsg struct{}
 
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -83,9 +89,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Debug all key presses
 		m.logger.Debug("key pressed", "key", msg.String(), "type", msg.Type, "hasSelectedContainer", m.selectedContainer != nil, "formOpen", m.formOpen, "sessionViewOpen", m.sessionViewOpen, "sessionFormOpen", m.sessionFormOpen)
 
+		// Handle quit shortcuts first (ctrl+d always, ctrl+c double-press)
+		if msg.Type == tea.KeyCtrlD {
+			m.logger.Debug("quit via ctrl+d")
+			return m, tea.Quit
+		}
+		if msg.Type == tea.KeyCtrlC {
+			now := time.Now()
+			if !m.lastCtrlCTime.IsZero() && now.Sub(m.lastCtrlCTime) <= doubleCtrlCWindow {
+				m.logger.Debug("quit via double ctrl+c")
+				return m, tea.Quit
+			}
+			m.lastCtrlCTime = now
+			return m, nil
+		}
+
 		// Clear error with Escape
 		if msg.Type == tea.KeyEscape && m.statusLevel == StatusError {
 			m.clearStatus()
+			m.quitHintCount = 0
 			return m, nil
 		}
 
@@ -114,7 +136,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.moveTreeSelectionDown()
 				return m, nil
 			case tea.KeyEnter:
-				// Toggle expand/collapse for containers
+				// Toggle expand/collapse for containers, open detail for others
 				if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
 					item := m.treeItems[m.selectedIdx]
 					if item.Type == TreeItemContainer {
@@ -136,8 +158,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Close detail panel (if open)
 				if m.detailPanelOpen {
 					m.detailPanelOpen = false
+					m.quitHintCount = 0
 					return m, nil
 				}
+				// Nothing to close — track for hint
+				m.quitHintCount++
+				if m.quitHintCount >= 2 {
+					m.statusLevel = StatusInfo
+					m.statusMessage = "ctrl+c ctrl+c to quit"
+					m.quitHintCount = 0
+					return m, tea.Tick(4*time.Second, func(time.Time) tea.Msg {
+						return clearStatusMsg{}
+					})
+				}
+				return m, nil
 			}
 		}
 
@@ -156,6 +190,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case tea.KeyEscape:
 				m.panelFocus = FocusTree
+				m.quitHintCount = 0
 				return m, nil
 			}
 		}
@@ -164,18 +199,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panelFocus == FocusDetail {
 			if msg.Type == tea.KeyEscape {
 				m.panelFocus = FocusTree
+				m.quitHintCount = 0
 				return m, nil
 			}
 		}
+
+		// "q" triggers the same quit hint as escape
+		if msg.String() == "q" {
+			m.quitHintCount++
+			if m.quitHintCount >= 2 {
+				m.statusLevel = StatusInfo
+				m.statusMessage = "ctrl+c ctrl+c to quit"
+				m.quitHintCount = 0
+				return m, tea.Tick(4*time.Second, func(time.Time) tea.Msg {
+					return clearStatusMsg{}
+				})
+			}
+			return m, nil
+		}
+
+		// Reset quit hint count on any other key
+		m.quitHintCount = 0
 
 		switch msg.String() {
 		case "tab":
 			m.panelFocus = m.nextFocus()
 			return m, nil
-
-		case "q", "ctrl+c":
-			m.logger.Debug("quit command received")
-			return m, tea.Quit
 
 		case "r":
 			// Refresh containers
@@ -189,7 +238,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "s":
-			// Start selected container
+			// Start selected container (no-op when All Containers is selected)
+			if m.selectedContainer == nil {
+				break
+			}
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
 				m.logger.Info("starting container", "containerID", item.container.ID, "name", item.container.Name)
 				m.setPending(item.container.ID, "start")
@@ -198,7 +250,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "x":
-			// Stop selected container
+			// Stop selected container (no-op when All Containers is selected)
+			if m.selectedContainer == nil {
+				break
+			}
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
 				m.logger.Info("stopping container", "containerID", item.container.ID, "name", item.container.Name)
 				m.setPending(item.container.ID, "stop")
@@ -207,7 +262,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "d":
-			// Destroy selected container
+			// Destroy selected container (no-op when All Containers is selected)
+			if m.selectedContainer == nil {
+				break
+			}
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
 				m.logger.Info("destroying container", "containerID", item.container.ID, "name", item.container.Name)
 				m.setPending(item.container.ID, "destroy")
@@ -219,6 +277,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Create session in selected container
 			if m.selectedContainer != nil {
 				m.logger.Debug("opening session form")
+				m.sessionViewOpen = true
 				m.openSessionForm()
 				return m, nil
 			}
@@ -254,6 +313,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Fall through to container list navigation if not handled
 
 		case "k":
+			// Kill selected session from tree view
+			if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) && m.treeItems[m.selectedIdx].Type == TreeItemSession {
+				session := m.SelectedSession()
+				if session != nil && m.selectedContainer != nil {
+					m.logger.Info("killing session", "containerID", m.selectedContainer.ID, "session", session.Name)
+					return m, m.killSession(m.selectedContainer.ID, session.Name)
+				}
+			}
 			// Scroll logs up when panel is open
 			if m.logPanelOpen && m.logReady {
 				if m.logViewport.YOffset > 0 {
@@ -262,7 +329,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.logAutoScroll = false
 				return m, nil
 			}
-			// Fall through to container list navigation
 
 		case "g":
 			// Go to top of logs when panel is open
@@ -327,10 +393,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{
 			m.refreshContainers(),
 			m.tick(),
-		}
-		// Also refresh sessions if we have a selected container
-		if m.selectedContainer != nil {
-			cmds = append(cmds, m.refreshSessions())
+			m.refreshAllSessions(),
 		}
 		return m, tea.Batch(cmds...)
 
@@ -350,6 +413,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case allSessionsRefreshedMsg:
+		// Update sessions for all containers in the list
+		for i, item := range m.containerList.Items() {
+			ci, ok := item.(containerItem)
+			if !ok {
+				continue
+			}
+			if sessions, found := msg.sessionsByContainer[ci.container.ID]; found {
+				ci.container.Sessions = sessions
+				items := m.containerList.Items()
+				items[i] = ci
+			}
+		}
+		m.rebuildTreeItems()
+		m.syncSelectionFromTree()
+		return m, nil
+
 	case logEntriesMsg:
 		for _, entry := range msg.entries {
 			m.addLogEntry(entry)
@@ -360,6 +440,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Continue consuming logs (logManager added in Phase 7)
 		if m.logManager != nil {
 			return m, m.consumeLogEntries(m.logManager)
+		}
+		return m, nil
+
+	case clearStatusMsg:
+		// Only clear if still showing the quit hint (don't clobber other status)
+		if m.statusLevel == StatusInfo && m.statusMessage == "ctrl+c ctrl+c to quit" {
+			m.clearStatus()
 		}
 		return m, nil
 	}
@@ -404,7 +491,7 @@ func (m Model) destroyContainer(id string) tea.Cmd {
 func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle special keys by type first
 	switch msg.Type {
-	case tea.KeyEscape, tea.KeyCtrlC:
+	case tea.KeyEscape:
 		m.resetForm()
 		return m, nil
 
@@ -530,10 +617,6 @@ func (m Model) handleSessionViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "q":
-		m.closeSessionView()
-		return m, nil
-
 	case "t":
 		// Open session creation form
 		m.openSessionForm()

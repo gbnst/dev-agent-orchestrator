@@ -148,6 +148,13 @@ func (s *Styles) LogScopeStyle() lipgloss.Style {
 		Foreground(lipgloss.Color(s.flavor.Teal().Hex))
 }
 
+// TreeItemSelectedStyle returns the style for the selected tree item.
+func (s *Styles) TreeItemSelectedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Mauve().Hex)).
+		Bold(true)
+}
+
 // PanelHeaderFocusedStyle returns the style for a focused panel header.
 func (s *Styles) PanelHeaderFocusedStyle() lipgloss.Style {
 	return lipgloss.NewStyle().

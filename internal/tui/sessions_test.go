@@ -55,6 +55,8 @@ func TestSessionView_PressEnter_ExpandsContainer(t *testing.T) {
 
 	// Build tree items for the container
 	m.rebuildTreeItems()
+	m.selectedIdx = 1 // Select container (after All)
+	m.syncSelectionFromTree()
 
 	// Press Enter to expand container (new tree behavior)
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -65,9 +67,9 @@ func TestSessionView_PressEnter_ExpandsContainer(t *testing.T) {
 		t.Error("Container should be expanded after pressing Enter")
 	}
 
-	// Tree should now show container + 2 sessions = 3 items
-	if len(m.treeItems) != 3 {
-		t.Errorf("Expected 3 tree items (1 container + 2 sessions), got %d", len(m.treeItems))
+	// Tree should now show All + container + 2 sessions = 4 items
+	if len(m.treeItems) != 4 {
+		t.Errorf("Expected 4 tree items (All + 1 container + 2 sessions), got %d", len(m.treeItems))
 	}
 }
 
@@ -90,6 +92,8 @@ func TestSessionView_PressEscape_ClosesSessionView(t *testing.T) {
 
 	// Build tree and open detail panel
 	m.rebuildTreeItems()
+	m.selectedIdx = 1 // Container (after All)
+	m.syncSelectionFromTree()
 	m.detailPanelOpen = true
 
 	// Press Escape to close detail panel (new tree behavior)
@@ -119,7 +123,9 @@ func TestSessionView_SelectedSession(t *testing.T) {
 	updated, _ := m.Update(containersRefreshedMsg{containers: containers})
 	m = updated.(Model)
 
-	// Switch to Sessions tab and select container
+	// Select container (after All) and expand it
+	m.selectedIdx = 1
+	m.syncSelectionFromTree()
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
 
@@ -131,9 +137,6 @@ func TestSessionView_SelectedSession(t *testing.T) {
 	if session.Name != "dev" {
 		t.Errorf("Expected selected session 'dev', got %q", session.Name)
 	}
-
-	// Note: Session navigation (up/down/j/k) is implemented in Phase 3, Task 4
-	// For now, just verify the initial selection is correct
 }
 
 func TestSessionView_NoSessionsMessage(t *testing.T) {
@@ -151,7 +154,9 @@ func TestSessionView_NoSessionsMessage(t *testing.T) {
 	updated, _ := m.Update(containersRefreshedMsg{containers: containers})
 	m = updated.(Model)
 
-	// Open session view
+	// Select container (after All) and expand it
+	m.selectedIdx = 1
+	m.syncSelectionFromTree()
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
 
@@ -176,7 +181,9 @@ func TestSessionView_AttachCommand(t *testing.T) {
 	updated, _ := m.Update(containersRefreshedMsg{containers: containers})
 	m = updated.(Model)
 
-	// Open session view
+	// Select container (after All) and expand it
+	m.selectedIdx = 1
+	m.syncSelectionFromTree()
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
 

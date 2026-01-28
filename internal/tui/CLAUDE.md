@@ -40,12 +40,14 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 - `↑/↓` - Navigate tree items
 - `enter` - Expand/collapse containers
 - `→` - Open detail panel
-- `←/esc` - Close detail panel
+- `←/esc` - Close detail panel (esc also returns focus from detail/logs to tree)
 - `tab` - Cycle panel focus (tree → detail → logs → tree)
 - `l/L` - Toggle log panel
 - `c` - Create container
 - `s/x/d` - Start/stop/destroy container
-- `q` - Quit
+- `ctrl+c ctrl+c` - Quit (double-press within 500ms)
+- `ctrl+d` - Quit (immediate)
+- Pressing `esc` twice with nothing to close shows quit hint in status bar
 
 ## Gotchas
 - consumeLogEntries() must be called in Init() to start log flow
