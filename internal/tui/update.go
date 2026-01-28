@@ -130,72 +130,65 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Close detail panel
 				if m.detailPanelOpen {
 					m.detailPanelOpen = false
-					if m.panelFocus == FocusDetail {
-						m.panelFocus = FocusTree
-					}
 					return m, nil
 				}
 			case tea.KeyEscape:
 				// Close detail panel (if open)
 				if m.detailPanelOpen {
 					m.detailPanelOpen = false
-					if m.panelFocus == FocusDetail {
-						m.panelFocus = FocusTree
-					}
 					return m, nil
 				}
 			}
 		}
 
-
-	// Handle log viewport navigation when log panel is focused
-	if m.panelFocus == FocusLogs && m.logPanelOpen && m.logReady {
-		switch msg.Type {
-		case tea.KeyUp:
-			if m.logViewport.YOffset > 0 {
-				m.logViewport.SetYOffset(m.logViewport.YOffset - 1)
+		// Handle log viewport navigation when log panel is focused
+		if m.panelFocus == FocusLogs && m.logPanelOpen && m.logReady {
+			switch msg.Type {
+			case tea.KeyUp:
+				if m.logViewport.YOffset > 0 {
+					m.logViewport.SetYOffset(m.logViewport.YOffset - 1)
+				}
+				m.logAutoScroll = false
+				return m, nil
+			case tea.KeyDown:
+				m.logViewport.SetYOffset(m.logViewport.YOffset + 1)
+				m.logAutoScroll = m.logViewport.AtBottom()
+				return m, nil
+			case tea.KeyEscape:
+				m.panelFocus = FocusTree
+				return m, nil
 			}
-			m.logAutoScroll = false
-			return m, nil
-		case tea.KeyDown:
-			m.logViewport.SetYOffset(m.logViewport.YOffset + 1)
-			m.logAutoScroll = m.logViewport.AtBottom()
-			return m, nil
-		case tea.KeyEscape:
-			m.panelFocus = FocusTree
-			return m, nil
 		}
-	}
 
-	// Handle detail panel Escape to return focus to tree
-	if m.panelFocus == FocusDetail {
-		if msg.Type == tea.KeyEscape {
-			m.panelFocus = FocusTree
-			return m, nil
+		// Handle detail panel Escape to return focus to tree
+		if m.panelFocus == FocusDetail {
+			if msg.Type == tea.KeyEscape {
+				m.panelFocus = FocusTree
+				return m, nil
+			}
 		}
-	}
 
-	switch msg.String() {
-	case "tab":
-		m.panelFocus = m.nextFocus()
-		return m, nil
+		switch msg.String() {
+		case "tab":
+			m.panelFocus = m.nextFocus()
+			return m, nil
 
-	case "q", "ctrl+c":
+		case "q", "ctrl+c":
 			m.logger.Debug("quit command received")
 			return m, tea.Quit
 
-	case "r":
-		// Refresh containers
+		case "r":
+			// Refresh containers
 			m.logger.Debug("refresh containers requested")
 			return m, m.refreshContainers()
 
-	case "c":
+		case "c":
 			// Open container creation form
 			m.logger.Debug("opening container creation form")
 			m.openForm()
 			return m, nil
 
-	case "s":
+		case "s":
 			// Start selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
 				m.logger.Info("starting container", "containerID", item.container.ID, "name", item.container.Name)
@@ -204,7 +197,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmd, m.startContainer(item.container.ID))
 			}
 
-	case "x":
+		case "x":
 			// Stop selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
 				m.logger.Info("stopping container", "containerID", item.container.ID, "name", item.container.Name)
@@ -213,7 +206,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmd, m.stopContainer(item.container.ID))
 			}
 
-	case "d":
+		case "d":
 			// Destroy selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
 				m.logger.Info("destroying container", "containerID", item.container.ID, "name", item.container.Name)
@@ -222,7 +215,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(cmd, m.destroyContainer(item.container.ID))
 			}
 
-	case "t":
+		case "t":
 			// Create session in selected container
 			if m.selectedContainer != nil {
 				m.logger.Debug("opening session form")
@@ -230,28 +223,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-	case "l", "L":
-		// Toggle log panel
-		m.logger.Debug("toggling log panel", "visible", !m.logPanelOpen)
-		m.logPanelOpen = !m.logPanelOpen
-		if !m.logPanelOpen && m.panelFocus == FocusLogs {
-			m.panelFocus = FocusTree
-		}
-		if m.logPanelOpen {
-			// Recalculate layout and initialize viewport if needed
-			layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
-			if !m.logReady {
-				m.logViewport = viewport.New(layout.Logs.Width, layout.Logs.Height-1)
-				m.logReady = true
+		case "l", "L":
+			// Toggle log panel
+			m.logger.Debug("toggling log panel", "visible", !m.logPanelOpen)
+			m.logPanelOpen = !m.logPanelOpen
+			if !m.logPanelOpen && m.panelFocus == FocusLogs {
+				m.panelFocus = FocusTree
 			}
-			m.updateLogViewportContent()
-		}
-		// Recalculate list size for split layout
-		layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
-		m.containerList.SetSize(m.width-4, layout.ContentListHeight())
-		return m, nil
+			if m.logPanelOpen {
+				// Recalculate layout and initialize viewport if needed
+				layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
+				if !m.logReady {
+					m.logViewport = viewport.New(layout.Logs.Width, layout.Logs.Height-1)
+					m.logReady = true
+				}
+				m.updateLogViewportContent()
+			}
+			// Recalculate list size for split layout
+			layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
+			m.containerList.SetSize(m.width-4, layout.ContentListHeight())
+			return m, nil
 
-	case "j":
+		case "j":
 			// Scroll logs down when panel is open
 			if m.logPanelOpen && m.logReady {
 				m.logViewport.SetYOffset(m.logViewport.YOffset + 1)
@@ -260,7 +253,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Fall through to container list navigation if not handled
 
-	case "k":
+		case "k":
 			// Scroll logs up when panel is open
 			if m.logPanelOpen && m.logReady {
 				if m.logViewport.YOffset > 0 {
@@ -271,7 +264,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Fall through to container list navigation
 
-	case "g":
+		case "g":
 			// Go to top of logs when panel is open
 			if m.logPanelOpen && m.logReady {
 				m.logViewport.GotoTop()
@@ -279,7 +272,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
-	case "G":
+		case "G":
 			// Go to bottom of logs when panel is open
 			if m.logPanelOpen && m.logReady {
 				m.logViewport.GotoBottom()

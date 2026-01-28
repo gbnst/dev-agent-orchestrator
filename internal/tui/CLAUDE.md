@@ -6,7 +6,7 @@ Last verified: 2026-01-28
 Provides terminal UI for orchestrating development containers. Tree-based navigation showing containers with nested sessions, optional detail panel, and live log panel for debugging operations.
 
 ## Contracts
-- **Exposes**: `Model`, `NewModel()`, `NewModelWithTemplates()`, `StatusLevel`, `TreeItemType`, `TreeItem`
+- **Exposes**: `Model`, `NewModel()`, `NewModelWithTemplates()`, `StatusLevel`, `TreeItemType`, `TreeItem`, `PanelFocus`
 - **Guarantees**: Operations show immediate visual feedback (spinners). Log panel filters by current context. Forms are modal overlays.
 - **Expects**: Valid config and LogManager. Container runtime available for operations.
 
@@ -26,6 +26,7 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 - selectedContainer set when container selected in tree
 - pendingOperations cleared on success or error
 - logAutoScroll true by default; j/k/g/G disable it
+- panelFocus defaults to FocusTree (zero value)
 
 ## Key Files
 - `model.go` - Model struct, constructors, state management, tree operations
@@ -40,6 +41,7 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 - `enter` - Expand/collapse containers
 - `→` - Open detail panel
 - `←/esc` - Close detail panel
+- `tab` - Cycle panel focus (tree → logs → detail → tree)
 - `l/L` - Toggle log panel
 - `c` - Create container
 - `s/x/d` - Start/stop/destroy container

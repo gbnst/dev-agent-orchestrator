@@ -92,18 +92,3 @@ func TestStyles_LogLevelBadges(t *testing.T) {
 	}
 }
 
-func TestStyles_LogHeaderStyle(t *testing.T) {
-	styles := NewStyles("mocha")
-	style := styles.LogHeaderStyle()
-
-	// Should be bold
-	if !style.GetBold() {
-		t.Error("LogHeaderStyle should be bold")
-	}
-
-	// Should render
-	rendered := style.Render("Logs")
-	if rendered == "" {
-		t.Error("LogHeaderStyle should render content")
-	}
-}

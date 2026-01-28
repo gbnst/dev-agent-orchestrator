@@ -111,13 +111,6 @@ func (s *Styles) InfoStatusStyle() lipgloss.Style {
 		Foreground(lipgloss.Color(s.flavor.Text().Hex))
 }
 
-// LogHeaderStyle returns the style for log panel header.
-func (s *Styles) LogHeaderStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color(s.flavor.Subtext0().Hex)).
-		Bold(true)
-}
-
 // LogDebugStyle returns the style for DEBUG level logs.
 func (s *Styles) LogDebugStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
