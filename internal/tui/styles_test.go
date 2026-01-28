@@ -69,6 +69,26 @@ func TestStyles_StatusStyles(t *testing.T) {
 	}
 }
 
+func TestStyles_PanelHeaderStyles(t *testing.T) {
+	styles := NewStyles("mocha")
+
+	focusedStyle := styles.PanelHeaderFocusedStyle()
+	if !focusedStyle.GetBold() {
+		t.Error("PanelHeaderFocusedStyle should be bold")
+	}
+	if focusedStyle.Render("Test") == "" {
+		t.Error("PanelHeaderFocusedStyle should render content")
+	}
+
+	unfocusedStyle := styles.PanelHeaderUnfocusedStyle()
+	if unfocusedStyle.GetBold() {
+		t.Error("PanelHeaderUnfocusedStyle should not be bold")
+	}
+	if unfocusedStyle.Render("Test") == "" {
+		t.Error("PanelHeaderUnfocusedStyle should render content")
+	}
+}
+
 func TestStyles_LogLevelBadges(t *testing.T) {
 	styles := NewStyles("mocha")
 
