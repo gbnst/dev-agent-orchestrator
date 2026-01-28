@@ -91,4 +91,3 @@ func TestStyles_LogLevelBadges(t *testing.T) {
 		t.Error("LogDebugStyle should render content")
 	}
 }
-

@@ -41,7 +41,7 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 - `enter` - Expand/collapse containers
 - `→` - Open detail panel
 - `←/esc` - Close detail panel
-- `tab` - Cycle panel focus (tree → logs → detail → tree)
+- `tab` - Cycle panel focus (tree → detail → logs → tree)
 - `l/L` - Toggle log panel
 - `c` - Create container
 - `s/x/d` - Start/stop/destroy container

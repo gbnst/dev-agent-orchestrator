@@ -71,7 +71,7 @@ func (s StatusLevel) String() string {
 type PanelFocus int
 
 const (
-	FocusTree   PanelFocus = iota
+	FocusTree PanelFocus = iota
 	FocusDetail
 	FocusLogs
 )
@@ -83,11 +83,11 @@ type Model struct {
 	themeName string
 	styles    *Styles
 
-	cfg                *config.Config
-	templates          []config.Template
-	manager            *container.Manager
-	containerList      list.Model
-	containerDelegate  containerDelegate
+	cfg               *config.Config
+	templates         []config.Template
+	manager           *container.Manager
+	containerList     list.Model
+	containerDelegate containerDelegate
 
 	// Form state for container creation
 	formOpen          bool
@@ -125,14 +125,14 @@ type Model struct {
 	pendingOperations map[string]string
 
 	// Log panel
-	logEntries    []logging.LogEntry
-	logViewport   viewport.Model
+	logEntries     []logging.LogEntry
+	logViewport    viewport.Model
 	logFilter      string
 	logFilterLabel string
-	logAutoScroll bool
-	logReady      bool // viewport initialized
-	logManager    *logging.Manager
-	logger        *logging.ScopedLogger
+	logAutoScroll  bool
+	logReady       bool // viewport initialized
+	logManager     *logging.Manager
+	logger         *logging.ScopedLogger
 
 	err error
 }
@@ -456,7 +456,9 @@ func (m *Model) setLogFilterFromContext() {
 
 // consumeLogEntries reads entries from the log manager channel.
 // Call this to start/continue log consumption.
-func (m Model) consumeLogEntries(logMgr interface{ Entries() <-chan logging.LogEntry }) tea.Cmd {
+func (m Model) consumeLogEntries(logMgr interface {
+	Entries() <-chan logging.LogEntry
+}) tea.Cmd {
 	return func() tea.Msg {
 		// Batch read up to 50 entries
 		var entries []logging.LogEntry

@@ -545,8 +545,8 @@ func (m Model) renderDetailPanel(layout Layout) string {
 
 	// Body styling (keep left border, subtract 1 for header)
 	panelStyle := lipgloss.NewStyle().
-		Width(layout.Detail.Width - 2).
-		Height(layout.Detail.Height - 1).
+		Width(layout.Detail.Width-2).
+		Height(layout.Detail.Height-1).
 		Padding(1).
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(lipgloss.Color(m.styles.flavor.Surface1().Hex))

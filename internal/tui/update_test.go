@@ -17,10 +17,10 @@ import (
 func TestLogPanelToggle_LKey(t *testing.T) {
 	// Both "l" and "L" toggle the log panel
 	tests := []struct {
-		name          string
-		key           string
-		startOpen     bool
-		wantOpen      bool
+		name      string
+		key       string
+		startOpen bool
+		wantOpen  bool
 	}{
 		{"press l opens log panel", "l", false, true},
 		{"press l closes log panel", "l", true, false},
