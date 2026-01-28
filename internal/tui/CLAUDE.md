@@ -49,6 +49,6 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 
 ## Gotchas
 - consumeLogEntries() must be called in Init() to start log flow
-- setLogFilterFromContext() auto-sets filter when entering error state
+- setLogFilterFromContext() called by syncSelectionFromTree(); keeps filter in sync with tree selection
 - rebuildTreeItems() must be called after container list changes
 - Layout.ContentListHeight() accounts for list chrome (subtract 2)

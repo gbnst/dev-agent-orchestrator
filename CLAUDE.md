@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-01-27
+Last verified: 2026-01-28
 
 ## Tech Stack
 - Language: Go 1.21+
@@ -19,7 +19,7 @@ Last verified: 2026-01-27
 
 ## Project Structure
 - `internal/logging/` - Structured logging with dual sinks (file + TUI channel)
-- `internal/tui/` - Bubbletea TUI with tabs, status bar, log panel
+- `internal/tui/` - Bubbletea TUI with tree navigation, detail panel, log panel
 - `internal/container/` - Container lifecycle management
 - `internal/tmux/` - Tmux session management within containers
 - `internal/config/` - Configuration loading and validation
@@ -31,7 +31,7 @@ Last verified: 2026-01-27
 - Functional Core / Imperative Shell pattern (see file header comments)
 - Bubbletea model-update-view architecture
 - Catppuccin theming via styles.go
-- Scoped logging: `container.<id>`, `session.<ctr>.<name>`, `tui`
+- Scoped logging: `container`, `tmux`, `tui` (prefix-matched via MatchesScope)
 
 ## Boundaries
 - Safe to edit: `internal/`, `main.go`
