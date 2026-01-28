@@ -154,3 +154,18 @@ func (s *Styles) LogScopeStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(s.flavor.Teal().Hex))
 }
+
+// PanelHeaderFocusedStyle returns the style for a focused panel header.
+func (s *Styles) PanelHeaderFocusedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(s.flavor.Mauve().Hex)).
+		Background(lipgloss.Color(s.flavor.Surface2().Hex))
+}
+
+// PanelHeaderUnfocusedStyle returns the style for an unfocused panel header.
+func (s *Styles) PanelHeaderUnfocusedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Subtext0().Hex)).
+		Background(lipgloss.Color(s.flavor.Surface0().Hex))
+}
