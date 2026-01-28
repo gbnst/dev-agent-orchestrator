@@ -1,3 +1,5 @@
+// pattern: Imperative Shell
+
 package tui
 
 import (
@@ -37,12 +39,24 @@ func (i containerItem) FilterValue() string {
 
 // containerDelegate handles rendering of container items in a list.
 type containerDelegate struct {
-	styles *Styles
+	styles       *Styles
+	spinnerFrame string
+	pendingOps   map[string]string
 }
 
 // newContainerDelegate creates a new container delegate with the given styles.
 func newContainerDelegate(styles *Styles) containerDelegate {
-	return containerDelegate{styles: styles}
+	return containerDelegate{
+		styles:     styles,
+		pendingOps: make(map[string]string),
+	}
+}
+
+// WithSpinnerState returns a delegate with updated spinner state.
+func (d containerDelegate) WithSpinnerState(spinnerFrame string, pendingOps map[string]string) containerDelegate {
+	d.spinnerFrame = spinnerFrame
+	d.pendingOps = pendingOps
+	return d
 }
 
 // Height returns the height of a single item.
@@ -104,10 +118,19 @@ func (d containerDelegate) Render(w io.Writer, m list.Model, index int, item lis
 			Render("▸ ")
 	}
 
-	// State indicator
-	stateIndicator := lipgloss.NewStyle().
-		Foreground(stateColor).
-		Render("●")
+	// State indicator with spinner support
+	var stateIndicator string
+	if _, isPending := d.pendingOps[ci.container.ID]; isPending && d.spinnerFrame != "" {
+		// Show spinner for pending operations
+		stateIndicator = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(d.styles.flavor.Teal().Hex)).
+			Render(d.spinnerFrame)
+	} else {
+		// Show state bullet
+		stateIndicator = lipgloss.NewStyle().
+			Foreground(stateColor).
+			Render("●")
+	}
 
 	title := titleStyle.Render(ci.container.Name)
 	desc := descStyle.Render(ci.Description())

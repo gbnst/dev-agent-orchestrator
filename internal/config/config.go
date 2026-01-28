@@ -1,3 +1,5 @@
+// pattern: Imperative Shell
+
 package config
 
 import (
@@ -12,6 +14,7 @@ import (
 type Config struct {
 	Theme       string                 `yaml:"theme"`
 	Runtime     string                 `yaml:"runtime"`
+	LogLevel    string                 `yaml:"log_level"`
 	OTEL        OTELConfig             `yaml:"otel"`
 	Credentials map[string]string      `yaml:"credentials"`
 	BaseImages  map[string]string      `yaml:"base_images"`
@@ -40,7 +43,8 @@ type LookPathFunc func(name string) (string, error)
 
 func DefaultConfig() Config {
 	return Config{
-		Theme: "mocha",
+		Theme:    "mocha",
+		LogLevel: "info",
 	}
 }
 
@@ -102,6 +106,36 @@ func (c *Config) DetectedRuntimeWith(lookPath LookPathFunc) string {
 	}
 
 	// Default to docker
+	return "docker"
+}
+
+// DetectedRuntimePath returns the full path to the detected runtime binary.
+// This is useful for generating commands that bypass shell aliases.
+func (c *Config) DetectedRuntimePath() string {
+	return c.DetectedRuntimePathWith(exec.LookPath)
+}
+
+// DetectedRuntimePathWith returns the full path to the detected runtime binary
+// using the provided lookup function.
+func (c *Config) DetectedRuntimePathWith(lookPath LookPathFunc) string {
+	// If explicitly configured, look up that specific runtime
+	if c.Runtime != "" {
+		if path, err := lookPath(c.Runtime); err == nil {
+			return path
+		}
+		// Fallback to just the name if lookup fails
+		return c.Runtime
+	}
+
+	// Try docker first, then podman
+	if path, err := lookPath("docker"); err == nil {
+		return path
+	}
+	if path, err := lookPath("podman"); err == nil {
+		return path
+	}
+
+	// Default to docker (without path)
 	return "docker"
 }
 

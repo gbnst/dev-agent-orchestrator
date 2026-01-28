@@ -101,9 +101,9 @@ func TestMapState_Unknown(t *testing.T) {
 
 func TestParseLabels(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		want   map[string]string
+		name  string
+		input string
+		want  map[string]string
 	}{
 		{
 			name:  "empty",

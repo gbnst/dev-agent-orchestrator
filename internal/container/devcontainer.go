@@ -1,3 +1,5 @@
+// pattern: Imperative Shell
+
 package container
 
 import (
@@ -45,10 +47,10 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*DevcontainerJSON,
 	}
 
 	dc := &DevcontainerJSON{
-		Name:           opts.Name,
-		Image:          image,
-		ContainerEnv:   make(map[string]string),
-		RunArgs:        []string{},
+		Name:         opts.Name,
+		Image:        image,
+		ContainerEnv: make(map[string]string),
+		RunArgs:      []string{},
 	}
 
 	// Copy features from template

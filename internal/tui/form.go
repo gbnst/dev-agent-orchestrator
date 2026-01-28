@@ -1,3 +1,5 @@
+// pattern: Imperative Shell
+
 package tui
 
 // FormField represents the currently focused form field.

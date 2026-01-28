@@ -2,6 +2,7 @@
 # Copy to ~/.config/devagent/config.yaml
 
 theme: mocha  # Catppuccin theme: mocha, macchiato, frappe, latte
+log_level: info  # debug, info, warn, error
 
 # Container runtime (auto-detected if not specified)
 # runtime: docker  # or podman
@@ -21,7 +22,7 @@ credentials:
 base_images:
   default: mcr.microsoft.com/devcontainers/base:ubuntu
   node: mcr.microsoft.com/devcontainers/javascript-node:22
-  go: mcr.microsoft.com/devcontainers/go:1.23
+  go: mcr.microsoft.com/devcontainers/go:1.25
   python: mcr.microsoft.com/devcontainers/python:3.12
 
 # Agent definitions

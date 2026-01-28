@@ -9,11 +9,10 @@ devcontainer:
   features:
     ghcr.io/devcontainers/features/git:1: {}
     ghcr.io/devcontainers/features/github-cli:1: {}
-    ghcr.io/devcontainers-extra/features/tmux-apt-get:1: {}
     ghcr.io/stu-bell/devcontainer-features/claude-code:0: {}
   customizations:
 
-  postCreateCommand: "go mod download"
+  postCreateCommand: "sudo apt-get update && sudo apt-get install -y tmux && go mod download || true"
 
 # Credentials to inject (references config.credentials keys)
 inject_credentials:

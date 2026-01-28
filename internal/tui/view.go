@@ -1,183 +1,152 @@
+// pattern: Imperative Shell
+
 package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"devagent/internal/container"
+	"devagent/internal/logging"
 )
 
 // View renders the TUI.
 func (m Model) View() string {
-	// If form is open, render the form instead
-	if m.formOpen {
-		return m.renderCreateForm()
-	}
-
-	// If session view is open, render sessions
+	// Session detail is a modal overlay (keep this one centered for now)
 	if m.sessionViewOpen {
 		return m.renderSessionView()
 	}
 
-	title := m.styles.TitleStyle().Render("devagent")
-	subtitle := m.styles.SubtitleStyle().Render("Development Agent Orchestrator")
+	// Compute layout regions
+	layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
 
-	themeInfo := m.styles.InfoStyle().Render(
-		fmt.Sprintf("Theme: %s", m.styles.AccentStyle().Render(m.themeName)),
-	)
+	// Build header
+	header := m.styles.TitleStyle().Width(layout.Header.Width).Render("Development Agent Orchestrator")
 
+	// Build content: tree view + optional detail panel
 	var content string
-	if len(m.containerList.Items()) == 0 {
-		content = m.renderEmptyState()
+	if m.formOpen {
+		// Container creation form replaces content area
+		content = m.renderCreateForm()
 	} else {
-		content = m.containerList.View()
+		// Render tree view (always shown)
+		treeView := m.renderTree(layout)
+
+		// Optionally render detail panel
+		if m.detailPanelOpen {
+			detailPanel := m.renderDetailPanel(layout)
+			content = lipgloss.JoinHorizontal(lipgloss.Top, treeView, detailPanel)
+		} else {
+			content = treeView
+		}
 	}
 
-	// Error display
+	// Build status bar with operation feedback and contextual help
+	statusBar := lipgloss.NewStyle().Width(layout.StatusBar.Width).Render(m.renderStatusBar(layout.StatusBar.Width))
+
+	// Error display (if any)
 	var errorDisplay string
 	if m.err != nil {
-		errorDisplay = m.styles.ErrorStyle().Render(fmt.Sprintf("Error: %v", m.err))
+		errorDisplay = m.styles.ErrorStyle().Render("Error: " + m.err.Error())
 	}
 
-	help := m.styles.HelpStyle().Render("c: create • s: start • x: stop • d: destroy • r: refresh • q: quit")
+	// Compose full layout
+	parts := []string{header, content}
 
-	parts := []string{
-		title,
-		subtitle,
-		themeInfo,
-		"",
-		content,
+	// Add log panel if open
+	if m.logPanelOpen {
+		separator := lipgloss.NewStyle().
+			Width(layout.Separator.Width).
+			Foreground(lipgloss.Color(m.styles.flavor.Surface1().Hex)).
+			Render(strings.Repeat("─", layout.Separator.Width))
+		parts = append(parts, separator)
+		parts = append(parts, m.renderLogPanel(layout))
 	}
 
 	if errorDisplay != "" {
-		parts = append(parts, "", errorDisplay)
+		parts = append(parts, errorDisplay)
 	}
+	parts = append(parts, statusBar)
 
-	parts = append(parts, help)
-
-	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
-
-	if m.width > 0 && m.height > 0 {
-		return lipgloss.Place(
-			m.width,
-			m.height,
-			lipgloss.Center,
-			lipgloss.Center,
-			view,
-		)
-	}
-
-	return view
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
-// renderEmptyState renders the placeholder when no containers exist.
-func (m Model) renderEmptyState() string {
-	return m.styles.BoxStyle().Render(
-		lipgloss.JoinVertical(
-			lipgloss.Center,
-			"No containers running",
-			"",
-			m.styles.InfoStyle().Render("Press 'c' to create a new container"),
-		),
-	)
-}
-
-// renderCreateForm renders the container creation form.
+// renderCreateForm renders the container creation form as a left-justified input area.
 func (m Model) renderCreateForm() string {
 	title := m.styles.TitleStyle().Render("Create Container")
 
-	// Template selection
-	templateLabel := "Template"
+	// Template selection - compact horizontal display
+	templateLabel := "Template: "
 	if m.formFocusedField == FieldTemplate {
-		templateLabel = m.styles.AccentStyle().Render("▸ Template")
+		templateLabel = m.styles.AccentStyle().Render("▸ Template: ")
 	}
 
-	var templateList string
-	for i, tmpl := range m.templates {
-		indicator := "  "
-		if i == m.formTemplateIdx {
-			indicator = "● "
+	var templateValue string
+	if len(m.templates) > 0 && m.formTemplateIdx < len(m.templates) {
+		tmpl := m.templates[m.formTemplateIdx]
+		templateValue = m.styles.AccentStyle().Render(tmpl.Name)
+		if m.formFocusedField == FieldTemplate {
+			templateValue += m.styles.HelpStyle().Render(fmt.Sprintf(" (↑↓ to change, %d/%d)", m.formTemplateIdx+1, len(m.templates)))
 		}
-		line := fmt.Sprintf("%s%s - %s", indicator, tmpl.Name, tmpl.Description)
-		if i == m.formTemplateIdx {
-			line = m.styles.AccentStyle().Render(line)
-		}
-		if i > 0 {
-			templateList += "\n"
-		}
-		templateList += line
+	} else {
+		templateValue = m.styles.ErrorStyle().Render("No templates available")
 	}
-	if len(m.templates) == 0 {
-		templateList = m.styles.ErrorStyle().Render("No templates available")
-	}
+	templateLine := templateLabel + templateValue
 
-	// Project path input
-	projectPathLabel := "Project Path"
+	// Project path input - single line
+	projectPathLabel := "Project Path: "
 	if m.formFocusedField == FieldProjectPath {
-		projectPathLabel = m.styles.AccentStyle().Render("▸ Project Path")
+		projectPathLabel = m.styles.AccentStyle().Render("▸ Project Path: ")
 	}
 	projectPathValue := m.formProjectPath
-	if projectPathValue == "" {
-		projectPathValue = m.styles.SubtitleStyle().Render("(enter path)")
+	if projectPathValue == "" && m.formFocusedField != FieldProjectPath {
+		projectPathValue = m.styles.SubtitleStyle().Render("(required)")
 	}
 	if m.formFocusedField == FieldProjectPath {
 		projectPathValue += "_" // cursor
 	}
+	projectPathLine := projectPathLabel + projectPathValue
 
-	// Container name input
-	nameLabel := "Name (optional)"
+	// Container name input - single line
+	nameLabel := "Name: "
 	if m.formFocusedField == FieldContainerName {
-		nameLabel = m.styles.AccentStyle().Render("▸ Name (optional)")
+		nameLabel = m.styles.AccentStyle().Render("▸ Name: ")
 	}
 	nameValue := m.formContainerName
-	if nameValue == "" {
-		nameValue = m.styles.SubtitleStyle().Render("(auto-generated)")
+	if nameValue == "" && m.formFocusedField != FieldContainerName {
+		nameValue = m.styles.SubtitleStyle().Render("(optional, auto-generated)")
 	}
 	if m.formFocusedField == FieldContainerName {
 		nameValue += "_" // cursor
 	}
+	nameLine := nameLabel + nameValue
 
 	// Error display
-	var errorDisplay string
+	var errorLine string
 	if m.formError != "" {
-		errorDisplay = m.styles.ErrorStyle().Render(fmt.Sprintf("Error: %s", m.formError))
+		errorLine = m.styles.ErrorStyle().Render("Error: " + m.formError)
 	}
 
 	// Help text
-	help := m.styles.HelpStyle().Render("Tab: next field • ↑↓: select template • Enter: create • Esc: cancel")
+	help := m.styles.HelpStyle().Render("Tab: next field • Enter: create • Esc: cancel")
 
 	parts := []string{
 		title,
 		"",
-		templateLabel,
-		templateList,
-		"",
-		projectPathLabel,
-		projectPathValue,
-		"",
-		nameLabel,
-		nameValue,
+		templateLine,
+		projectPathLine,
+		nameLine,
 	}
 
-	if errorDisplay != "" {
-		parts = append(parts, "", errorDisplay)
+	if errorLine != "" {
+		parts = append(parts, errorLine)
 	}
 
 	parts = append(parts, "", help)
 
-	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
-	boxed := m.styles.BoxStyle().Render(content)
-
-	if m.width > 0 && m.height > 0 {
-		return lipgloss.Place(
-			m.width,
-			m.height,
-			lipgloss.Center,
-			lipgloss.Center,
-			boxed,
-		)
-	}
-
-	return boxed
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 // renderSessionView renders the session list for a container.
@@ -266,47 +235,379 @@ func (m Model) renderSessionView() string {
 	return boxed
 }
 
-// renderSessionForm renders the session creation form.
+// renderSessionForm renders the session creation form as a left-justified input area.
 func (m Model) renderSessionForm() string {
-	title := m.styles.TitleStyle().Render("Create Session")
-
 	containerName := ""
 	if m.selectedContainer != nil {
 		containerName = m.selectedContainer.Name
 	}
-	subtitle := m.styles.SubtitleStyle().Render(fmt.Sprintf("Container: %s", containerName))
 
-	nameLabel := m.styles.AccentStyle().Render("▸ Session Name")
-	nameValue := m.sessionFormName
-	if nameValue == "" {
-		nameValue = m.styles.SubtitleStyle().Render("(enter name)")
-	}
-	nameValue += "_" // cursor
+	// Header line
+	header := m.styles.TitleStyle().Render("Create Session") + "  " +
+		m.styles.SubtitleStyle().Render(fmt.Sprintf("in %s", containerName))
 
+	// Input line with label and value
+	label := m.styles.AccentStyle().Render("Session Name: ")
+	value := m.sessionFormName + "_" // cursor
+
+	// Help line
 	help := m.styles.HelpStyle().Render("Enter: create • Esc: cancel")
 
-	parts := []string{
-		title,
-		subtitle,
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
 		"",
-		nameLabel,
-		nameValue,
+		label+value,
 		"",
 		help,
+	)
+}
+
+// renderStatusBar renders the status bar with operation feedback and help.
+func (m Model) renderStatusBar(width int) string {
+	var statusIcon string
+	var messageStyle lipgloss.Style
+
+	switch m.statusLevel {
+	case StatusLoading:
+		statusIcon = m.statusSpinner.View()
+		messageStyle = m.styles.InfoStatusStyle()
+	case StatusSuccess:
+		statusIcon = m.styles.SuccessStyle().Render("✓")
+		messageStyle = m.styles.SuccessStyle()
+	case StatusError:
+		statusIcon = m.styles.ErrorStyle().Render("✗")
+		messageStyle = m.styles.ErrorStyle()
+	default: // StatusInfo
+		statusIcon = ""
+		messageStyle = m.styles.InfoStatusStyle()
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
-	boxed := m.styles.BoxStyle().Render(content)
+	// Build status message
+	var statusText string
+	if statusIcon != "" {
+		statusText = statusIcon + " " + messageStyle.Render(m.statusMessage)
+	} else if m.statusMessage != "" {
+		statusText = messageStyle.Render(m.statusMessage)
+	}
 
-	if m.width > 0 && m.height > 0 {
-		return lipgloss.Place(
-			m.width,
-			m.height,
-			lipgloss.Center,
-			lipgloss.Center,
-			boxed,
+	// Add error hint if in error state
+	if m.statusLevel == StatusError && m.err != nil {
+		statusText += m.styles.HelpStyle().Render(" (esc to clear)")
+	}
+
+	// Build help text
+	help := m.renderContextualHelp()
+
+	// Calculate spacing
+	statusWidth := lipgloss.Width(statusText)
+	helpWidth := lipgloss.Width(help)
+	spacerWidth := width - statusWidth - helpWidth - 2 // 2 for padding
+
+	if spacerWidth < 1 {
+		spacerWidth = 1
+	}
+
+	spacer := strings.Repeat(" ", spacerWidth)
+
+	return lipgloss.JoinHorizontal(lipgloss.Bottom,
+		statusText,
+		spacer,
+		help,
+	)
+}
+
+// renderContextualHelp returns help text based on current state.
+func (m Model) renderContextualHelp() string {
+	var help string
+	if m.detailPanelOpen {
+		help = "←/esc: close detail • ↑/↓: navigate • t: new session • l: logs • q: quit"
+	} else if len(m.treeItems) > 0 {
+		help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: session • l: logs • q: quit"
+	} else {
+		help = "c: create container • l: logs • q: quit"
+	}
+	return m.styles.HelpStyle().Render(help)
+}
+
+// renderLogEntry formats a single log entry for display.
+func (m Model) renderLogEntry(entry logging.LogEntry) string {
+	// Timestamp
+	ts := m.styles.LogTimestampStyle().Render(entry.Timestamp.Format("15:04:05"))
+
+	// Level badge
+	var level string
+	switch entry.Level {
+	case "DEBUG":
+		level = m.styles.LogDebugStyle().Render("DEBUG")
+	case "INFO":
+		level = m.styles.LogInfoStyle().Render("INFO")
+	case "WARN":
+		level = m.styles.LogWarnStyle().Render("WARN")
+	case "ERROR":
+		level = m.styles.LogErrorStyle().Render("ERROR")
+	default:
+		level = m.styles.LogInfoStyle().Render(entry.Level)
+	}
+
+	// Scope
+	scope := m.styles.LogScopeStyle().Render("[" + entry.Scope + "]")
+
+	// Message
+	message := entry.Message
+
+	return fmt.Sprintf("%s %s %s %s", ts, level, scope, message)
+}
+
+// renderLogPanel renders the log panel content.
+func (m Model) renderLogPanel(layout Layout) string {
+	// Header
+	filterInfo := "all logs"
+	if m.logFilter != "" {
+		filterInfo = "filtered: " + m.logFilter
+	}
+	header := m.styles.LogHeaderStyle().Render(fmt.Sprintf("Logs (%s)", filterInfo))
+
+	// Build log content
+	entries := m.filteredLogEntries()
+	var lines []string
+	for _, entry := range entries {
+		lines = append(lines, m.renderLogEntry(entry))
+	}
+
+	if len(lines) == 0 {
+		lines = []string{m.styles.InfoStyle().Render("No log entries")}
+	}
+
+	content := strings.Join(lines, "\n")
+
+	// Use viewport if ready, otherwise render directly
+	if m.logReady {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			m.logViewport.View(),
 		)
 	}
 
-	return boxed
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		lipgloss.NewStyle().
+			Width(layout.Logs.Width).
+			Height(layout.Logs.Height-1).
+			Render(content),
+	)
+}
+
+// renderTree renders the tree view with containers and their sessions.
+func (m Model) renderTree(layout Layout) string {
+	if len(m.treeItems) == 0 {
+		return lipgloss.NewStyle().
+			Width(layout.Tree.Width).
+			Height(layout.Tree.Height).
+			Padding(1).
+			Render(m.styles.InfoStyle().Render("No containers. Press 'c' to create one."))
+	}
+
+	var lines []string
+	for i, item := range m.treeItems {
+		isSelected := i == m.selectedIdx
+		line := m.renderTreeItem(item, isSelected)
+		lines = append(lines, line)
+	}
+
+	content := strings.Join(lines, "\n")
+
+	return lipgloss.NewStyle().
+		Width(layout.Tree.Width).
+		Height(layout.Tree.Height).
+		Render(content)
+}
+
+// renderTreeItem renders a single tree item (container or session).
+func (m Model) renderTreeItem(item TreeItem, selected bool) string {
+	cursor := "  "
+	if selected {
+		cursor = "> "
+	}
+
+	if item.Type == TreeItemContainer {
+		return m.renderContainerTreeItem(item, cursor)
+	}
+	return m.renderSessionTreeItem(item, cursor)
+}
+
+// renderContainerTreeItem renders a container in the tree.
+func (m Model) renderContainerTreeItem(item TreeItem, cursor string) string {
+	// Find the container to get its details
+	var c *container.Container
+	for _, listItem := range m.containerList.Items() {
+		if ci, ok := listItem.(containerItem); ok {
+			if ci.container.ID == item.ContainerID {
+				c = ci.container
+				break
+			}
+		}
+	}
+
+	if c == nil {
+		return cursor + "▸ (unknown container)"
+	}
+
+	// Expand/collapse indicator
+	indicator := "▸"
+	if item.Expanded {
+		indicator = "▾"
+	}
+
+	// State indicator
+	var stateIcon string
+	switch c.State {
+	case container.StateRunning:
+		stateIcon = m.styles.SuccessStyle().Render("●")
+	case container.StateStopped:
+		stateIcon = m.styles.InfoStyle().Render("○")
+	default:
+		stateIcon = m.styles.InfoStyle().Render("◌")
+	}
+
+	name := c.Name
+	state := string(c.State)
+
+	return fmt.Sprintf("%s%s %s %s [%s]", cursor, indicator, stateIcon, name, state)
+}
+
+// renderSessionTreeItem renders a session in the tree (indented under container).
+func (m Model) renderSessionTreeItem(item TreeItem, cursor string) string {
+	// Find the session
+	var sess *container.Session
+	for _, listItem := range m.containerList.Items() {
+		if ci, ok := listItem.(containerItem); ok {
+			if ci.container.ID == item.ContainerID {
+				for i := range ci.container.Sessions {
+					if ci.container.Sessions[i].Name == item.SessionName {
+						sess = &ci.container.Sessions[i]
+						break
+					}
+				}
+				break
+			}
+		}
+	}
+
+	if sess == nil {
+		return cursor + "    └─ (unknown session)"
+	}
+
+	// Tree connector
+	connector := "├─"
+	// TODO: Could track if this is the last session to use "└─"
+
+	// Attached indicator
+	attachedIndicator := ""
+	if sess.Attached {
+		attachedIndicator = " (attached)"
+	}
+
+	return fmt.Sprintf("%s    %s %s%s", cursor, connector, sess.Name, attachedIndicator)
+}
+
+// renderDetailPanel renders the detail panel for the selected item.
+func (m Model) renderDetailPanel(layout Layout) string {
+	if layout.Detail.Width == 0 {
+		return ""
+	}
+
+	// Panel styling
+	panelStyle := lipgloss.NewStyle().
+		Width(layout.Detail.Width - 2).
+		Height(layout.Detail.Height).
+		Padding(1).
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		BorderForeground(lipgloss.Color(m.styles.flavor.Surface1().Hex))
+
+	// Check if we have a selection
+	if m.selectedIdx < 0 || m.selectedIdx >= len(m.treeItems) || m.selectedContainer == nil {
+		return panelStyle.Render(m.styles.InfoStyle().Render("Select an item to view details"))
+	}
+
+	item := m.treeItems[m.selectedIdx]
+
+	if item.Type == TreeItemContainer {
+		return panelStyle.Render(m.renderContainerDetailContent())
+	}
+	return panelStyle.Render(m.renderSessionDetailContent())
+}
+
+// renderContainerDetailContent renders detail content for a container.
+func (m Model) renderContainerDetailContent() string {
+	if m.selectedContainer == nil {
+		return "No container selected"
+	}
+
+	c := m.selectedContainer
+
+	// Header
+	header := m.styles.TitleStyle().Render("Container Details")
+
+	// Build info lines
+	lines := []string{
+		header,
+		"",
+		fmt.Sprintf("Name:     %s", c.Name),
+		fmt.Sprintf("ID:       %s", c.ID),
+		fmt.Sprintf("State:    %s", string(c.State)),
+		fmt.Sprintf("Template: %s", c.Template),
+		fmt.Sprintf("Project:  %s", c.ProjectPath),
+		fmt.Sprintf("Sessions: %d", len(c.Sessions)),
+	}
+
+	// List sessions if any
+	if len(c.Sessions) > 0 {
+		lines = append(lines, "", "Sessions:")
+		for _, sess := range c.Sessions {
+			attached := ""
+			if sess.Attached {
+				attached = " (attached)"
+			}
+			lines = append(lines, fmt.Sprintf("  • %s%s", sess.Name, attached))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderSessionDetailContent renders detail content for a session.
+func (m Model) renderSessionDetailContent() string {
+	if m.selectedContainer == nil {
+		return "No session selected"
+	}
+
+	sess := m.SelectedSession()
+	if sess == nil {
+		return "No session selected"
+	}
+
+	// Header
+	header := m.styles.TitleStyle().Render("Session Details")
+
+	// Attached status
+	attachedStr := "No"
+	if sess.Attached {
+		attachedStr = "Yes"
+	}
+
+	// Build info lines
+	lines := []string{
+		header,
+		"",
+		fmt.Sprintf("Name:      %s", sess.Name),
+		fmt.Sprintf("Container: %s", m.selectedContainer.Name),
+		fmt.Sprintf("Windows:   %d", sess.Windows),
+		fmt.Sprintf("Attached:  %s", attachedStr),
+	}
+
+	// Add attach command hint
+	lines = append(lines, "", "To attach:")
+	lines = append(lines, fmt.Sprintf("  %s", m.AttachCommand()))
+
+	return strings.Join(lines, "\n")
 }

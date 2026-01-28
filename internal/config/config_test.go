@@ -141,6 +141,43 @@ func TestDetectedRuntime_AutoDetectFallback(t *testing.T) {
 	}
 }
 
+func TestDetectedRuntimePath_ConfiguredValue(t *testing.T) {
+	cfg := Config{Runtime: "podman"}
+	got := cfg.DetectedRuntimePathWith(func(name string) (string, error) {
+		if name == "podman" {
+			return "/opt/homebrew/bin/podman", nil
+		}
+		return "", os.ErrNotExist
+	})
+	if got != "/opt/homebrew/bin/podman" {
+		t.Errorf("DetectedRuntimePath: got %q, want %q", got, "/opt/homebrew/bin/podman")
+	}
+}
+
+func TestDetectedRuntimePath_AutoDetect(t *testing.T) {
+	cfg := Config{Runtime: ""}
+	got := cfg.DetectedRuntimePathWith(func(name string) (string, error) {
+		if name == "docker" {
+			return "/usr/local/bin/docker", nil
+		}
+		return "", os.ErrNotExist
+	})
+	if got != "/usr/local/bin/docker" {
+		t.Errorf("DetectedRuntimePath: got %q, want %q", got, "/usr/local/bin/docker")
+	}
+}
+
+func TestDetectedRuntimePath_Fallback(t *testing.T) {
+	cfg := Config{Runtime: ""}
+	// Neither found, falls back to "docker" (without path)
+	got := cfg.DetectedRuntimePathWith(func(name string) (string, error) {
+		return "", os.ErrNotExist
+	})
+	if got != "docker" {
+		t.Errorf("DetectedRuntimePath fallback: got %q, want %q", got, "docker")
+	}
+}
+
 func TestGetCredentialValue_Found(t *testing.T) {
 	cfg := Config{
 		Credentials: map[string]string{
@@ -298,5 +335,46 @@ func TestValidateRuntime_PodmanNotFound(t *testing.T) {
 	}
 	if err.Error() != "runtime 'podman' not found in PATH" {
 		t.Errorf("ValidateRuntime: unexpected error message: %v", err)
+	}
+}
+
+func TestDefaultConfig_LogLevel(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.LogLevel != "info" {
+		t.Errorf("DefaultConfig().LogLevel = %q, want %q", cfg.LogLevel, "info")
+	}
+}
+
+func TestLoadFrom_LogLevel(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	content := []byte("log_level: debug\n")
+	if err := os.WriteFile(configPath, content, 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadFrom(configPath)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if cfg.LogLevel != "debug" {
+		t.Errorf("cfg.LogLevel = %q, want %q", cfg.LogLevel, "debug")
+	}
+}
+
+func TestLoadFrom_LogLevel_EmptyUsesDefault(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	content := []byte("theme: latte\n") // no log_level
+	if err := os.WriteFile(configPath, content, 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadFrom(configPath)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if cfg.LogLevel != "info" {
+		t.Errorf("cfg.LogLevel = %q, want %q (default)", cfg.LogLevel, "info")
 	}
 }

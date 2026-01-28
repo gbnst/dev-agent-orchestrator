@@ -1,19 +1,19 @@
+// pattern: Imperative Shell
+
 package tui
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/container"
+	"devagent/internal/logging"
 )
-
-// containerCreateMsg is sent when container creation completes.
-type containerCreateMsg struct {
-	container *container.Container
-	err       error
-}
 
 // Message types for container operations.
 type containersRefreshedMsg struct {
@@ -34,6 +34,11 @@ type tickMsg struct {
 	time time.Time
 }
 
+// logEntriesMsg delivers log entries from the logging channel.
+type logEntriesMsg struct {
+	entries []logging.LogEntry
+}
+
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -41,18 +46,57 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Update list size (leave room for header and help)
-		listHeight := m.height - 8
-		if listHeight < 0 {
-			listHeight = 0
-		}
+		// Use Layout for consistent height calculation
+		layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
+		listHeight := layout.ContentListHeight()
+
 		m.containerList.SetSize(m.width-4, listHeight)
+
+		// Initialize or update log viewport
+		if m.logPanelOpen {
+			if !m.logReady {
+				m.logViewport = viewport.New(layout.Logs.Width, layout.Logs.Height-1)
+				m.logReady = true
+			} else {
+				m.logViewport.Width = layout.Logs.Width
+				m.logViewport.Height = layout.Logs.Height - 1
+			}
+			m.updateLogViewportContent()
+		}
+
+		return m, nil
+
+	case spinner.TickMsg:
+		if m.statusLevel == StatusLoading {
+			var cmd tea.Cmd
+			m.statusSpinner, cmd = m.statusSpinner.Update(msg)
+
+			// Update list delegate with new spinner frame
+			m.containerDelegate = m.containerDelegate.WithSpinnerState(m.statusSpinner.View(), m.pendingOperations)
+			m.containerList.SetDelegate(m.containerDelegate)
+
+			return m, cmd
+		}
 		return m, nil
 
 	case tea.KeyMsg:
+		// Debug all key presses
+		m.logger.Debug("key pressed", "key", msg.String(), "type", msg.Type, "hasSelectedContainer", m.selectedContainer != nil, "formOpen", m.formOpen, "sessionViewOpen", m.sessionViewOpen, "sessionFormOpen", m.sessionFormOpen)
+
+		// Clear error with Escape
+		if msg.Type == tea.KeyEscape && m.statusLevel == StatusError {
+			m.clearStatus()
+			return m, nil
+		}
+
 		// Handle form input when form is open
 		if m.formOpen {
 			return m.handleFormKey(msg)
+		}
+
+		// Handle session form input when session form is open
+		if m.sessionFormOpen {
+			return m.handleSessionFormKey(msg)
 		}
 
 		// Handle session view navigation
@@ -60,41 +104,149 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleSessionViewKey(msg)
 		}
 
+		// Handle tree navigation when tree items exist
+		if len(m.treeItems) > 0 {
+			switch msg.Type {
+			case tea.KeyUp:
+				m.moveTreeSelectionUp()
+				return m, nil
+			case tea.KeyDown:
+				m.moveTreeSelectionDown()
+				return m, nil
+			case tea.KeyEnter:
+				// Toggle expand/collapse for containers
+				if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
+					item := m.treeItems[m.selectedIdx]
+					if item.Type == TreeItemContainer {
+						m.toggleTreeExpand()
+						return m, nil
+					}
+				}
+			case tea.KeyRight:
+				// Open detail panel
+				m.detailPanelOpen = true
+				return m, nil
+			case tea.KeyLeft:
+				// Close detail panel
+				if m.detailPanelOpen {
+					m.detailPanelOpen = false
+					return m, nil
+				}
+			case tea.KeyEscape:
+				// Close detail panel (if open)
+				if m.detailPanelOpen {
+					m.detailPanelOpen = false
+					return m, nil
+				}
+			}
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
+			m.logger.Debug("quit command received")
 			return m, tea.Quit
 
 		case "r":
 			// Refresh containers
+			m.logger.Debug("refresh containers requested")
 			return m, m.refreshContainers()
 
 		case "c":
 			// Open container creation form
+			m.logger.Debug("opening container creation form")
 			m.openForm()
 			return m, nil
 
 		case "s":
 			// Start selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
-				return m, m.startContainer(item.container.ID)
+				m.logger.Info("starting container", "containerID", item.container.ID, "name", item.container.Name)
+				m.setPending(item.container.ID, "start")
+				cmd := m.setLoading("Starting " + item.container.Name + "...")
+				return m, tea.Batch(cmd, m.startContainer(item.container.ID))
 			}
 
 		case "x":
 			// Stop selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
-				return m, m.stopContainer(item.container.ID)
+				m.logger.Info("stopping container", "containerID", item.container.ID, "name", item.container.Name)
+				m.setPending(item.container.ID, "stop")
+				cmd := m.setLoading("Stopping " + item.container.Name + "...")
+				return m, tea.Batch(cmd, m.stopContainer(item.container.ID))
 			}
 
 		case "d":
 			// Destroy selected container
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
-				return m, m.destroyContainer(item.container.ID)
+				m.logger.Info("destroying container", "containerID", item.container.ID, "name", item.container.Name)
+				m.setPending(item.container.ID, "destroy")
+				cmd := m.setLoading("Destroying " + item.container.Name + "...")
+				return m, tea.Batch(cmd, m.destroyContainer(item.container.ID))
 			}
 
-		case "enter":
-			// Open session view for selected container
-			m.openSessionView()
+		case "t":
+			// Create session in selected container
+			if m.selectedContainer != nil {
+				m.logger.Debug("opening session form")
+				m.openSessionForm()
+				return m, nil
+			}
+
+		case "l", "L":
+			// Toggle log panel
+			m.logger.Debug("toggling log panel", "visible", !m.logPanelOpen)
+			m.logPanelOpen = !m.logPanelOpen
+			if m.logPanelOpen {
+				m.setLogFilterFromContext()
+				// Recalculate layout and initialize viewport if needed
+				layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
+				if !m.logReady {
+					m.logViewport = viewport.New(layout.Logs.Width, layout.Logs.Height-1)
+					m.logReady = true
+				}
+				m.updateLogViewportContent()
+			}
+			// Recalculate list size for split layout
+			layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
+			m.containerList.SetSize(m.width-4, layout.ContentListHeight())
 			return m, nil
+
+		case "j":
+			// Scroll logs down when panel is open
+			if m.logPanelOpen && m.logReady {
+				m.logViewport.SetYOffset(m.logViewport.YOffset + 1)
+				m.logAutoScroll = m.logViewport.AtBottom()
+				return m, nil
+			}
+			// Fall through to container list navigation if not handled
+
+		case "k":
+			// Scroll logs up when panel is open
+			if m.logPanelOpen && m.logReady {
+				if m.logViewport.YOffset > 0 {
+					m.logViewport.SetYOffset(m.logViewport.YOffset - 1)
+				}
+				m.logAutoScroll = false
+				return m, nil
+			}
+			// Fall through to container list navigation
+
+		case "g":
+			// Go to top of logs when panel is open
+			if m.logPanelOpen && m.logReady {
+				m.logViewport.GotoTop()
+				m.logAutoScroll = false
+				return m, nil
+			}
+
+		case "G":
+			// Go to bottom of logs when panel is open
+			if m.logPanelOpen && m.logReady {
+				m.logViewport.GotoBottom()
+				m.logAutoScroll = true
+				return m, nil
+			}
+
 		}
 
 		// Forward to list for navigation
@@ -106,29 +258,52 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		items := toListItems(msg.containers)
 		m.containerList.SetItems(items)
+		// Rebuild tree items after container refresh
+		m.rebuildTreeItems()
+		// Sync selection after rebuild
+		m.syncSelectionFromTree()
 		return m, nil
 
 	case containerErrorMsg:
+		m.logger.Error("container operation error", "error", msg.err)
 		m.err = msg.err
 		return m, nil
 
 	case containerActionMsg:
+		// Clear pending state regardless of success/error
+		m.clearPending(msg.id)
+
 		if msg.err != nil {
-			m.err = msg.err
+			m.logger.Error("container action failed", "action", msg.action, "containerID", msg.id, "error", msg.err)
+			m.setError(fmt.Sprintf("Failed to %s container", msg.action), msg.err)
 			return m, nil
 		}
-		// Refresh after action
+		m.logger.Info("container action completed", "action", msg.action, "containerID", msg.id)
+		actionNames := map[string]string{
+			"create":  "created",
+			"start":   "started",
+			"stop":    "stopped",
+			"destroy": "destroyed",
+		}
+		m.setSuccess(fmt.Sprintf("Container %s", actionNames[msg.action]))
 		return m, m.refreshContainers()
 
 	case tickMsg:
 		// Periodic refresh
-		return m, tea.Batch(
+		m.logger.Debug("periodic refresh triggered")
+		cmds := []tea.Cmd{
 			m.refreshContainers(),
 			m.tick(),
-		)
+		}
+		// Also refresh sessions if we have a selected container
+		if m.selectedContainer != nil {
+			cmds = append(cmds, m.refreshSessions())
+		}
+		return m, tea.Batch(cmds...)
 
 	case sessionActionMsg:
 		if msg.err != nil {
+			m.logger.Error("session action failed", "action", msg.action, "containerID", msg.containerID, "session", msg.sessionName, "error", msg.err)
 			m.err = msg.err
 			return m, nil
 		}
@@ -139,6 +314,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update sessions for the container
 		if m.selectedContainer != nil && m.selectedContainer.ID == msg.containerID {
 			m.selectedContainer.Sessions = msg.sessions
+		}
+		return m, nil
+
+	case logEntriesMsg:
+		for _, entry := range msg.entries {
+			m.addLogEntry(entry)
+		}
+		if m.logPanelOpen && m.logReady {
+			m.updateLogViewportContent()
+		}
+		// Continue consuming logs (logManager added in Phase 7)
+		if m.logManager != nil {
+			return m, m.consumeLogEntries(m.logManager)
 		}
 		return m, nil
 	}
@@ -192,9 +380,13 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Submit the form
-		cmd := m.createContainer()
+		containerName := m.formContainerName
+		m.logger.Info("creating container", "name", containerName)
+		m.setPending(containerName, "create")
+		loadingCmd := m.setLoading("Creating " + containerName + "...")
+		createCmd := m.createContainer()
 		m.resetForm()
-		return m, cmd
+		return m, tea.Batch(loadingCmd, createCmd)
 
 	case tea.KeyTab:
 		// Cycle through fields

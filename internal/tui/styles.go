@@ -1,3 +1,5 @@
+// pattern: Functional Core
+
 package tui
 
 import (
@@ -69,4 +71,86 @@ func (s *Styles) ErrorStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(s.flavor.Red().Hex)).
 		Bold(true)
+}
+
+// ActiveTabStyle returns the style for the currently selected tab.
+func (s *Styles) ActiveTabStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(s.flavor.Mauve().Hex)).
+		Padding(0, 2)
+}
+
+// InactiveTabStyle returns the style for non-selected tabs.
+func (s *Styles) InactiveTabStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Overlay0().Hex)).
+		Padding(0, 2)
+}
+
+// TabGapFill returns the character used to fill the tab bar gap.
+func (s *Styles) TabGapFill() string {
+	return "─"
+}
+
+// TabGapStyle returns the style for the tab bar gap fill.
+func (s *Styles) TabGapStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Surface1().Hex))
+}
+
+// SuccessStyle returns the style for success messages.
+func (s *Styles) SuccessStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Green().Hex))
+}
+
+// InfoStatusStyle returns the style for info status messages.
+func (s *Styles) InfoStatusStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Text().Hex))
+}
+
+// LogHeaderStyle returns the style for log panel header.
+func (s *Styles) LogHeaderStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Subtext0().Hex)).
+		Bold(true)
+}
+
+// LogDebugStyle returns the style for DEBUG level logs.
+func (s *Styles) LogDebugStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Overlay0().Hex))
+}
+
+// LogInfoStyle returns the style for INFO level logs.
+func (s *Styles) LogInfoStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Blue().Hex))
+}
+
+// LogWarnStyle returns the style for WARN level logs.
+func (s *Styles) LogWarnStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Yellow().Hex))
+}
+
+// LogErrorStyle returns the style for ERROR level logs.
+func (s *Styles) LogErrorStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Red().Hex)).
+		Bold(true)
+}
+
+// LogTimestampStyle returns the style for log timestamps.
+func (s *Styles) LogTimestampStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Overlay0().Hex))
+}
+
+// LogScopeStyle returns the style for log scope.
+func (s *Styles) LogScopeStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Teal().Hex))
 }
