@@ -125,8 +125,8 @@ func TestModel_FilteredLogEntries(t *testing.T) {
 		t.Errorf("no filter should return all entries, got %d", len(m.filteredLogEntries()))
 	}
 
-	// Container filter
-	m.logFilter = "container.abc123"
+	// Container filter matches scope prefix
+	m.logFilter = "container"
 	filtered := m.filteredLogEntries()
 	if len(filtered) != 1 {
 		t.Errorf("container filter should return 1 entry, got %d", len(filtered))
@@ -153,9 +153,11 @@ func TestSetLogFilterFromContext_ContainerSelected(t *testing.T) {
 
 	m.setLogFilterFromContext()
 
-	expected := "container.abc123456789"
-	if m.logFilter != expected {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, expected)
+	if m.logFilter != "container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "container")
+	}
+	if m.logFilterLabel != "test-container" {
+		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")
 	}
 }
 
@@ -179,9 +181,11 @@ func TestSetLogFilterFromContext_SessionSelected(t *testing.T) {
 
 	m.setLogFilterFromContext()
 
-	expected := "session.abc123456789.dev"
-	if m.logFilter != expected {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, expected)
+	if m.logFilter != "tmux" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "tmux")
+	}
+	if m.logFilterLabel != "test-container > dev" {
+		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container > dev")
 	}
 }
 
@@ -196,9 +200,11 @@ func TestSetLogFilterFromContext_ContainerWithoutSessions(t *testing.T) {
 
 	m.setLogFilterFromContext()
 
-	expected := "container.abc123456789"
-	if m.logFilter != expected {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, expected)
+	if m.logFilter != "container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "container")
+	}
+	if m.logFilterLabel != "test-container" {
+		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")
 	}
 }
 
@@ -209,42 +215,137 @@ func TestSetLogFilterFromContext_ShortContainerID(t *testing.T) {
 		Name: "test-container",
 	}
 
-	// Should not panic and should use full ID
 	m.setLogFilterFromContext()
 
-	expected := "container.abc12345"
-	if m.logFilter != expected {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, expected)
+	if m.logFilter != "container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "container")
+	}
+	if m.logFilterLabel != "test-container" {
+		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")
 	}
 }
 
-func TestTruncateContainerID_LongID(t *testing.T) {
-	id := "abc123456789abcdefghij"
-	result := truncateContainerID(id)
-
-	if len(result) > 12 {
-		t.Errorf("truncateContainerID should return at most 12 chars, got %d: %q", len(result), result)
+func TestPanelFocus_Constants(t *testing.T) {
+	// Ensure FocusTree is the zero value
+	var defaultFocus PanelFocus
+	if defaultFocus != FocusTree {
+		t.Errorf("zero value of PanelFocus should be FocusTree, got %d", defaultFocus)
 	}
-
-	if result != "abc123456789" {
-		t.Errorf("truncateContainerID(%q) = %q, want %q", id, result, "abc123456789")
+	if FocusTree != 0 {
+		t.Errorf("FocusTree should be 0, got %d", FocusTree)
 	}
-}
-
-func TestTruncateContainerID_ShortID(t *testing.T) {
-	id := "abc12345"
-	result := truncateContainerID(id)
-
-	if result != id {
-		t.Errorf("truncateContainerID should return full ID when < 12 chars, got %q, want %q", result, id)
+	if FocusDetail != 1 {
+		t.Errorf("FocusDetail should be 1, got %d", FocusDetail)
+	}
+	if FocusLogs != 2 {
+		t.Errorf("FocusLogs should be 2, got %d", FocusLogs)
 	}
 }
 
-func TestTruncateContainerID_ExactlyTwelve(t *testing.T) {
-	id := "123456789012"
-	result := truncateContainerID(id)
+func TestModel_NextFocus_OnlyTreeAvailable(t *testing.T) {
+	m := newTestModel(t)
+	// Default state: all panels closed
+	m.panelFocus = FocusTree
+	m.detailPanelOpen = false
+	m.logPanelOpen = false
+	m.logReady = false
 
-	if result != id {
-		t.Errorf("truncateContainerID should return full ID when exactly 12 chars, got %q, want %q", result, id)
+	got := m.nextFocus()
+	if got != FocusTree {
+		t.Errorf("nextFocus() = %d, want FocusTree (%d)", got, FocusTree)
+	}
+}
+
+func TestModel_NextFocus_DetailPanelOpen(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusTree
+	m.detailPanelOpen = true
+	m.logPanelOpen = false
+
+	got := m.nextFocus()
+	if got != FocusDetail {
+		t.Errorf("nextFocus() = %d, want FocusDetail (%d)", got, FocusDetail)
+	}
+}
+
+func TestModel_NextFocus_LogPanelOpen(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusTree
+	m.detailPanelOpen = false
+	m.logPanelOpen = true
+	m.logReady = true
+
+	got := m.nextFocus()
+	if got != FocusLogs {
+		t.Errorf("nextFocus() = %d, want FocusLogs (%d)", got, FocusLogs)
+	}
+}
+
+func TestModel_NextFocus_AllPanelsOpen(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusTree
+	m.detailPanelOpen = true
+	m.logPanelOpen = true
+	m.logReady = true
+
+	got := m.nextFocus()
+	if got != FocusDetail {
+		t.Errorf("nextFocus() from FocusTree = %d, want FocusDetail (%d)", got, FocusDetail)
+	}
+
+	m.panelFocus = FocusDetail
+	got = m.nextFocus()
+	if got != FocusLogs {
+		t.Errorf("nextFocus() from FocusDetail = %d, want FocusLogs (%d)", got, FocusLogs)
+	}
+
+	m.panelFocus = FocusLogs
+	got = m.nextFocus()
+	if got != FocusTree {
+		t.Errorf("nextFocus() from FocusLogs = %d, want FocusTree (%d)", got, FocusTree)
+	}
+}
+
+func TestModel_NextFocus_DetailAndLogsOpen(t *testing.T) {
+	m := newTestModel(t)
+	m.detailPanelOpen = true
+	m.logPanelOpen = true
+	m.logReady = true
+
+	m.panelFocus = FocusDetail
+	got := m.nextFocus()
+	if got != FocusLogs {
+		t.Errorf("nextFocus() from FocusDetail = %d, want FocusLogs (%d)", got, FocusLogs)
+	}
+}
+
+func TestModel_NextFocus_LogNotReady(t *testing.T) {
+	m := newTestModel(t)
+	m.panelFocus = FocusTree
+	m.detailPanelOpen = false
+	m.logPanelOpen = true
+	m.logReady = false // not ready yet
+
+	got := m.nextFocus()
+	if got != FocusTree {
+		t.Errorf("nextFocus() with logReady=false should stay on FocusTree, got %d", got)
+	}
+}
+
+func TestModel_NextFocus_CirclesCycle(t *testing.T) {
+	m := newTestModel(t)
+	m.detailPanelOpen = true
+	m.logPanelOpen = true
+	m.logReady = true
+
+	// Start at tree
+	m.panelFocus = FocusTree
+	sequence := []PanelFocus{FocusDetail, FocusLogs, FocusTree, FocusDetail}
+	for _, expected := range sequence {
+		got := m.nextFocus()
+		m.panelFocus = got
+		if got != expected {
+			t.Errorf("nextFocus() = %d, want %d", got, expected)
+		}
 	}
 }

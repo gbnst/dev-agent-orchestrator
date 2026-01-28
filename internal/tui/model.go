@@ -67,6 +67,15 @@ func (s StatusLevel) String() string {
 	}
 }
 
+// PanelFocus represents which panel currently has keyboard focus.
+type PanelFocus int
+
+const (
+	FocusTree   PanelFocus = iota
+	FocusDetail
+	FocusLogs
+)
+
 // Model represents the TUI application state.
 type Model struct {
 	width     int
@@ -105,6 +114,7 @@ type Model struct {
 	selectedIdx        int
 	expandedContainers map[string]bool
 	detailPanelOpen    bool
+	panelFocus         PanelFocus
 
 	// Status bar
 	statusMessage string
@@ -117,7 +127,8 @@ type Model struct {
 	// Log panel
 	logEntries    []logging.LogEntry
 	logViewport   viewport.Model
-	logFilter     string
+	logFilter      string
+	logFilterLabel string
 	logAutoScroll bool
 	logReady      bool // viewport initialized
 	logManager    *logging.Manager
@@ -416,19 +427,13 @@ func (m Model) filteredLogEntries() []logging.LogEntry {
 	return filtered
 }
 
-// truncateContainerID safely returns up to 12 characters of a container ID.
-// If the ID is shorter than 12 characters, returns the full ID.
-func truncateContainerID(id string) string {
-	if len(id) > 12 {
-		return id[:12]
-	}
-	return id
-}
-
 // setLogFilterFromContext sets the log filter based on current UI state.
+// Filter scopes match the logger scopes used by the container and tmux
+// packages: "container" for all container operations, "tmux" for sessions.
 func (m *Model) setLogFilterFromContext() {
 	if m.selectedContainer == nil {
 		m.logFilter = ""
+		m.logFilterLabel = ""
 		return
 	}
 
@@ -437,14 +442,16 @@ func (m *Model) setLogFilterFromContext() {
 		item := m.treeItems[m.selectedIdx]
 		if item.Type == TreeItemSession {
 			if session := m.SelectedSession(); session != nil {
-				m.logFilter = fmt.Sprintf("session.%s.%s", truncateContainerID(m.selectedContainer.ID), session.Name)
+				m.logFilter = "tmux"
+				m.logFilterLabel = fmt.Sprintf("%s > %s", m.selectedContainer.Name, session.Name)
 				return
 			}
 		}
 	}
 
 	// Default to container filter
-	m.logFilter = fmt.Sprintf("container.%s", truncateContainerID(m.selectedContainer.ID))
+	m.logFilter = "container"
+	m.logFilterLabel = m.selectedContainer.Name
 }
 
 // consumeLogEntries reads entries from the log manager channel.
@@ -540,11 +547,13 @@ func (m *Model) toggleTreeExpand() {
 }
 
 // syncSelectionFromTree updates selectedContainer and selectedSessionIdx
-// based on the current tree selection (selectedIdx).
+// based on the current tree selection (selectedIdx), and keeps the log
+// filter in sync so it always matches the active display scope.
 func (m *Model) syncSelectionFromTree() {
 	if m.selectedIdx < 0 || m.selectedIdx >= len(m.treeItems) {
 		m.selectedContainer = nil
 		m.selectedSessionIdx = 0
+		m.setLogFilterFromContext()
 		return
 	}
 
@@ -561,12 +570,14 @@ func (m *Model) syncSelectionFromTree() {
 					for i, sess := range ci.container.Sessions {
 						if sess.Name == item.SessionName {
 							m.selectedSessionIdx = i
+							m.setLogFilterFromContext()
 							return
 						}
 					}
 				} else {
 					m.selectedSessionIdx = 0
 				}
+				m.setLogFilterFromContext()
 				return
 			}
 		}
@@ -586,5 +597,28 @@ func (m *Model) moveTreeSelectionDown() {
 	if m.selectedIdx < len(m.treeItems)-1 {
 		m.selectedIdx++
 		m.syncSelectionFromTree()
+	}
+}
+
+// nextFocus returns the next panel focus, skipping panels that aren't open.
+func (m *Model) nextFocus() PanelFocus {
+	switch m.panelFocus {
+	case FocusTree:
+		if m.detailPanelOpen {
+			return FocusDetail
+		}
+		if m.logPanelOpen && m.logReady {
+			return FocusLogs
+		}
+		return FocusTree
+	case FocusDetail:
+		if m.logPanelOpen && m.logReady {
+			return FocusLogs
+		}
+		return FocusTree
+	case FocusLogs:
+		return FocusTree
+	default:
+		return FocusTree
 	}
 }
