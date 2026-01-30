@@ -53,7 +53,7 @@ func newTreeTestModel(t *testing.T) Model {
 		Runtime: "docker",
 	}
 	templates := []config.Template{
-		{Name: "go-project", Description: "Go development"},
+		{Name: "go-project"},
 	}
 	tmpDir := t.TempDir()
 	logPath := tmpDir + "/test-tree.log"

@@ -18,9 +18,6 @@ otel:
 credentials:
   OPENAI_API_KEY: OPENAI_API_KEY
   ANTHROPIC_API_KEY: ANTHROPIC_API_KEY
-base_images:
-  default: mcr.microsoft.com/devcontainers/base:ubuntu
-  python: mcr.microsoft.com/devcontainers/python:3.11
 agents:
   claude-code:
     display_name: Claude Code
@@ -63,14 +60,6 @@ agents:
 	}
 	if cfg.Credentials["OPENAI_API_KEY"] != "OPENAI_API_KEY" {
 		t.Errorf("Credentials[OPENAI_API_KEY]: got %q, want %q", cfg.Credentials["OPENAI_API_KEY"], "OPENAI_API_KEY")
-	}
-
-	// Verify base images
-	if len(cfg.BaseImages) != 2 {
-		t.Errorf("BaseImages length: got %d, want %d", len(cfg.BaseImages), 2)
-	}
-	if cfg.BaseImages["python"] != "mcr.microsoft.com/devcontainers/python:3.11" {
-		t.Errorf("BaseImages[python]: got %q, want expected value", cfg.BaseImages["python"])
 	}
 
 	// Verify agents
@@ -224,36 +213,6 @@ func TestGetCredentialValue_EnvVarNotSet(t *testing.T) {
 	}
 	if value != "" {
 		t.Errorf("GetCredentialValue: got %q, want empty string", value)
-	}
-}
-
-func TestResolveBaseImage_Found(t *testing.T) {
-	cfg := Config{
-		BaseImages: map[string]string{
-			"python": "mcr.microsoft.com/devcontainers/python:3.11",
-		},
-	}
-
-	image, ok := cfg.ResolveBaseImage("python")
-	if !ok {
-		t.Error("ResolveBaseImage: expected ok=true")
-	}
-	if image != "mcr.microsoft.com/devcontainers/python:3.11" {
-		t.Errorf("ResolveBaseImage: got %q, want expected value", image)
-	}
-}
-
-func TestResolveBaseImage_NotFound(t *testing.T) {
-	cfg := Config{
-		BaseImages: map[string]string{},
-	}
-
-	image, ok := cfg.ResolveBaseImage("unknown")
-	if ok {
-		t.Error("ResolveBaseImage: expected ok=false for unknown image")
-	}
-	if image != "" {
-		t.Errorf("ResolveBaseImage: got %q, want empty string", image)
 	}
 }
 

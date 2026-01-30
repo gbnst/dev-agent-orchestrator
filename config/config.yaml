@@ -18,13 +18,6 @@ credentials:
   openai: OPENAI_API_KEY
   github: GITHUB_TOKEN
 
-# Default base images for templates
-base_images:
-  default: mcr.microsoft.com/devcontainers/base:ubuntu
-  node: mcr.microsoft.com/devcontainers/javascript-node:22
-  go: mcr.microsoft.com/devcontainers/go:1.25
-  python: mcr.microsoft.com/devcontainers/python:3.12
-
 # Agent definitions
 agents:
   claude:

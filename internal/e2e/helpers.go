@@ -51,9 +51,6 @@ func TestConfig(runtime string) *config.Config {
 	return &config.Config{
 		Theme:   "mocha",
 		Runtime: runtime,
-		BaseImages: map[string]string{
-			"default": "mcr.microsoft.com/devcontainers/base:ubuntu",
-		},
 	}
 }
 
@@ -61,9 +58,8 @@ func TestConfig(runtime string) *config.Config {
 func TestTemplates() []config.Template {
 	return []config.Template{
 		{
-			Name:        "default",
-			Description: "Default container",
-			BaseImage:   "default",
+			Name:  "default",
+			Image: "mcr.microsoft.com/devcontainers/base:ubuntu",
 		},
 	}
 }

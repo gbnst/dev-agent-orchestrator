@@ -17,7 +17,6 @@ type Config struct {
 	LogLevel    string                 `yaml:"log_level"`
 	OTEL        OTELConfig             `yaml:"otel"`
 	Credentials map[string]string      `yaml:"credentials"`
-	BaseImages  map[string]string      `yaml:"base_images"`
 	Agents      map[string]AgentConfig `yaml:"agents"`
 }
 
@@ -180,12 +179,6 @@ func (c *Config) GetCredentialValue(name string) (string, bool) {
 	}
 
 	return value, true
-}
-
-// ResolveBaseImage returns the full image reference for a named base image.
-func (c *Config) ResolveBaseImage(name string) (string, bool) {
-	image, ok := c.BaseImages[name]
-	return image, ok
 }
 
 func getConfigDir() string {

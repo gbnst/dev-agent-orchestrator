@@ -5,7 +5,7 @@ package container
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -37,38 +37,28 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*DevcontainerJSON,
 		}
 	}
 	if tmpl == nil {
-		return nil, errors.New("template not found: " + opts.Template)
-	}
-
-	// Resolve base image
-	image, ok := g.cfg.ResolveBaseImage(tmpl.BaseImage)
-	if !ok {
-		return nil, errors.New("base image not found: " + tmpl.BaseImage)
+		return nil, fmt.Errorf("template not found: %s", opts.Template)
 	}
 
 	dc := &DevcontainerJSON{
-		Name:         opts.Name,
-		Image:        image,
-		ContainerEnv: make(map[string]string),
-		RunArgs:      []string{},
+		Name:              opts.Name,
+		Image:             tmpl.Image,
+		PostCreateCommand: tmpl.PostCreateCommand,
+		ContainerEnv:      make(map[string]string),
+		RunArgs:           []string{},
 	}
 
-	// Copy features from template
-	if tmpl.Devcontainer.Features != nil {
+	// Copy features from template (shallow copy of map values is sufficient)
+	if tmpl.Features != nil {
 		dc.Features = make(map[string]map[string]interface{})
-		for k, v := range tmpl.Devcontainer.Features {
+		for k, v := range tmpl.Features {
 			dc.Features[k] = v
 		}
 	}
 
 	// Copy customizations from template
-	if tmpl.Devcontainer.Customizations != nil {
-		dc.Customizations = tmpl.Devcontainer.Customizations
-	}
-
-	// Copy post create command
-	if tmpl.Devcontainer.PostCreateCommand != "" {
-		dc.PostCreateCommand = tmpl.Devcontainer.PostCreateCommand
+	if tmpl.Customizations != nil {
+		dc.Customizations = tmpl.Customizations
 	}
 
 	// Inject credentials

@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-01-28
+Last verified: 2026-01-30
 
 ## Tech Stack
 - Language: Go 1.21+
@@ -24,7 +24,8 @@ Last verified: 2026-01-28
 - `internal/tmux/` - Tmux session management within containers
 - `internal/config/` - Configuration loading and validation
 - `internal/e2e/` - E2E test utilities
-- `config/` - Development configuration templates
+- `config/` - Development config (config.yaml + templates/)
+- `config/templates/<name>/devcontainer.json` - Native devcontainer templates with devagent extensions
 - `docs/` - Design plans and implementation phases
 
 ## Conventions

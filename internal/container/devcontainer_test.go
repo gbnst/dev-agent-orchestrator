@@ -21,35 +21,13 @@ func TestGenerate_TemplateNotFound(t *testing.T) {
 	}
 }
 
-func TestGenerate_BaseImageNotFound(t *testing.T) {
-	cfg := &config.Config{
-		BaseImages: map[string]string{}, // Empty - no base images
-	}
-	templates := []config.Template{
-		{
-			Name:      "python",
-			BaseImage: "python", // References non-existent base image
-		},
-	}
-	g := NewDevcontainerGenerator(cfg, templates)
-
-	_, err := g.Generate(CreateOptions{Template: "python"})
-	if err == nil {
-		t.Error("Expected error for unknown base image")
-	}
-}
 
 func TestGenerate_BasicTemplate(t *testing.T) {
-	cfg := &config.Config{
-		BaseImages: map[string]string{
-			"python": "mcr.microsoft.com/devcontainers/python:3.11",
-		},
-	}
+	cfg := &config.Config{}
 	templates := []config.Template{
 		{
-			Name:        "python",
-			Description: "Python dev",
-			BaseImage:   "python",
+			Name:  "python",
+			Image: "mcr.microsoft.com/devcontainers/python:3.11",
 		},
 	}
 	g := NewDevcontainerGenerator(cfg, templates)
@@ -73,9 +51,6 @@ func TestGenerate_BasicTemplate(t *testing.T) {
 
 func TestGenerate_InjectsCredentials(t *testing.T) {
 	cfg := &config.Config{
-		BaseImages: map[string]string{
-			"default": "ubuntu:22.04",
-		},
 		Credentials: map[string]string{
 			"OPENAI_API_KEY": "TEST_OPENAI_KEY",
 		},
@@ -83,7 +58,7 @@ func TestGenerate_InjectsCredentials(t *testing.T) {
 	templates := []config.Template{
 		{
 			Name:              "default",
-			BaseImage:         "default",
+			Image:             "ubuntu:22.04",
 			InjectCredentials: []string{"OPENAI_API_KEY"},
 		},
 	}
@@ -104,9 +79,6 @@ func TestGenerate_InjectsCredentials(t *testing.T) {
 
 func TestGenerate_SkipsMissingCredentials(t *testing.T) {
 	cfg := &config.Config{
-		BaseImages: map[string]string{
-			"default": "ubuntu:22.04",
-		},
 		Credentials: map[string]string{
 			"MISSING_KEY": "UNSET_ENV_VAR_12345",
 		},
@@ -114,7 +86,7 @@ func TestGenerate_SkipsMissingCredentials(t *testing.T) {
 	templates := []config.Template{
 		{
 			Name:              "default",
-			BaseImage:         "default",
+			Image:             "ubuntu:22.04",
 			InjectCredentials: []string{"MISSING_KEY"},
 		},
 	}
@@ -133,9 +105,6 @@ func TestGenerate_SkipsMissingCredentials(t *testing.T) {
 
 func TestGenerate_InjectsAgentOTELEnv(t *testing.T) {
 	cfg := &config.Config{
-		BaseImages: map[string]string{
-			"default": "ubuntu:22.04",
-		},
 		Agents: map[string]config.AgentConfig{
 			"claude-code": {
 				DisplayName: "Claude Code",
@@ -149,7 +118,7 @@ func TestGenerate_InjectsAgentOTELEnv(t *testing.T) {
 	templates := []config.Template{
 		{
 			Name:         "default",
-			BaseImage:    "default",
+			Image:        "ubuntu:22.04",
 			DefaultAgent: "claude-code",
 		},
 	}
@@ -169,15 +138,11 @@ func TestGenerate_InjectsAgentOTELEnv(t *testing.T) {
 }
 
 func TestGenerate_AddsDevagentLabels(t *testing.T) {
-	cfg := &config.Config{
-		BaseImages: map[string]string{
-			"default": "ubuntu:22.04",
-		},
-	}
+	cfg := &config.Config{}
 	templates := []config.Template{
 		{
-			Name:      "default",
-			BaseImage: "default",
+			Name:  "default",
+			Image: "ubuntu:22.04",
 		},
 	}
 
@@ -228,23 +193,17 @@ func TestGenerate_AddsDevagentLabels(t *testing.T) {
 }
 
 func TestGenerate_CopiesFeatures(t *testing.T) {
-	cfg := &config.Config{
-		BaseImages: map[string]string{
-			"default": "ubuntu:22.04",
-		},
-	}
+	cfg := &config.Config{}
 	templates := []config.Template{
 		{
-			Name:      "default",
-			BaseImage: "default",
-			Devcontainer: config.DevcontainerSpec{
-				Features: map[string]map[string]interface{}{
-					"ghcr.io/devcontainers/features/python:1": {
-						"version": "3.11",
-					},
+			Name:  "default",
+			Image: "ubuntu:22.04",
+			Features: map[string]map[string]interface{}{
+				"ghcr.io/devcontainers/features/python:1": {
+					"version": "3.11",
 				},
-				PostCreateCommand: "pip install -r requirements.txt",
 			},
+			PostCreateCommand: "pip install -r requirements.txt",
 		},
 	}
 
@@ -449,15 +408,11 @@ func TestDevcontainerCLI_Up_WithoutDockerPath(t *testing.T) {
 }
 
 func TestGenerate_AddsDockerNameToRunArgs(t *testing.T) {
-	cfg := &config.Config{
-		BaseImages: map[string]string{
-			"default": "ubuntu:22.04",
-		},
-	}
+	cfg := &config.Config{}
 	templates := []config.Template{
 		{
-			Name:      "default",
-			BaseImage: "default",
+			Name:  "default",
+			Image: "ubuntu:22.04",
 		},
 	}
 
@@ -483,15 +438,11 @@ func TestGenerate_AddsDockerNameToRunArgs(t *testing.T) {
 }
 
 func TestGenerate_OmitsDockerNameWhenEmpty(t *testing.T) {
-	cfg := &config.Config{
-		BaseImages: map[string]string{
-			"default": "ubuntu:22.04",
-		},
-	}
+	cfg := &config.Config{}
 	templates := []config.Template{
 		{
-			Name:      "default",
-			BaseImage: "default",
+			Name:  "default",
+			Image: "ubuntu:22.04",
 		},
 	}
 

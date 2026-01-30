@@ -3,29 +3,25 @@
 package config
 
 import (
+	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
-// Template represents a devcontainer template configuration.
+// Template represents a loaded devcontainer template with devagent extensions.
+// Templates are loaded from directories containing a devcontainer.json file.
 type Template struct {
-	Name              string           `yaml:"name"`
-	Description       string           `yaml:"description"`
-	BaseImage         string           `yaml:"base_image"`
-	Devcontainer      DevcontainerSpec `yaml:"devcontainer"`
-	InjectCredentials []string         `yaml:"inject_credentials"`
-	DefaultAgent      string           `yaml:"default_agent"`
-}
+	// Standard devcontainer.json fields
+	Name              string                            `json:"name"`
+	Image             string                            `json:"image,omitempty"`
+	Features          map[string]map[string]interface{} `json:"features,omitempty"`
+	Customizations    map[string]interface{}            `json:"customizations,omitempty"`
+	PostCreateCommand string                            `json:"postCreateCommand,omitempty"`
 
-// DevcontainerSpec holds devcontainer.json settings from a template.
-type DevcontainerSpec struct {
-	Features          map[string]map[string]interface{} `yaml:"features"`
-	Customizations    map[string]interface{}            `yaml:"customizations"`
-	PostCreateCommand string                            `yaml:"postCreateCommand"`
+	// Devagent-specific fields extracted from customizations.devagent
+	InjectCredentials []string `json:"-"` // Populated from customizations.devagent.injectCredentials
+	DefaultAgent      string   `json:"-"` // Populated from customizations.devagent.defaultAgent
 }
 
 // customTemplatesPath allows overriding the templates directory.
@@ -44,7 +40,9 @@ func LoadTemplates() ([]Template, error) {
 	return LoadTemplatesFrom(getTemplatesPath())
 }
 
-// LoadTemplatesFrom loads all .yaml and .yml files from the specified directory.
+// LoadTemplatesFrom loads all templates from the specified directory.
+// Each subdirectory containing a devcontainer.json file is treated as a template.
+// The directory name is used as the template name if not specified in the JSON.
 func LoadTemplatesFrom(dir string) ([]Template, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -56,20 +54,19 @@ func LoadTemplatesFrom(dir string) ([]Template, error) {
 
 	var templates []Template
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if !entry.IsDir() {
 			continue
 		}
 
-		name := entry.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if ext != ".yaml" && ext != ".yml" {
-			continue
-		}
-
-		templatePath := filepath.Join(dir, name)
-		tmpl, err := loadTemplate(templatePath)
+		templatePath := filepath.Join(dir, entry.Name(), "devcontainer.json")
+		tmpl, err := loadTemplate(templatePath, entry.Name())
 		if err != nil {
-			log.Printf("Warning: failed to load template %s: %v", name, err)
+			if os.IsNotExist(err) {
+				// Directory doesn't contain devcontainer.json, skip it
+				continue
+			}
+			// Log warning but continue loading other templates
+			log.Printf("Warning: failed to load template from %s: %v", templatePath, err)
 			continue
 		}
 		templates = append(templates, tmpl)
@@ -78,7 +75,9 @@ func LoadTemplatesFrom(dir string) ([]Template, error) {
 	return templates, nil
 }
 
-func loadTemplate(path string) (Template, error) {
+// loadTemplate loads a single template from a devcontainer.json file.
+// The dirName is used as the template name if not specified in the JSON.
+func loadTemplate(path string, dirName string) (Template, error) {
 	var tmpl Template
 
 	data, err := os.ReadFile(path)
@@ -86,8 +85,29 @@ func loadTemplate(path string) (Template, error) {
 		return tmpl, err
 	}
 
-	if err := yaml.Unmarshal(data, &tmpl); err != nil {
+	if err := json.Unmarshal(data, &tmpl); err != nil {
 		return tmpl, err
+	}
+
+	// Use directory name as template name if not specified
+	if tmpl.Name == "" {
+		tmpl.Name = dirName
+	}
+
+	// Extract devagent-specific fields from customizations.devagent
+	if tmpl.Customizations != nil {
+		if devagent, ok := tmpl.Customizations["devagent"].(map[string]interface{}); ok {
+			if creds, ok := devagent["injectCredentials"].([]interface{}); ok {
+				for _, c := range creds {
+					if s, ok := c.(string); ok {
+						tmpl.InjectCredentials = append(tmpl.InjectCredentials, s)
+					}
+				}
+			}
+			if agent, ok := devagent["defaultAgent"].(string); ok {
+				tmpl.DefaultAgent = agent
+			}
+		}
 	}
 
 	return tmpl, nil

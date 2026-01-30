@@ -14,8 +14,8 @@ func newTestModel(t *testing.T) Model {
 		Theme: "mocha",
 	}
 	templates := []config.Template{
-		{Name: "go-project", Description: "Go development"},
-		{Name: "python-project", Description: "Python development"},
+		{Name: "go-project"},
+		{Name: "python-project"},
 	}
 	tmpDir := t.TempDir()
 	logPath := tmpDir + "/test.log"
