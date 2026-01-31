@@ -54,10 +54,17 @@ func (c *Container) SessionCount() int {
 	return len(c.Sessions)
 }
 
+// BuildConfig represents the build section of a devcontainer.json.
+type BuildConfig struct {
+	Dockerfile string `json:"dockerfile,omitempty"`
+	Context    string `json:"context,omitempty"`
+}
+
 // DevcontainerJSON represents the structure of a devcontainer.json file.
 type DevcontainerJSON struct {
 	Name              string                            `json:"name"`
 	Image             string                            `json:"image,omitempty"`
+	Build             *BuildConfig                      `json:"build,omitempty"`
 	Features          map[string]map[string]interface{} `json:"features,omitempty"`
 	Customizations    map[string]interface{}            `json:"customizations,omitempty"`
 	PostCreateCommand string                            `json:"postCreateCommand,omitempty"`

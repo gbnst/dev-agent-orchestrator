@@ -154,6 +154,9 @@ func (m Model) renderSessionView() string {
 	if m.sessionFormOpen {
 		return m.renderSessionForm()
 	}
+	if m.sessionCreatedOpen {
+		return m.renderSessionCreated()
+	}
 
 	containerName := ""
 	if m.selectedContainer != nil {
@@ -200,7 +203,15 @@ func (m Model) renderSessionView() string {
 		errorDisplay = m.styles.ErrorStyle().Render(fmt.Sprintf("Error: %v", m.err))
 	}
 
-	help := m.styles.HelpStyle().Render("t: create session • k: kill session • ↑↓: navigate • esc: back")
+	// Context-sensitive help for session view
+	var helpText string
+	hasSessions := m.selectedContainer != nil && len(m.selectedContainer.Sessions) > 0
+	if hasSessions {
+		helpText = "t: create session • k: kill session • ↑↓: navigate • esc: back"
+	} else {
+		helpText = "t: create session • esc: back"
+	}
+	help := m.styles.HelpStyle().Render(helpText)
 
 	parts := []string{
 		title,
@@ -218,6 +229,52 @@ func (m Model) renderSessionView() string {
 	}
 
 	parts = append(parts, "", help)
+
+	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	boxed := m.styles.BoxStyle().Render(view)
+
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			boxed,
+		)
+	}
+
+	return boxed
+}
+
+// renderSessionCreated renders the session created confirmation dialog.
+func (m Model) renderSessionCreated() string {
+	containerName := ""
+	if m.selectedContainer != nil {
+		containerName = m.selectedContainer.Name
+	}
+
+	title := m.styles.TitleStyle().Render("Session Created")
+	sessionInfo := m.styles.AccentStyle().Render(m.sessionCreatedName)
+
+	// Build attach command with terminal environment for proper TUI rendering
+	var attachCmd string
+	if m.selectedContainer != nil {
+		attachCmd = fmt.Sprintf("docker exec -it -e TERM=xterm-256color -e LANG=en_US.UTF-8 %s tmux attach -t %s", m.selectedContainer.Name, m.sessionCreatedName)
+	}
+	attachLine := m.styles.InfoStyle().Render(fmt.Sprintf("Attach: %s", attachCmd))
+
+	help := m.styles.HelpStyle().Render("k: kill session • esc: back")
+
+	parts := []string{
+		title,
+		m.styles.SubtitleStyle().Render(fmt.Sprintf("Container: %s", containerName)),
+		"",
+		sessionInfo,
+		"",
+		attachLine,
+		"",
+		help,
+	}
 
 	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
 	boxed := m.styles.BoxStyle().Render(view)

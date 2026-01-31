@@ -359,8 +359,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.containerList.SetItems(items)
 		// Rebuild tree items after container refresh
 		m.rebuildTreeItems()
-		// Sync selection after rebuild
-		m.syncSelectionFromTree()
+		// Sync selection after rebuild, but preserve selectedContainer if session view is open
+		// to prevent the modal from "rotating" through containers during periodic refresh
+		if !m.sessionViewOpen {
+			m.syncSelectionFromTree()
+		}
 		return m, nil
 
 	case containerErrorMsg:
@@ -403,6 +406,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 			return m, nil
 		}
+		// Show confirmation dialog for session creation
+		if msg.action == "create" {
+			m.sessionCreatedOpen = true
+			m.sessionCreatedName = msg.sessionName
+		}
 		// Refresh sessions after action
 		return m, m.refreshSessions()
 
@@ -427,7 +435,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.rebuildTreeItems()
-		m.syncSelectionFromTree()
+		// Preserve selectedContainer if session view is open
+		if !m.sessionViewOpen {
+			m.syncSelectionFromTree()
+		}
 		return m, nil
 
 	case logEntriesMsg:
@@ -598,6 +609,11 @@ func (m Model) handleSessionViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSessionFormKey(msg)
 	}
 
+	// If session created confirmation is open, handle it
+	if m.sessionCreatedOpen {
+		return m.handleSessionCreatedKey(msg)
+	}
+
 	switch msg.Type {
 	case tea.KeyEscape:
 		m.closeSessionView()
@@ -627,6 +643,33 @@ func (m Model) handleSessionViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		session := m.SelectedSession()
 		if session != nil && m.selectedContainer != nil {
 			return m, m.killSession(m.selectedContainer.ID, session.Name)
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// handleSessionCreatedKey processes key events when the session created confirmation is open.
+func (m Model) handleSessionCreatedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		// Close confirmation and go back to main view
+		m.sessionCreatedOpen = false
+		m.sessionCreatedName = ""
+		m.closeSessionView()
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "k":
+		// Kill the just-created session
+		if m.selectedContainer != nil && m.sessionCreatedName != "" {
+			cmd := m.killSession(m.selectedContainer.ID, m.sessionCreatedName)
+			m.sessionCreatedOpen = false
+			m.sessionCreatedName = ""
+			m.closeSessionView()
+			return m, cmd
 		}
 		return m, nil
 	}

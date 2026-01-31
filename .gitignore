@@ -29,3 +29,6 @@ Thumbs.db
 
 # Git worktrees
 .worktrees/
+
+# Implementation plans (generated during development)
+docs/implementation-plans/

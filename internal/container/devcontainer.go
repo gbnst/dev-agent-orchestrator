@@ -26,8 +26,14 @@ func NewDevcontainerGenerator(cfg *config.Config, templates []config.Template) *
 	}
 }
 
+// GenerateResult holds the generated devcontainer config and template metadata.
+type GenerateResult struct {
+	Config       *DevcontainerJSON
+	TemplatePath string // Path to template directory for copying additional files
+}
+
 // Generate creates a DevcontainerJSON from the given options.
-func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*DevcontainerJSON, error) {
+func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, error) {
 	// Find template
 	var tmpl *config.Template
 	for i := range g.templates {
@@ -46,6 +52,14 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*DevcontainerJSON,
 		PostCreateCommand: tmpl.PostCreateCommand,
 		ContainerEnv:      make(map[string]string),
 		RunArgs:           []string{},
+	}
+
+	// Copy build config from template
+	if tmpl.Build != nil {
+		dc.Build = &BuildConfig{
+			Dockerfile: tmpl.Build.Dockerfile,
+			Context:    tmpl.Build.Context,
+		}
 	}
 
 	// Copy features from template (shallow copy of map values is sufficient)
@@ -104,23 +118,45 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*DevcontainerJSON,
 		dc.RunArgs = append(dc.RunArgs, "--name", opts.Name)
 	}
 
-	return dc, nil
+	return &GenerateResult{
+		Config:       dc,
+		TemplatePath: tmpl.Path,
+	}, nil
 }
 
-// WriteToProject writes the devcontainer.json to the project's .devcontainer directory.
-func (g *DevcontainerGenerator) WriteToProject(projectPath string, dc *DevcontainerJSON) error {
+// WriteToProject writes the devcontainer.json and any additional template files
+// (like Dockerfile) to the project's .devcontainer directory.
+func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *GenerateResult) error {
 	devcontainerDir := filepath.Join(projectPath, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
 		return err
 	}
 
-	data, err := json.MarshalIndent(dc, "", "  ")
+	// If template uses a Dockerfile, copy it
+	if result.Config.Build != nil && result.Config.Build.Dockerfile != "" && result.TemplatePath != "" {
+		srcDockerfile := filepath.Join(result.TemplatePath, result.Config.Build.Dockerfile)
+		dstDockerfile := filepath.Join(devcontainerDir, result.Config.Build.Dockerfile)
+		if err := copyFile(srcDockerfile, dstDockerfile); err != nil {
+			return fmt.Errorf("failed to copy Dockerfile: %w", err)
+		}
+	}
+
+	data, err := json.MarshalIndent(result.Config, "", "  ")
 	if err != nil {
 		return err
 	}
 
 	jsonPath := filepath.Join(devcontainerDir, "devcontainer.json")
 	return os.WriteFile(jsonPath, data, 0644)
+}
+
+// copyFile copies a file from src to dst.
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0644)
 }
 
 // DevcontainerCLI wraps the devcontainer CLI.

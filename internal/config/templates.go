@@ -9,12 +9,19 @@ import (
 	"path/filepath"
 )
 
+// BuildConfig represents the build section of a devcontainer.json.
+type BuildConfig struct {
+	Dockerfile string `json:"dockerfile,omitempty"`
+	Context    string `json:"context,omitempty"`
+}
+
 // Template represents a loaded devcontainer template with devagent extensions.
 // Templates are loaded from directories containing a devcontainer.json file.
 type Template struct {
 	// Standard devcontainer.json fields
 	Name              string                            `json:"name"`
 	Image             string                            `json:"image,omitempty"`
+	Build             *BuildConfig                      `json:"build,omitempty"`
 	Features          map[string]map[string]interface{} `json:"features,omitempty"`
 	Customizations    map[string]interface{}            `json:"customizations,omitempty"`
 	PostCreateCommand string                            `json:"postCreateCommand,omitempty"`
@@ -22,6 +29,9 @@ type Template struct {
 	// Devagent-specific fields extracted from customizations.devagent
 	InjectCredentials []string `json:"-"` // Populated from customizations.devagent.injectCredentials
 	DefaultAgent      string   `json:"-"` // Populated from customizations.devagent.defaultAgent
+
+	// Path to the template directory (for copying additional files like Dockerfile)
+	Path string `json:"-"`
 }
 
 // customTemplatesPath allows overriding the templates directory.
@@ -88,6 +98,9 @@ func loadTemplate(path string, dirName string) (Template, error) {
 	if err := json.Unmarshal(data, &tmpl); err != nil {
 		return tmpl, err
 	}
+
+	// Store template directory path for copying additional files
+	tmpl.Path = filepath.Dir(path)
 
 	// Use directory name as template name if not specified
 	if tmpl.Name == "" {

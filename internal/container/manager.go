@@ -187,14 +187,14 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Container, e
 	}
 
 	// Generate devcontainer.json
-	dc, err := m.generator.Generate(opts)
+	result, err := m.generator.Generate(opts)
 	if err != nil {
 		scopedLogger.Error("failed to generate devcontainer config", "error", err)
 		return nil, err
 	}
 
 	// Write to project
-	if err := m.generator.WriteToProject(opts.ProjectPath, dc); err != nil {
+	if err := m.generator.WriteToProject(opts.ProjectPath, result); err != nil {
 		scopedLogger.Error("failed to write devcontainer.json", "error", err)
 		return nil, err
 	}

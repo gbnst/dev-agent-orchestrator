@@ -110,6 +110,10 @@ type Model struct {
 	sessionFormOpen bool
 	sessionFormName string
 
+	// Session created confirmation state
+	sessionCreatedOpen bool
+	sessionCreatedName string
+
 	// Log panel
 	logPanelOpen bool
 
@@ -368,6 +372,8 @@ func (m *Model) closeSessionView() {
 	m.selectedSessionIdx = 0
 	m.sessionFormOpen = false
 	m.sessionFormName = ""
+	m.sessionCreatedOpen = false
+	m.sessionCreatedName = ""
 }
 
 // IsSessionFormOpen returns whether the session creation form is open.

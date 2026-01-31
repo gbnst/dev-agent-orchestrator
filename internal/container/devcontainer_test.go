@@ -32,7 +32,7 @@ func TestGenerate_BasicTemplate(t *testing.T) {
 	}
 	g := NewDevcontainerGenerator(cfg, templates)
 
-	dc, err := g.Generate(CreateOptions{
+	result, err := g.Generate(CreateOptions{
 		Template:    "python",
 		ProjectPath: "/home/user/project",
 		Name:        "my-container",
@@ -41,11 +41,11 @@ func TestGenerate_BasicTemplate(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if dc.Image != "mcr.microsoft.com/devcontainers/python:3.11" {
-		t.Errorf("Image: got %q", dc.Image)
+	if result.Config.Image != "mcr.microsoft.com/devcontainers/python:3.11" {
+		t.Errorf("Image: got %q", result.Config.Image)
 	}
-	if dc.Name != "my-container" {
-		t.Errorf("Name: got %q, want %q", dc.Name, "my-container")
+	if result.Config.Name != "my-container" {
+		t.Errorf("Name: got %q, want %q", result.Config.Name, "my-container")
 	}
 }
 
@@ -67,13 +67,13 @@ func TestGenerate_InjectsCredentials(t *testing.T) {
 	t.Setenv("TEST_OPENAI_KEY", "sk-secret-key")
 
 	g := NewDevcontainerGenerator(cfg, templates)
-	dc, err := g.Generate(CreateOptions{Template: "default"})
+	result, err := g.Generate(CreateOptions{Template: "default"})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if dc.ContainerEnv["OPENAI_API_KEY"] != "sk-secret-key" {
-		t.Errorf("ContainerEnv[OPENAI_API_KEY]: got %q, want %q", dc.ContainerEnv["OPENAI_API_KEY"], "sk-secret-key")
+	if result.Config.ContainerEnv["OPENAI_API_KEY"] != "sk-secret-key" {
+		t.Errorf("ContainerEnv[OPENAI_API_KEY]: got %q, want %q", result.Config.ContainerEnv["OPENAI_API_KEY"], "sk-secret-key")
 	}
 }
 
@@ -92,13 +92,13 @@ func TestGenerate_SkipsMissingCredentials(t *testing.T) {
 	}
 
 	g := NewDevcontainerGenerator(cfg, templates)
-	dc, err := g.Generate(CreateOptions{Template: "default"})
+	result, err := g.Generate(CreateOptions{Template: "default"})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
 	// Should not include credentials that aren't set
-	if _, ok := dc.ContainerEnv["MISSING_KEY"]; ok {
+	if _, ok := result.Config.ContainerEnv["MISSING_KEY"]; ok {
 		t.Error("Should not include missing credentials")
 	}
 }
@@ -124,16 +124,16 @@ func TestGenerate_InjectsAgentOTELEnv(t *testing.T) {
 	}
 
 	g := NewDevcontainerGenerator(cfg, templates)
-	dc, err := g.Generate(CreateOptions{Template: "default"})
+	result, err := g.Generate(CreateOptions{Template: "default"})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if dc.ContainerEnv["OTEL_SERVICE_NAME"] != "claude-code" {
-		t.Errorf("ContainerEnv[OTEL_SERVICE_NAME]: got %q", dc.ContainerEnv["OTEL_SERVICE_NAME"])
+	if result.Config.ContainerEnv["OTEL_SERVICE_NAME"] != "claude-code" {
+		t.Errorf("ContainerEnv[OTEL_SERVICE_NAME]: got %q", result.Config.ContainerEnv["OTEL_SERVICE_NAME"])
 	}
-	if dc.ContainerEnv["OTEL_ENDPOINT"] != "http://host.docker.internal:4317" {
-		t.Errorf("ContainerEnv[OTEL_ENDPOINT]: got %q", dc.ContainerEnv["OTEL_ENDPOINT"])
+	if result.Config.ContainerEnv["OTEL_ENDPOINT"] != "http://host.docker.internal:4317" {
+		t.Errorf("ContainerEnv[OTEL_ENDPOINT]: got %q", result.Config.ContainerEnv["OTEL_ENDPOINT"])
 	}
 }
 
@@ -147,7 +147,7 @@ func TestGenerate_AddsDevagentLabels(t *testing.T) {
 	}
 
 	g := NewDevcontainerGenerator(cfg, templates)
-	dc, err := g.Generate(CreateOptions{
+	result, err := g.Generate(CreateOptions{
 		Template:    "default",
 		ProjectPath: "/home/user/project",
 		Agent:       "claude-code",
@@ -162,9 +162,9 @@ func TestGenerate_AddsDevagentLabels(t *testing.T) {
 	hasTemplate := false
 	hasAgent := false
 
-	for i, arg := range dc.RunArgs {
-		if arg == "--label" && i+1 < len(dc.RunArgs) {
-			label := dc.RunArgs[i+1]
+	for i, arg := range result.Config.RunArgs {
+		if arg == "--label" && i+1 < len(result.Config.RunArgs) {
+			label := result.Config.RunArgs[i+1]
 			switch {
 			case label == "devagent.managed=true":
 				hasManaged = true
@@ -208,23 +208,23 @@ func TestGenerate_CopiesFeatures(t *testing.T) {
 	}
 
 	g := NewDevcontainerGenerator(cfg, templates)
-	dc, err := g.Generate(CreateOptions{Template: "default"})
+	result, err := g.Generate(CreateOptions{Template: "default"})
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if dc.Features == nil {
+	if result.Config.Features == nil {
 		t.Fatal("Features should not be nil")
 	}
-	feature, ok := dc.Features["ghcr.io/devcontainers/features/python:1"]
+	feature, ok := result.Config.Features["ghcr.io/devcontainers/features/python:1"]
 	if !ok {
 		t.Error("Expected python feature")
 	}
 	if feature["version"] != "3.11" {
 		t.Errorf("Feature version: got %v", feature["version"])
 	}
-	if dc.PostCreateCommand != "pip install -r requirements.txt" {
-		t.Errorf("PostCreateCommand: got %q", dc.PostCreateCommand)
+	if result.Config.PostCreateCommand != "pip install -r requirements.txt" {
+		t.Errorf("PostCreateCommand: got %q", result.Config.PostCreateCommand)
 	}
 }
 
@@ -238,12 +238,14 @@ func TestWriteToProject_CreatesDirectory(t *testing.T) {
 	}
 
 	g := NewDevcontainerGenerator(nil, nil)
-	dc := &DevcontainerJSON{
-		Name:  "test",
-		Image: "ubuntu:22.04",
+	result := &GenerateResult{
+		Config: &DevcontainerJSON{
+			Name:  "test",
+			Image: "ubuntu:22.04",
+		},
 	}
 
-	err := g.WriteToProject(projectPath, dc)
+	err := g.WriteToProject(projectPath, result)
 	if err != nil {
 		t.Fatalf("WriteToProject failed: %v", err)
 	}
@@ -273,15 +275,17 @@ func TestWriteToProject_ValidJSON(t *testing.T) {
 	}
 
 	g := NewDevcontainerGenerator(nil, nil)
-	dc := &DevcontainerJSON{
-		Name:  "test-container",
-		Image: "ubuntu:22.04",
-		ContainerEnv: map[string]string{
-			"FOO": "bar",
+	result := &GenerateResult{
+		Config: &DevcontainerJSON{
+			Name:  "test-container",
+			Image: "ubuntu:22.04",
+			ContainerEnv: map[string]string{
+				"FOO": "bar",
+			},
 		},
 	}
 
-	err := g.WriteToProject(projectPath, dc)
+	err := g.WriteToProject(projectPath, result)
 	if err != nil {
 		t.Fatalf("WriteToProject failed: %v", err)
 	}
@@ -417,7 +421,7 @@ func TestGenerate_AddsDockerNameToRunArgs(t *testing.T) {
 	}
 
 	g := NewDevcontainerGenerator(cfg, templates)
-	dc, err := g.Generate(CreateOptions{
+	result, err := g.Generate(CreateOptions{
 		Template: "default",
 		Name:     "my-container",
 	})
@@ -427,13 +431,13 @@ func TestGenerate_AddsDockerNameToRunArgs(t *testing.T) {
 
 	// Check RunArgs contains --name my-container
 	hasName := false
-	for i, arg := range dc.RunArgs {
-		if arg == "--name" && i+1 < len(dc.RunArgs) && dc.RunArgs[i+1] == "my-container" {
+	for i, arg := range result.Config.RunArgs {
+		if arg == "--name" && i+1 < len(result.Config.RunArgs) && result.Config.RunArgs[i+1] == "my-container" {
 			hasName = true
 		}
 	}
 	if !hasName {
-		t.Errorf("Expected --name my-container in RunArgs, got: %v", dc.RunArgs)
+		t.Errorf("Expected --name my-container in RunArgs, got: %v", result.Config.RunArgs)
 	}
 }
 
@@ -447,7 +451,7 @@ func TestGenerate_OmitsDockerNameWhenEmpty(t *testing.T) {
 	}
 
 	g := NewDevcontainerGenerator(cfg, templates)
-	dc, err := g.Generate(CreateOptions{
+	result, err := g.Generate(CreateOptions{
 		Template: "default",
 	})
 	if err != nil {
@@ -455,9 +459,9 @@ func TestGenerate_OmitsDockerNameWhenEmpty(t *testing.T) {
 	}
 
 	// Check RunArgs does NOT contain --name
-	for _, arg := range dc.RunArgs {
+	for _, arg := range result.Config.RunArgs {
 		if arg == "--name" {
-			t.Errorf("--name should not be in RunArgs when Name is empty, got: %v", dc.RunArgs)
+			t.Errorf("--name should not be in RunArgs when Name is empty, got: %v", result.Config.RunArgs)
 		}
 	}
 }
