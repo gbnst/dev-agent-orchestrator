@@ -17,8 +17,9 @@ type Session struct {
 }
 
 // AttachCommand returns the command to attach to this session.
-func (s Session) AttachCommand(runtime string) string {
-	return fmt.Sprintf("%s exec -it %s tmux attach -t %s", runtime, s.ContainerID, s.Name)
+// The user parameter specifies which user to exec as (typically "vscode").
+func (s Session) AttachCommand(runtime string, user string) string {
+	return fmt.Sprintf("%s exec -it -u %s %s tmux attach -t %s", runtime, user, s.ContainerID, s.Name)
 }
 
 // IsActive returns true if the session has an attached client.

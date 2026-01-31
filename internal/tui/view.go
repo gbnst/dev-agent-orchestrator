@@ -259,7 +259,12 @@ func (m Model) renderSessionCreated() string {
 	// Build attach command with terminal environment for proper TUI rendering
 	var attachCmd string
 	if m.selectedContainer != nil {
-		attachCmd = fmt.Sprintf("docker exec -it -e TERM=xterm-256color -e LANG=en_US.UTF-8 %s tmux attach -t %s", m.selectedContainer.Name, m.sessionCreatedName)
+		runtimePath := m.manager.RuntimePath()
+		user := m.selectedContainer.RemoteUser
+		if user == "" {
+			user = container.DefaultRemoteUser
+		}
+		attachCmd = fmt.Sprintf("%s exec -it -u %s -e TERM=xterm-256color -e LANG=en_US.UTF-8 %s tmux attach -t %s", runtimePath, user, m.selectedContainer.Name, m.sessionCreatedName)
 	}
 	attachLine := m.styles.InfoStyle().Render(fmt.Sprintf("Attach: %s", attachCmd))
 

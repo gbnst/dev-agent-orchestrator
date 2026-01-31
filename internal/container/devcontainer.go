@@ -113,6 +113,15 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 		)
 	}
 
+	// Add remote user label (default to vscode per devcontainer spec)
+	remoteUser := tmpl.RemoteUser
+	if remoteUser == "" {
+		remoteUser = DefaultRemoteUser
+	}
+	dc.RunArgs = append(dc.RunArgs,
+		"--label", LabelRemoteUser+"="+remoteUser,
+	)
+
 	// Set Docker container name via runArgs
 	if opts.Name != "" {
 		dc.RunArgs = append(dc.RunArgs, "--name", opts.Name)

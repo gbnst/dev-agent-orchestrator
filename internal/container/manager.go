@@ -19,6 +19,7 @@ type RuntimeInterface interface {
 	StopContainer(ctx context.Context, id string) error
 	RemoveContainer(ctx context.Context, id string) error
 	Exec(ctx context.Context, id string, cmd []string) (string, error)
+	ExecAs(ctx context.Context, id string, user string, cmd []string) (string, error)
 }
 
 // Manager orchestrates container lifecycle operations.
@@ -309,18 +310,27 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 	return nil
 }
 
+// getContainerUser returns the remote user for a container, defaulting to DefaultRemoteUser.
+func (m *Manager) getContainerUser(containerID string) string {
+	if c, ok := m.containers[containerID]; ok && c.RemoteUser != "" {
+		return c.RemoteUser
+	}
+	return DefaultRemoteUser
+}
+
 // CreateSession creates a tmux session inside a container.
 func (m *Manager) CreateSession(ctx context.Context, containerID, sessionName string) error {
 	scopedLogger := m.logger.With("containerID", containerID, "session", sessionName)
 	scopedLogger.Info("creating tmux session")
 
-	_, err := m.runtime.Exec(ctx, containerID, []string{"tmux", "new-session", "-d", "-s", sessionName})
+	user := m.getContainerUser(containerID)
+	_, err := m.runtime.ExecAs(ctx, containerID, user, []string{"tmux", "new-session", "-d", "-s", sessionName})
 	if err != nil {
 		scopedLogger.Error("failed to create session", "error", err)
 		return err
 	}
 
-	scopedLogger.Info("session created")
+	scopedLogger.Info("session created", "user", user)
 	return nil
 }
 
@@ -329,7 +339,8 @@ func (m *Manager) KillSession(ctx context.Context, containerID, sessionName stri
 	scopedLogger := m.logger.With("containerID", containerID, "session", sessionName)
 	scopedLogger.Info("killing tmux session")
 
-	_, err := m.runtime.Exec(ctx, containerID, []string{"tmux", "kill-session", "-t", sessionName})
+	user := m.getContainerUser(containerID)
+	_, err := m.runtime.ExecAs(ctx, containerID, user, []string{"tmux", "kill-session", "-t", sessionName})
 	if err != nil {
 		scopedLogger.Error("failed to kill session", "error", err)
 		return err
@@ -344,7 +355,8 @@ func (m *Manager) ListSessions(ctx context.Context, containerID string) ([]Sessi
 	scopedLogger := m.logger.With("containerID", containerID)
 	scopedLogger.Debug("listing tmux sessions")
 
-	output, err := m.runtime.Exec(ctx, containerID, []string{"tmux", "list-sessions"})
+	user := m.getContainerUser(containerID)
+	output, err := m.runtime.ExecAs(ctx, containerID, user, []string{"tmux", "list-sessions"})
 	if err != nil {
 		// No tmux server running = no sessions
 		scopedLogger.Debug("no tmux server running or no sessions", "error", err)

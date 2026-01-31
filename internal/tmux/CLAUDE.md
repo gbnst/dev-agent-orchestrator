@@ -30,6 +30,6 @@ Wraps tmux commands executed inside containers via a ContainerExecutor function.
 - `types.go` - Session and Pane types with helper methods
 
 ## Gotchas
-- Session.AttachCommand() needs runtime name (docker/podman) from caller
+- Session.AttachCommand(runtime, user) needs runtime name (docker/podman) and user (typically "vscode") from caller
 - tmux list-sessions format varies slightly; parsing is lenient
 - SendKeys auto-appends Enter; don't include in keys string

@@ -188,14 +188,18 @@ func TestSessionView_AttachCommand(t *testing.T) {
 	m = updated.(Model)
 
 	// Should show attach command for selected session
-	// The command uses full runtime path (to bypass shell aliases) and container name
+	// The command uses full runtime path (to bypass shell aliases), user flag, and container name
 	cmd := m.AttachCommand()
 	// Check the command contains the expected parts (path varies by system)
 	if !strings.Contains(cmd, "docker") {
 		t.Errorf("AttachCommand() = %q, expected to contain 'docker'", cmd)
 	}
-	if !strings.Contains(cmd, "exec -it test-container tmux attach -t dev") {
-		t.Errorf("AttachCommand() = %q, expected to contain 'exec -it test-container tmux attach -t dev'", cmd)
+	// Should include -u vscode (default remote user)
+	if !strings.Contains(cmd, "-u vscode") {
+		t.Errorf("AttachCommand() = %q, expected to contain '-u vscode'", cmd)
+	}
+	if !strings.Contains(cmd, "test-container tmux attach -t dev") {
+		t.Errorf("AttachCommand() = %q, expected to contain 'test-container tmux attach -t dev'", cmd)
 	}
 }
 

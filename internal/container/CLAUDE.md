@@ -18,7 +18,8 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 ## Key Decisions
 - RuntimeInterface abstraction: Enables mock testing without real containers
 - Devcontainer CLI for creation: Handles complex setup (features, mounts, env)
-- Labels for metadata: devagent.managed, devagent.project_path, devagent.template
+- Labels for metadata: devagent.managed, devagent.project_path, devagent.template, devagent.remote_user
+- RemoteUser defaults to "vscode" per devcontainer spec; all exec operations use ExecAs with this user
 
 ## Invariants
 - containers map updated only via Refresh() or after Create/Destroy
@@ -35,3 +36,4 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Container IDs may be truncated; Create() does prefix matching on refresh
 - Session is duplicated from tmux package to avoid import cycles
 - RuntimePath() returns full binary path to bypass shell aliases
+- Session.AttachCommand(runtime, user) requires both runtime and user parameters

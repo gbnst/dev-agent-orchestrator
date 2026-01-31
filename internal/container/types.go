@@ -27,8 +27,9 @@ type Session struct {
 }
 
 // AttachCommand returns the command to attach to this session.
-func (s Session) AttachCommand(runtime string) string {
-	return fmt.Sprintf("%s exec -it %s tmux attach -t %s", runtime, s.ContainerID, s.Name)
+// The user parameter specifies which user to exec as (typically "vscode").
+func (s Session) AttachCommand(runtime string, user string) string {
+	return fmt.Sprintf("%s exec -it -u %s %s tmux attach -t %s", runtime, user, s.ContainerID, s.Name)
 }
 
 // Container represents a devagent-managed container.
@@ -38,6 +39,7 @@ type Container struct {
 	ProjectPath string
 	Template    string
 	Agent       string
+	RemoteUser  string // User for exec commands (default: vscode)
 	State       ContainerState
 	CreatedAt   time.Time
 	Labels      map[string]string
@@ -86,7 +88,11 @@ const (
 	LabelProjectPath = "devagent.project_path"
 	LabelTemplate    = "devagent.template"
 	LabelAgent       = "devagent.agent"
+	LabelRemoteUser  = "devagent.remote_user"
 )
+
+// DefaultRemoteUser is the default user for devcontainer exec commands.
+const DefaultRemoteUser = "vscode"
 
 // IsRunning returns true if the container is in a running state.
 func (c *Container) IsRunning() bool {

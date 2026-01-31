@@ -83,9 +83,16 @@ func (r *Runtime) RemoveContainer(ctx context.Context, id string) error {
 	return err
 }
 
-// Exec runs a command inside a container.
+// Exec runs a command inside a container as root.
 func (r *Runtime) Exec(ctx context.Context, id string, cmd []string) (string, error) {
 	args := append([]string{"exec", id}, cmd...)
+	return r.exec(ctx, r.executable, args...)
+}
+
+// ExecAs runs a command inside a container as the specified user.
+func (r *Runtime) ExecAs(ctx context.Context, id string, user string, cmd []string) (string, error) {
+	args := []string{"exec", "-u", user, id}
+	args = append(args, cmd...)
 	return r.exec(ctx, r.executable, args...)
 }
 
@@ -171,6 +178,7 @@ func (r *Runtime) parseContainerList(output string) ([]Container, error) {
 					ProjectPath: labels[LabelProjectPath],
 					Template:    labels[LabelTemplate],
 					Agent:       labels[LabelAgent],
+					RemoteUser:  getRemoteUser(labels),
 					CreatedAt:   cj.getCreatedAt(),
 					Labels:      labels,
 				})
@@ -200,6 +208,7 @@ func (r *Runtime) parseContainerList(output string) ([]Container, error) {
 			ProjectPath: labels[LabelProjectPath],
 			Template:    labels[LabelTemplate],
 			Agent:       labels[LabelAgent],
+			RemoteUser:  getRemoteUser(labels),
 			CreatedAt:   cj.getCreatedAt(),
 			Labels:      labels,
 		})
@@ -220,6 +229,14 @@ func mapState(state string) ContainerState {
 	default:
 		return StateStopped
 	}
+}
+
+// getRemoteUser returns the remote user from labels, defaulting to DefaultRemoteUser.
+func getRemoteUser(labels map[string]string) string {
+	if user, ok := labels[LabelRemoteUser]; ok && user != "" {
+		return user
+	}
+	return DefaultRemoteUser
 }
 
 // parseLabels parses a comma-separated key=value label string.

@@ -44,6 +44,10 @@ func (m *mockRuntime) Exec(ctx context.Context, id string, cmd []string) (string
 	return "", nil
 }
 
+func (m *mockRuntime) ExecAs(ctx context.Context, id string, user string, cmd []string) (string, error) {
+	return "", nil
+}
+
 func TestList_Empty(t *testing.T) {
 	mock := &mockRuntime{containers: []Container{}}
 	mgr := NewManagerWithRuntime(mock)

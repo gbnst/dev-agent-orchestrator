@@ -361,8 +361,13 @@ func (m Model) AttachCommand() string {
 	}
 	// Use manager's runtime path to bypass shell aliases (e.g., alias docker=podman)
 	runtimePath := m.manager.RuntimePath()
+	// Get the remote user for exec (defaults to vscode)
+	user := m.selectedContainer.RemoteUser
+	if user == "" {
+		user = container.DefaultRemoteUser
+	}
 	// Use container name instead of ID since docker ps returns truncated IDs
-	return fmt.Sprintf("%s exec -it %s tmux attach -t %s", runtimePath, m.selectedContainer.Name, session.Name)
+	return fmt.Sprintf("%s exec -it -u %s %s tmux attach -t %s", runtimePath, user, m.selectedContainer.Name, session.Name)
 }
 
 // closeSessionView closes the session view.

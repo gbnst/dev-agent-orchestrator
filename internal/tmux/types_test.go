@@ -11,8 +11,8 @@ func TestSession_AttachCommand(t *testing.T) {
 		ContainerID: "abc123def456",
 	}
 
-	got := session.AttachCommand("docker")
-	want := "docker exec -it abc123def456 tmux attach -t dev"
+	got := session.AttachCommand("docker", "vscode")
+	want := "docker exec -it -u vscode abc123def456 tmux attach -t dev"
 
 	if got != want {
 		t.Errorf("AttachCommand() = %q, want %q", got, want)
@@ -25,8 +25,8 @@ func TestSession_AttachCommand_Podman(t *testing.T) {
 		ContainerID: "container123",
 	}
 
-	got := session.AttachCommand("podman")
-	want := "podman exec -it container123 tmux attach -t main"
+	got := session.AttachCommand("podman", "vscode")
+	want := "podman exec -it -u vscode container123 tmux attach -t main"
 
 	if got != want {
 		t.Errorf("AttachCommand() = %q, want %q", got, want)

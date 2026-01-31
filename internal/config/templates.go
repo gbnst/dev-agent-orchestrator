@@ -25,6 +25,7 @@ type Template struct {
 	Features          map[string]map[string]interface{} `json:"features,omitempty"`
 	Customizations    map[string]interface{}            `json:"customizations,omitempty"`
 	PostCreateCommand string                            `json:"postCreateCommand,omitempty"`
+	RemoteUser        string                            `json:"remoteUser,omitempty"`
 
 	// Devagent-specific fields extracted from customizations.devagent
 	InjectCredentials []string `json:"-"` // Populated from customizations.devagent.injectCredentials
