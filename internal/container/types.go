@@ -72,6 +72,7 @@ type DevcontainerJSON struct {
 	PostCreateCommand string                            `json:"postCreateCommand,omitempty"`
 	ContainerEnv      map[string]string                 `json:"containerEnv,omitempty"`
 	RunArgs           []string                          `json:"runArgs,omitempty"`
+	Mounts            []string                          `json:"mounts,omitempty"`
 }
 
 // CreateOptions holds options for creating a new container.

@@ -1,6 +1,14 @@
 # devagent
 
-A TUI for orchestrating development agent containers.
+A TUI for orchestrating development agent containers with integrated Claude Code support.
+
+## Features
+
+- **Container Management**: Create, start, stop, and destroy devcontainers from templates
+- **Session Management**: Create and manage tmux sessions within containers
+- **Claude Code Integration**: Automatic auth token injection and persistent per-project configuration
+- **Multi-Runtime Support**: Works with Docker or Podman (auto-detected)
+- **Live Logging**: Real-time log panel with scope filtering
 
 ## Prerequisites
 
@@ -46,6 +54,17 @@ Install the devcontainer CLI:
 npm install -g @devcontainers/cli
 ```
 
+### Claude Code Authentication (Optional)
+
+To enable automatic Claude Code authentication in containers, create a long-lived auth token:
+
+```bash
+# Create the auth token file (get token from Claude Code settings)
+echo "your-auth-token" > ~/.claude/create-auth-token
+```
+
+This token will be automatically injected into containers as `CLAUDE_CODE_OAUTH_TOKEN`.
+
 ## Configuration
 
 Configuration files live in `~/.config/devagent/`:
@@ -85,27 +104,41 @@ make dev
 
 ### Keybindings
 
-#### Container List View
+#### Navigation
+
+| Key | Action |
+|-----|--------|
+| `↑/↓` | Navigate tree items |
+| `Enter` | Expand/collapse containers |
+| `→` | Open detail panel |
+| `←/Esc` | Close detail panel / return focus to tree |
+| `Tab` | Cycle panel focus (tree → detail → logs) |
+| `l/L` | Toggle log panel |
+
+#### Container Operations
 
 | Key | Action |
 |-----|--------|
 | `c` | Create new container |
 | `s` | Start selected container |
 | `x` | Stop selected container |
-| `d` | Destroy selected container |
+| `d` | Destroy selected container (with confirmation) |
 | `r` | Refresh container list |
-| `Enter` | Open session view for selected container |
-| `q` | Quit |
 
-#### Session View
+#### Session Operations
 
 | Key | Action |
 |-----|--------|
 | `t` | Create new tmux session |
-| `k` | Kill selected session |
-| `↑/↓` | Navigate sessions |
-| `Esc` | Back to container list |
-| `q` | Back to container list |
+| `a` | Attach to selected session |
+| `k` | Kill selected session (with confirmation) |
+
+#### General
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+d` | Quit |
+| `Ctrl+c Ctrl+c` | Quit (double-press) |
 
 ## Development
 
@@ -115,3 +148,10 @@ make test-e2e     # Run E2E tests (requires Docker/Podman)
 make lint         # Run linter
 make clean        # Clean build artifacts
 ```
+
+## Data Storage
+
+devagent stores persistent data in XDG-compliant directories:
+
+- `~/.config/devagent/` - Configuration files
+- `~/.local/share/devagent/claude-configs/` - Per-container Claude Code settings (persists across container recreations)

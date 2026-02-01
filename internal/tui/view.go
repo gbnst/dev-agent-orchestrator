@@ -14,6 +14,11 @@ import (
 
 // View renders the TUI.
 func (m Model) View() string {
+	// Confirmation dialog is a modal overlay
+	if m.confirmOpen {
+		return m.renderConfirmDialog()
+	}
+
 	// Session detail is a modal overlay (keep this one centered for now)
 	if m.sessionViewOpen {
 		return m.renderSessionView()
@@ -322,6 +327,36 @@ func (m Model) renderSessionForm() string {
 		"",
 		help,
 	)
+}
+
+// renderConfirmDialog renders the confirmation dialog as a centered modal.
+func (m Model) renderConfirmDialog() string {
+	title := m.styles.TitleStyle().Render("Confirm")
+	message := m.styles.InfoStyle().Render(m.confirmMessage)
+	help := m.styles.HelpStyle().Render("Enter/y: confirm • Esc/n: cancel")
+
+	parts := []string{
+		title,
+		"",
+		message,
+		"",
+		help,
+	}
+
+	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	boxed := m.styles.BoxStyle().Render(view)
+
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			boxed,
+		)
+	}
+
+	return boxed
 }
 
 // renderStatusBar renders the status bar with operation feedback and help.

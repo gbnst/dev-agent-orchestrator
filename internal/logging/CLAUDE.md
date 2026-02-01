@@ -1,6 +1,6 @@
 # Logging Domain
 
-Last verified: 2026-01-27
+Last verified: 2026-02-01
 
 ## Purpose
 Provides structured logging with dual output: rotating JSON files for post-mortem analysis and a buffered channel for live TUI consumption. Scoped loggers enable automatic filtering by context.

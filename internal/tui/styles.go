@@ -160,12 +160,16 @@ func (s *Styles) PanelHeaderFocusedStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color(s.flavor.Mauve().Hex)).
-		Background(lipgloss.Color(s.flavor.Surface2().Hex))
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderBottom(true).
+		BorderForeground(lipgloss.Color(s.flavor.Mauve().Hex))
 }
 
 // PanelHeaderUnfocusedStyle returns the style for an unfocused panel header.
 func (s *Styles) PanelHeaderUnfocusedStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(s.flavor.Subtext0().Hex)).
-		Background(lipgloss.Color(s.flavor.Surface0().Hex))
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderBottom(true).
+		BorderForeground(lipgloss.Color(s.flavor.Surface1().Hex))
 }

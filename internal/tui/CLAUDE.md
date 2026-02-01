@@ -1,13 +1,13 @@
 # TUI Domain
 
-Last verified: 2026-01-28
+Last verified: 2026-02-01
 
 ## Purpose
 Provides terminal UI for orchestrating development containers. Tree-based navigation showing containers with nested sessions, optional detail panel, and live log panel for debugging operations.
 
 ## Contracts
 - **Exposes**: `Model`, `NewModel()`, `NewModelWithTemplates()`, `StatusLevel`, `TreeItemType`, `TreeItem`, `PanelFocus`
-- **Guarantees**: Operations show immediate visual feedback (spinners). Log panel filters by current context. Forms are modal overlays.
+- **Guarantees**: Operations show immediate visual feedback (spinners). Log panel filters by current context. Forms are modal overlays. Destructive operations require confirmation.
 - **Expects**: Valid config and LogManager. Container runtime available for operations.
 
 ## Dependencies
@@ -20,6 +20,8 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 - Tree navigation (↑/↓, enter): Containers at top level, sessions nested underneath
 - 40/60 split: Tree/detail panel when detail panel open
 - Ring buffer (1000): Bounds log memory in TUI
+- Confirmation dialogs: Required for destroy container (d) and kill session (k) operations
+- Panel header styling: Uses underline to indicate focus (not background color)
 
 ## Invariants
 - NewModel requires non-nil LogManager
@@ -27,24 +29,26 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 - pendingOperations cleared on success or error
 - logAutoScroll true by default; j/k/g/G disable it
 - panelFocus defaults to FocusTree (zero value)
+- confirmOpen blocks other input until confirmed/cancelled
 
 ## Key Files
-- `model.go` - Model struct, constructors, state management, tree operations
-- `update.go` - Message handlers, key dispatch
-- `view.go` - View rendering, tree view, detail panel, log panel, status bar
+- `model.go` - Model struct, constructors, state management, tree operations, confirmation dialog state
+- `update.go` - Message handlers, key dispatch, confirmation dialog handling
+- `view.go` - View rendering, tree view, detail panel, log panel, status bar, renderConfirmDialog()
 - `layout.go` - Layout/Region computation from terminal dimensions
-- `styles.go` - Catppuccin-based styling
+- `styles.go` - Catppuccin-based styling, PanelHeaderFocusedStyle/PanelHeaderUnfocusedStyle (underline-based)
 - `delegates.go` - List item rendering with spinner support
 
 ## Navigation
 - `↑/↓` - Navigate tree items
-- `enter` - Expand/collapse containers
+- `enter` - Expand/collapse containers (y/n in confirmation dialogs)
 - `→` - Open detail panel
-- `←/esc` - Close detail panel (esc also returns focus from detail/logs to tree)
+- `←/esc` - Close detail panel (esc also returns focus from detail/logs to tree, cancels dialogs)
 - `tab` - Cycle panel focus (tree → detail → logs → tree)
 - `l/L` - Toggle log panel
 - `c` - Create container
-- `s/x/d` - Start/stop/destroy container
+- `s/x/d` - Start/stop/destroy container (d shows confirmation)
+- `k` - Kill session (shows confirmation)
 - `ctrl+c ctrl+c` - Quit (double-press within 500ms)
 - `ctrl+d` - Quit (immediate)
 - Pressing `esc` twice with nothing to close shows quit hint in status bar
@@ -54,3 +58,4 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 - setLogFilterFromContext() called by syncSelectionFromTree(); keeps filter in sync with tree selection
 - rebuildTreeItems() must be called after container list changes
 - Layout.ContentListHeight() accounts for list chrome (subtract 2)
+- Form inputs are trimmed of whitespace before validation

@@ -1,6 +1,6 @@
 # Tmux Domain
 
-Last verified: 2026-01-28
+Last verified: 2026-02-01
 
 ## Purpose
 Wraps tmux commands executed inside containers via a ContainerExecutor function. Provides session listing, creation, destruction, and pane capture.

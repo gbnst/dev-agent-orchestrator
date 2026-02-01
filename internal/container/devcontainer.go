@@ -4,13 +4,112 @@ package container
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"devagent/internal/config"
 )
+
+// getDataDir returns the XDG-compliant data directory for devagent.
+// Uses $XDG_DATA_HOME/devagent or ~/.local/share/devagent
+func getDataDir() string {
+	if xdgData := os.Getenv("XDG_DATA_HOME"); xdgData != "" {
+		return filepath.Join(xdgData, "devagent")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".local", "share", "devagent")
+	}
+	return filepath.Join(home, ".local", "share", "devagent")
+}
+
+// getContainerClaudeDir returns the host path for a container's .claude directory.
+// Uses a hash of the project path to create a unique directory per container.
+func getContainerClaudeDir(projectPath string) string {
+	// Use SHA256 hash of project path for uniqueness (truncated to 12 chars)
+	hash := sha256.Sum256([]byte(projectPath))
+	hashStr := hex.EncodeToString(hash[:])[:12]
+	return filepath.Join(getDataDir(), "claude-configs", hashStr)
+}
+
+// ensureClaudeDir creates the claude config directory for a container if it doesn't exist.
+func ensureClaudeDir(projectPath string) (string, error) {
+	dir := getContainerClaudeDir(projectPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create claude config directory: %w", err)
+	}
+	return dir, nil
+}
+
+// copyClaudeTemplateFiles copies files from template's home/vscode/.claude/ to the claude config dir.
+// Only copies files that don't already exist (won't overwrite user changes).
+func copyClaudeTemplateFiles(templatePath, claudeDir string) error {
+	// Look for home/vscode/.claude/ in the template directory
+	srcDir := filepath.Join(templatePath, "home", "vscode", ".claude")
+
+	info, err := os.Stat(srcDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No template files to copy, that's fine
+			return nil
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+
+	// Walk the source directory and copy files
+	return filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Get relative path from srcDir
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+
+		destPath := filepath.Join(claudeDir, relPath)
+
+		if d.IsDir() {
+			// Create directory if it doesn't exist
+			return os.MkdirAll(destPath, 0755)
+		}
+
+		// Only copy files that don't already exist (preserve user modifications)
+		if _, err := os.Stat(destPath); err == nil {
+			// File exists, skip
+			return nil
+		}
+
+		// Copy the file
+		return copyFile(path, destPath)
+	})
+}
+
+// readClaudeAuthToken reads ~/.claude/create-auth-token and returns the token.
+// Returns empty string if the file doesn't exist or can't be read.
+func readClaudeAuthToken() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	tokenPath := filepath.Join(home, ".claude", "create-auth-token")
+	tokenData, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(tokenData))
+}
 
 // DevcontainerGenerator creates devcontainer.json configurations.
 type DevcontainerGenerator struct {
@@ -95,6 +194,14 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 		}
 	}
 
+	// Inject Claude auth token from ~/.claude/create-auth-token
+	if token := readClaudeAuthToken(); token != "" {
+		dc.ContainerEnv["CLAUDE_CODE_OAUTH_TOKEN"] = token
+	}
+
+	// Set IS_DEMO to skip onboarding prompts
+	dc.ContainerEnv["IS_DEMO"] = "1"
+
 	// Add devagent labels
 	dc.RunArgs = append(dc.RunArgs,
 		"--label", LabelManagedBy+"=true",
@@ -125,6 +232,26 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 	// Set Docker container name via runArgs
 	if opts.Name != "" {
 		dc.RunArgs = append(dc.RunArgs, "--name", opts.Name)
+	}
+
+	// Add mount for Claude config directory
+	// This maps a per-container directory on host to /home/vscode/.claude in container
+	if opts.ProjectPath != "" {
+		claudeDir, err := ensureClaudeDir(opts.ProjectPath)
+		if err != nil {
+			return nil, err
+		}
+
+		// Copy template files to claude config dir (only if they don't already exist)
+		if tmpl.Path != "" {
+			if err := copyClaudeTemplateFiles(tmpl.Path, claudeDir); err != nil {
+				return nil, fmt.Errorf("failed to copy claude template files: %w", err)
+			}
+		}
+
+		// Format: source=<host-path>,target=<container-path>,type=bind
+		mount := fmt.Sprintf("source=%s,target=/home/%s/.claude,type=bind", claudeDir, remoteUser)
+		dc.Mounts = append(dc.Mounts, mount)
 	}
 
 	return &GenerateResult{

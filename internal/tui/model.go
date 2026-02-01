@@ -114,6 +114,12 @@ type Model struct {
 	sessionCreatedOpen bool
 	sessionCreatedName string
 
+	// Confirmation dialog state
+	confirmOpen    bool
+	confirmAction  string // "destroy_container", "kill_session"
+	confirmTarget  string // container ID or session name
+	confirmMessage string // message to display
+
 	// Log panel
 	logPanelOpen bool
 

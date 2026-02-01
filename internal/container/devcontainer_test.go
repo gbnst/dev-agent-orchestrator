@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"devagent/internal/config"
@@ -470,5 +471,97 @@ func TestNewDevcontainerCLIWithRuntime(t *testing.T) {
 	cli := NewDevcontainerCLIWithRuntime("docker")
 	if cli.dockerPath != "docker" {
 		t.Errorf("dockerPath: got %q, want %q", cli.dockerPath, "docker")
+	}
+}
+
+func TestGenerate_AddsClaudeMount(t *testing.T) {
+	cfg := &config.Config{}
+	templates := []config.Template{
+		{
+			Name:  "default",
+			Image: "ubuntu:22.04",
+		},
+	}
+
+	g := NewDevcontainerGenerator(cfg, templates)
+	result, err := g.Generate(CreateOptions{
+		Template:    "default",
+		ProjectPath: "/home/user/myproject",
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// Should have exactly one mount for .claude directory
+	if len(result.Config.Mounts) != 1 {
+		t.Fatalf("Expected 1 mount, got %d", len(result.Config.Mounts))
+	}
+
+	mount := result.Config.Mounts[0]
+	// Mount should target /home/vscode/.claude
+	if !strings.Contains(mount, "target=/home/vscode/.claude") {
+		t.Errorf("Mount should target /home/vscode/.claude, got: %s", mount)
+	}
+	// Mount should be a bind type
+	if !strings.Contains(mount, "type=bind") {
+		t.Errorf("Mount should be type=bind, got: %s", mount)
+	}
+	// Source should be in devagent data directory
+	if !strings.Contains(mount, "source=") {
+		t.Errorf("Mount should have source, got: %s", mount)
+	}
+}
+
+func TestGenerate_ClaudeMountUsesRemoteUser(t *testing.T) {
+	cfg := &config.Config{}
+	templates := []config.Template{
+		{
+			Name:       "default",
+			Image:      "ubuntu:22.04",
+			RemoteUser: "developer",
+		},
+	}
+
+	g := NewDevcontainerGenerator(cfg, templates)
+	result, err := g.Generate(CreateOptions{
+		Template:    "default",
+		ProjectPath: "/home/user/myproject",
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	if len(result.Config.Mounts) != 1 {
+		t.Fatalf("Expected 1 mount, got %d", len(result.Config.Mounts))
+	}
+
+	mount := result.Config.Mounts[0]
+	// Mount should target /home/developer/.claude (custom remoteUser)
+	if !strings.Contains(mount, "target=/home/developer/.claude") {
+		t.Errorf("Mount should target /home/developer/.claude, got: %s", mount)
+	}
+}
+
+func TestGenerate_NoClaudeMountWithoutProjectPath(t *testing.T) {
+	cfg := &config.Config{}
+	templates := []config.Template{
+		{
+			Name:  "default",
+			Image: "ubuntu:22.04",
+		},
+	}
+
+	g := NewDevcontainerGenerator(cfg, templates)
+	result, err := g.Generate(CreateOptions{
+		Template: "default",
+		// No ProjectPath
+	})
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// Should have no mounts when no project path
+	if len(result.Config.Mounts) != 0 {
+		t.Errorf("Expected 0 mounts without project path, got %d", len(result.Config.Mounts))
 	}
 }

@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -109,6 +110,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearStatus()
 			m.quitHintCount = 0
 			return m, nil
+		}
+
+		// Handle confirmation dialog
+		if m.confirmOpen {
+			return m.handleConfirmKey(msg)
 		}
 
 		// Handle form input when form is open
@@ -267,10 +273,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
-				m.logger.Info("destroying container", "containerID", item.container.ID, "name", item.container.Name)
-				m.setPending(item.container.ID, "destroy")
-				cmd := m.setLoading("Destroying " + item.container.Name + "...")
-				return m, tea.Batch(cmd, m.destroyContainer(item.container.ID))
+				// Show confirmation dialog
+				m.confirmOpen = true
+				m.confirmAction = "destroy_container"
+				m.confirmTarget = item.container.ID
+				m.confirmMessage = fmt.Sprintf("Destroy container '%s'?", item.container.Name)
+				return m, nil
 			}
 
 		case "t":
@@ -317,8 +325,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) && m.treeItems[m.selectedIdx].Type == TreeItemSession {
 				session := m.SelectedSession()
 				if session != nil && m.selectedContainer != nil {
-					m.logger.Info("killing session", "containerID", m.selectedContainer.ID, "session", session.Name)
-					return m, m.killSession(m.selectedContainer.ID, session.Name)
+					// Show confirmation dialog
+					m.confirmOpen = true
+					m.confirmAction = "kill_session"
+					m.confirmTarget = session.Name
+					m.confirmMessage = fmt.Sprintf("Kill session '%s'?", session.Name)
+					return m, nil
 				}
 			}
 			// Scroll logs up when panel is open
@@ -586,8 +598,9 @@ func (m Model) createContainer() tea.Cmd {
 	if len(m.templates) > m.formTemplateIdx {
 		templateName = m.templates[m.formTemplateIdx].Name
 	}
-	projectPath := m.formProjectPath
-	containerName := m.formContainerName
+	// Trim whitespace from form inputs to avoid invalid container names
+	projectPath := strings.TrimSpace(m.formProjectPath)
+	containerName := strings.TrimSpace(m.formContainerName)
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -639,10 +652,14 @@ func (m Model) handleSessionViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "k":
-		// Kill selected session
+		// Kill selected session - show confirmation dialog
 		session := m.SelectedSession()
 		if session != nil && m.selectedContainer != nil {
-			return m, m.killSession(m.selectedContainer.ID, session.Name)
+			m.confirmOpen = true
+			m.confirmAction = "kill_session"
+			m.confirmTarget = session.Name
+			m.confirmMessage = fmt.Sprintf("Kill session '%s'?", session.Name)
+			return m, nil
 		}
 		return m, nil
 	}
@@ -745,4 +762,65 @@ func (m Model) killSession(containerID, sessionName string) tea.Cmd {
 			err:         err,
 		}
 	}
+}
+
+// handleConfirmKey processes key events when the confirmation dialog is open.
+func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		// Cancel the action
+		m.confirmOpen = false
+		m.confirmAction = ""
+		m.confirmTarget = ""
+		m.confirmMessage = ""
+		return m, nil
+
+	case tea.KeyEnter:
+		// Confirm and execute the action
+		action := m.confirmAction
+		target := m.confirmTarget
+
+		// Close dialog
+		m.confirmOpen = false
+		m.confirmAction = ""
+		m.confirmTarget = ""
+		m.confirmMessage = ""
+
+		// Execute the confirmed action
+		switch action {
+		case "destroy_container":
+			// Find the container to get its name for the loading message
+			var containerName string
+			for _, item := range m.containerList.Items() {
+				if ci, ok := item.(containerItem); ok && ci.container.ID == target {
+					containerName = ci.container.Name
+					break
+				}
+			}
+			m.logger.Info("destroying container", "containerID", target, "name", containerName)
+			m.setPending(target, "destroy")
+			cmd := m.setLoading("Destroying " + containerName + "...")
+			return m, tea.Batch(cmd, m.destroyContainer(target))
+
+		case "kill_session":
+			if m.selectedContainer != nil {
+				m.logger.Info("killing session", "containerID", m.selectedContainer.ID, "session", target)
+				return m, m.killSession(m.selectedContainer.ID, target)
+			}
+		}
+		return m, nil
+	}
+
+	// 'y' also confirms
+	if msg.String() == "y" || msg.String() == "Y" {
+		// Simulate Enter press to confirm
+		return m.handleConfirmKey(tea.KeyMsg{Type: tea.KeyEnter})
+	}
+
+	// 'n' also cancels
+	if msg.String() == "n" || msg.String() == "N" {
+		return m.handleConfirmKey(tea.KeyMsg{Type: tea.KeyEscape})
+	}
+
+	return m, nil
 }
