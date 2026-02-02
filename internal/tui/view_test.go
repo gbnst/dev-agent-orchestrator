@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"devagent/internal/container"
 	"devagent/internal/logging"
 )
 
@@ -97,5 +98,201 @@ func TestRenderLogEntry(t *testing.T) {
 	}
 	if !strings.Contains(result, "container started") {
 		t.Error("should contain message")
+	}
+}
+
+// Tests for renderIsolationSection
+
+func TestRenderIsolationSection_RunningWithCache(t *testing.T) {
+	m := newTestModel(t)
+	info := &container.IsolationInfo{
+		MemoryLimit:     "1GB",
+		CPULimit:        "2",
+		PidsLimit:       100,
+		NetworkIsolated: true,
+		NetworkName:     "test-network",
+	}
+
+	result := m.renderIsolationSection(container.StateRunning, info)
+	output := strings.Join(result, "\n")
+
+	// Should show actual values from renderIsolationInfo
+	if !strings.Contains(output, "Memory:    1GB") {
+		t.Error("should show memory limit")
+	}
+	if !strings.Contains(output, "CPUs:      2") {
+		t.Error("should show CPU limit")
+	}
+	if !strings.Contains(output, "PIDs:      100") {
+		t.Error("should show PIDs limit")
+	}
+	if !strings.Contains(output, "Network Isolation:") {
+		t.Error("should show network isolation section")
+	}
+	if !strings.Contains(output, "Status:    Enabled") {
+		t.Error("should show network isolation enabled")
+	}
+}
+
+func TestRenderIsolationSection_RunningNoCache(t *testing.T) {
+	m := newTestModel(t)
+
+	result := m.renderIsolationSection(container.StateRunning, nil)
+	output := strings.Join(result, "\n")
+
+	// Should show Loading... for all sections
+	if !strings.Contains(output, "Resource Limits:") {
+		t.Error("should show Resource Limits header")
+	}
+	if !strings.Contains(output, "Security:") {
+		t.Error("should show Security header")
+	}
+	if !strings.Contains(output, "Network Isolation:") {
+		t.Error("should show Network Isolation header")
+	}
+	// Count Loading... occurrences (should be 3, one per section)
+	loadingCount := strings.Count(output, "Loading...")
+	if loadingCount != 3 {
+		t.Errorf("expected 3 Loading... messages, got %d", loadingCount)
+	}
+}
+
+func TestRenderIsolationSection_NotRunning(t *testing.T) {
+	m := newTestModel(t)
+
+	// Test with stopped state
+	result := m.renderIsolationSection(container.StateStopped, nil)
+	output := strings.Join(result, "\n")
+
+	// Should show Unknown placeholders
+	if !strings.Contains(output, "Resource Limits:") {
+		t.Error("should show Resource Limits header")
+	}
+	if !strings.Contains(output, "Memory:    Unknown") {
+		t.Error("should show Unknown for memory")
+	}
+	if !strings.Contains(output, "CPUs:      Unknown") {
+		t.Error("should show Unknown for CPUs")
+	}
+	if !strings.Contains(output, "PIDs:      Unknown") {
+		t.Error("should show Unknown for PIDs")
+	}
+	if !strings.Contains(output, "Security:") {
+		t.Error("should show Security header")
+	}
+	if !strings.Contains(output, "Capabilities: Unknown") {
+		t.Error("should show Unknown for capabilities")
+	}
+	if !strings.Contains(output, "Network Isolation:") {
+		t.Error("should show Network Isolation header")
+	}
+	if !strings.Contains(output, "Status:    Unknown") {
+		t.Error("should show Unknown for network status")
+	}
+	// Should NOT contain Loading...
+	if strings.Contains(output, "Loading...") {
+		t.Error("stopped container should not show Loading...")
+	}
+}
+
+func TestRenderIsolationSection_CreatedState(t *testing.T) {
+	m := newTestModel(t)
+
+	// Test with created state (not running)
+	result := m.renderIsolationSection(container.StateCreated, nil)
+	output := strings.Join(result, "\n")
+
+	// Should show Unknown placeholders (same as stopped)
+	if !strings.Contains(output, "Memory:    Unknown") {
+		t.Error("created container should show Unknown for memory")
+	}
+	if strings.Contains(output, "Loading...") {
+		t.Error("created container should not show Loading...")
+	}
+}
+
+// Tests for renderIsolationInfo consistency
+
+func TestRenderIsolationInfo_NoLimits(t *testing.T) {
+	m := newTestModel(t)
+	info := &container.IsolationInfo{
+		// No limits set
+		NetworkIsolated: false,
+	}
+
+	result := m.renderIsolationInfo(info)
+	output := strings.Join(result, "\n")
+
+	// Should still show headers for consistency
+	if !strings.Contains(output, "Resource Limits:") {
+		t.Error("should show Resource Limits header even with no limits")
+	}
+	if !strings.Contains(output, "None configured") {
+		t.Error("should show 'None configured' when no limits set")
+	}
+	if !strings.Contains(output, "Security:") {
+		t.Error("should show Security header even with no capabilities")
+	}
+	if !strings.Contains(output, "Default capabilities") {
+		t.Error("should show 'Default capabilities' when no caps modified")
+	}
+}
+
+func TestRenderIsolationInfo_WithAllData(t *testing.T) {
+	m := newTestModel(t)
+	info := &container.IsolationInfo{
+		MemoryLimit:     "2GB",
+		CPULimit:        "4",
+		PidsLimit:       200,
+		DroppedCaps:     []string{"NET_RAW", "SYS_ADMIN"},
+		AddedCaps:       []string{"NET_BIND_SERVICE"},
+		NetworkIsolated: true,
+		NetworkName:     "isolated-net",
+		AllowedDomains:  []string{"github.com", "api.example.com"},
+	}
+
+	result := m.renderIsolationInfo(info)
+	output := strings.Join(result, "\n")
+
+	// Resource limits
+	if !strings.Contains(output, "Memory:    2GB") {
+		t.Error("should show memory limit")
+	}
+	if !strings.Contains(output, "CPUs:      4") {
+		t.Error("should show CPU limit")
+	}
+	if !strings.Contains(output, "PIDs:      200") {
+		t.Error("should show PIDs limit")
+	}
+
+	// Security
+	if !strings.Contains(output, "Dropped Capabilities:") {
+		t.Error("should show dropped capabilities header")
+	}
+	if !strings.Contains(output, "NET_RAW") {
+		t.Error("should show dropped cap NET_RAW")
+	}
+	if !strings.Contains(output, "SYS_ADMIN") {
+		t.Error("should show dropped cap SYS_ADMIN")
+	}
+	if !strings.Contains(output, "Added Capabilities:") {
+		t.Error("should show added capabilities header")
+	}
+	if !strings.Contains(output, "NET_BIND_SERVICE") {
+		t.Error("should show added cap NET_BIND_SERVICE")
+	}
+
+	// Network
+	if !strings.Contains(output, "Status:    Enabled") {
+		t.Error("should show network isolation enabled")
+	}
+	if !strings.Contains(output, "Network:   isolated-net") {
+		t.Error("should show network name")
+	}
+	if !strings.Contains(output, "Allowed Domains:") {
+		t.Error("should show allowed domains header")
+	}
+	if !strings.Contains(output, "github.com") {
+		t.Error("should show allowed domain github.com")
 	}
 }

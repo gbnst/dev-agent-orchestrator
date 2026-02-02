@@ -22,7 +22,6 @@ func TestGenerate_TemplateNotFound(t *testing.T) {
 	}
 }
 
-
 func TestGenerate_BasicTemplate(t *testing.T) {
 	cfg := &config.Config{}
 	templates := []config.Template{
@@ -563,5 +562,641 @@ func TestGenerate_NoClaudeMountWithoutProjectPath(t *testing.T) {
 	// Should have no mounts when no project path
 	if len(result.Config.Mounts) != 0 {
 		t.Errorf("Expected 0 mounts without project path, got %d", len(result.Config.Mounts))
+	}
+}
+
+func TestBuildIsolationRunArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		iso  *config.IsolationConfig
+		want []string
+	}{
+		{
+			name: "nil config returns nil",
+			iso:  nil,
+			want: nil,
+		},
+		{
+			name: "empty config returns nil",
+			iso:  &config.IsolationConfig{},
+			want: nil,
+		},
+		{
+			name: "capability drops",
+			iso: &config.IsolationConfig{
+				Caps: &config.CapConfig{
+					Drop: []string{"NET_RAW", "SYS_ADMIN"},
+				},
+			},
+			want: []string{"--cap-drop", "NET_RAW", "--cap-drop", "SYS_ADMIN"},
+		},
+		{
+			name: "memory limit",
+			iso: &config.IsolationConfig{
+				Resources: &config.ResourceConfig{
+					Memory: "2g",
+				},
+			},
+			want: []string{"--memory", "2g"},
+		},
+		{
+			name: "cpu limit",
+			iso: &config.IsolationConfig{
+				Resources: &config.ResourceConfig{
+					CPUs: "1.5",
+				},
+			},
+			want: []string{"--cpus", "1.5"},
+		},
+		{
+			name: "pids limit",
+			iso: &config.IsolationConfig{
+				Resources: &config.ResourceConfig{
+					PidsLimit: 256,
+				},
+			},
+			want: []string{"--pids-limit", "256"},
+		},
+		{
+			name: "full isolation config",
+			iso: &config.IsolationConfig{
+				Caps: &config.CapConfig{
+					Drop: []string{"NET_RAW"},
+				},
+				Resources: &config.ResourceConfig{
+					Memory:    "4g",
+					CPUs:      "2",
+					PidsLimit: 512,
+				},
+			},
+			want: []string{
+				"--cap-drop", "NET_RAW",
+				"--memory", "4g",
+				"--cpus", "2",
+				"--pids-limit", "512",
+			},
+		},
+		{
+			name: "zero pids limit omitted",
+			iso: &config.IsolationConfig{
+				Resources: &config.ResourceConfig{
+					Memory:    "2g",
+					PidsLimit: 0,
+				},
+			},
+			want: []string{"--memory", "2g"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildIsolationRunArgs(tt.iso)
+			if len(got) != len(tt.want) {
+				t.Errorf("buildIsolationRunArgs() len = %d, want %d\ngot: %v\nwant: %v",
+					len(got), len(tt.want), got, tt.want)
+				return
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("buildIsolationRunArgs()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGenerate_AddsIsolationRunArgs(t *testing.T) {
+	enabled := true
+	templates := []config.Template{
+		{
+			Name:  "isolated-template",
+			Image: "ubuntu:22.04",
+			Isolation: &config.IsolationConfig{
+				Enabled: &enabled,
+				Caps: &config.CapConfig{
+					Drop: []string{"NET_RAW", "SYS_ADMIN"},
+					Add:  []string{"NET_BIND_SERVICE"},
+				},
+				Resources: &config.ResourceConfig{
+					Memory:    "4g",
+					CPUs:      "2",
+					PidsLimit: 512,
+				},
+			},
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template: "isolated-template",
+		Name:     "test-container",
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Verify isolation runArgs are present
+	runArgs := result.Config.RunArgs
+	wantArgs := map[string]string{
+		"--cap-drop":   "NET_RAW",
+		"--memory":     "4g",
+		"--cpus":       "2",
+		"--pids-limit": "512",
+	}
+
+	for flag, expectedValue := range wantArgs {
+		found := false
+		for i, arg := range runArgs {
+			if arg == flag && i+1 < len(runArgs) {
+				if flag == "--cap-drop" {
+					// --cap-drop can appear multiple times, check if any matches
+					if runArgs[i+1] == expectedValue || runArgs[i+1] == "SYS_ADMIN" {
+						found = true
+						break
+					}
+				} else if runArgs[i+1] == expectedValue {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Errorf("runArgs missing %s %s, got: %v", flag, expectedValue, runArgs)
+		}
+	}
+
+	// Verify capAdd native field
+	if len(result.Config.CapAdd) != 1 {
+		t.Errorf("CapAdd len = %d, want 1", len(result.Config.CapAdd))
+	} else if result.Config.CapAdd[0] != "NET_BIND_SERVICE" {
+		t.Errorf("CapAdd[0] = %q, want %q", result.Config.CapAdd[0], "NET_BIND_SERVICE")
+	}
+}
+
+func TestGenerate_NoIsolationRunArgsWhenNil(t *testing.T) {
+	// UPDATED: Phase 8 now applies default isolation even when template.Isolation is nil
+	// This test is now superseded by TestGenerate_TemplateWithoutIsolationGetsDefaults
+	// Keeping this test but changing behavior to verify defaults are applied
+	enabled := false
+	templates := []config.Template{
+		{
+			Name:      "basic-template",
+			Image:     "ubuntu:22.04",
+			Isolation: &config.IsolationConfig{Enabled: &enabled}, // Explicitly disable isolation
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template: "basic-template",
+		Name:     "test-container",
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Verify no isolation-specific runArgs when isolation is explicitly disabled
+	for _, arg := range result.Config.RunArgs {
+		if arg == "--cap-drop" || arg == "--memory" || arg == "--cpus" || arg == "--pids-limit" {
+			t.Errorf("runArgs should not contain isolation args when Isolation is disabled, got: %v", result.Config.RunArgs)
+			break
+		}
+	}
+
+	// Verify CapAdd is empty
+	if len(result.Config.CapAdd) != 0 {
+		t.Errorf("CapAdd should be empty, got: %v", result.Config.CapAdd)
+	}
+}
+
+func TestChainPostCreateCommand(t *testing.T) {
+	tests := []struct {
+		name       string
+		existing   string
+		additional string
+		want       string
+	}{
+		{
+			name:       "both empty",
+			existing:   "",
+			additional: "",
+			want:       "",
+		},
+		{
+			name:       "existing only",
+			existing:   "pip install -r requirements.txt",
+			additional: "",
+			want:       "pip install -r requirements.txt",
+		},
+		{
+			name:       "additional only",
+			existing:   "",
+			additional: "update-ca-certificates",
+			want:       "update-ca-certificates",
+		},
+		{
+			name:       "both present",
+			existing:   "pip install -r requirements.txt",
+			additional: "update-ca-certificates",
+			want:       "pip install -r requirements.txt && update-ca-certificates",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := chainPostCreateCommand(tt.existing, tt.additional)
+			if got != tt.want {
+				t.Errorf("chainPostCreateCommand() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGenerate_AddsCertMountWithProxy(t *testing.T) {
+	// Redirect data directory to temp for this test to avoid polluting real user data
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+
+	templates := []config.Template{
+		{
+			Name:  "test-template",
+			Image: "ubuntu:22.04",
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	certDir := t.TempDir()
+
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template:    "test-template",
+		Name:        "test-container",
+		ProjectPath: "/test/project",
+		Proxy: &ProxyConfig{
+			CertDir:     certDir,
+			ProxyHost:   "proxy",
+			ProxyPort:   "8080",
+			NetworkName: "test-network",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Verify cert mount was added
+	foundCertMount := false
+	for _, mount := range result.Config.Mounts {
+		if strings.Contains(mount, "mitmproxy-certs") && strings.Contains(mount, certDir) {
+			foundCertMount = true
+			break
+		}
+	}
+	if !foundCertMount {
+		t.Errorf("cert mount not found in Mounts: %v", result.Config.Mounts)
+	}
+
+	// Verify postCreateCommand includes cert installation
+	if !strings.Contains(result.Config.PostCreateCommand, "update-ca-certificates") {
+		t.Errorf("postCreateCommand should include update-ca-certificates, got: %s",
+			result.Config.PostCreateCommand)
+	}
+}
+
+func TestGenerate_AddsProxyEnvironment(t *testing.T) {
+	templates := []config.Template{
+		{
+			Name:  "test-template",
+			Image: "ubuntu:22.04",
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template:    "test-template",
+		Name:        "test-container",
+		ProjectPath: "/test/project",
+		Proxy: &ProxyConfig{
+			CertDir:     "/tmp/certs",
+			ProxyHost:   "proxy",
+			ProxyPort:   "8080",
+			NetworkName: "test-network",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Check proxy environment variables
+	wantEnv := map[string]string{
+		"http_proxy":         "http://proxy:8080",
+		"https_proxy":        "http://proxy:8080",
+		"HTTP_PROXY":         "http://proxy:8080",
+		"HTTPS_PROXY":        "http://proxy:8080",
+		"no_proxy":           "localhost,127.0.0.1",
+		"NO_PROXY":           "localhost,127.0.0.1",
+		"REQUESTS_CA_BUNDLE": "/etc/ssl/certs/ca-certificates.crt",
+		"NODE_EXTRA_CA_CERTS": "/etc/ssl/certs/ca-certificates.crt",
+		"SSL_CERT_FILE":      "/etc/ssl/certs/ca-certificates.crt",
+	}
+
+	for key, want := range wantEnv {
+		got, ok := result.Config.ContainerEnv[key]
+		if !ok {
+			t.Errorf("ContainerEnv missing %q", key)
+			continue
+		}
+		if got != want {
+			t.Errorf("ContainerEnv[%q] = %q, want %q", key, got, want)
+		}
+	}
+}
+
+func TestGenerate_NoProxyEnvWithoutProxyConfig(t *testing.T) {
+	templates := []config.Template{
+		{
+			Name:  "test-template",
+			Image: "ubuntu:22.04",
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template:    "test-template",
+		Name:        "test-container",
+		ProjectPath: "/test/project",
+		Proxy:       nil, // No proxy config
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Proxy environment variables should not be set
+	proxyKeys := []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"}
+	for _, key := range proxyKeys {
+		if _, ok := result.Config.ContainerEnv[key]; ok {
+			t.Errorf("ContainerEnv should not have %q when no proxy config", key)
+		}
+	}
+}
+
+func TestGenerate_AddsNetworkToRunArgs(t *testing.T) {
+	templates := []config.Template{
+		{
+			Name:  "test-template",
+			Image: "ubuntu:22.04",
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template:    "test-template",
+		Name:        "test-container",
+		ProjectPath: "/test/project",
+		Proxy: &ProxyConfig{
+			CertDir:     "/tmp/certs",
+			ProxyHost:   "proxy",
+			ProxyPort:   "8080",
+			NetworkName: "devagent-abc123-net",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Check network is in runArgs
+	foundNetwork := false
+	for i, arg := range result.Config.RunArgs {
+		if arg == "--network" && i+1 < len(result.Config.RunArgs) {
+			if result.Config.RunArgs[i+1] == "devagent-abc123-net" {
+				foundNetwork = true
+				break
+			}
+		}
+	}
+
+	if !foundNetwork {
+		t.Errorf("runArgs should contain --network devagent-abc123-net, got: %v", result.Config.RunArgs)
+	}
+}
+
+func TestGenerate_NoNetworkWithoutProxyConfig(t *testing.T) {
+	templates := []config.Template{
+		{
+			Name:  "test-template",
+			Image: "ubuntu:22.04",
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template:    "test-template",
+		Name:        "test-container",
+		ProjectPath: "/test/project",
+		Proxy:       nil,
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// No --network flag should be present
+	for _, arg := range result.Config.RunArgs {
+		if arg == "--network" {
+			t.Errorf("runArgs should not contain --network when no proxy config")
+		}
+	}
+}
+
+func TestGenerate_TemplateWithoutIsolationGetsDefaults(t *testing.T) {
+	// Template with no isolation config should get DefaultIsolation applied
+	templates := []config.Template{
+		{
+			Name:      "no-isolation-template",
+			Image:     "ubuntu:22.04",
+			Isolation: nil, // No isolation specified
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	// Verify GetEffectiveIsolation returns defaults
+	effective := templates[0].GetEffectiveIsolation()
+	if effective == nil {
+		t.Fatal("GetEffectiveIsolation() should return defaults, not nil")
+	}
+
+	// Verify it has default capabilities
+	if effective.Caps == nil || len(effective.Caps.Drop) == 0 {
+		t.Error("effective isolation should have default cap drops")
+	}
+
+	// Verify it has default resources
+	if effective.Resources == nil || effective.Resources.Memory == "" {
+		t.Error("effective isolation should have default resource limits")
+	}
+
+	// Verify it has default network allowlist
+	if effective.Network == nil || len(effective.Network.Allowlist) == 0 {
+		t.Error("effective isolation should have default allowlist")
+	}
+
+	// CRITICAL: Verify Generate() actually applies effective isolation to devcontainer.json
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template:    "no-isolation-template",
+		Name:        "test-container",
+		ProjectPath: "/test/project",
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Verify runArgs contain isolation flags from defaults
+	runArgs := result.Config.RunArgs
+
+	// Check for default capability drops
+	hasCapDrop := false
+	for _, arg := range runArgs {
+		if arg == "--cap-drop" {
+			hasCapDrop = true
+			break
+		}
+	}
+	if !hasCapDrop {
+		t.Errorf("Generate() should apply default cap drops, runArgs: %v", runArgs)
+	}
+
+	// Check for default memory limit
+	hasMemory := false
+	for i, arg := range runArgs {
+		if arg == "--memory" && i+1 < len(runArgs) {
+			hasMemory = true
+			break
+		}
+	}
+	if !hasMemory {
+		t.Errorf("Generate() should apply default memory limit, runArgs: %v", runArgs)
+	}
+}
+
+func TestGenerate_TemplateWithDisabledIsolation(t *testing.T) {
+	enabled := false
+	templates := []config.Template{
+		{
+			Name:  "disabled-isolation-template",
+			Image: "ubuntu:22.04",
+			Isolation: &config.IsolationConfig{
+				Enabled: &enabled,
+			},
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	// Verify GetEffectiveIsolation returns nil
+	effective := templates[0].GetEffectiveIsolation()
+	if effective != nil {
+		t.Errorf("GetEffectiveIsolation() should return nil when disabled, got %+v", effective)
+	}
+
+	// Verify IsIsolationEnabled returns false
+	if templates[0].IsIsolationEnabled() {
+		t.Error("IsIsolationEnabled() should return false")
+	}
+
+	// CRITICAL: Verify Generate() does NOT apply isolation when disabled
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template:    "disabled-isolation-template",
+		Name:        "test-container",
+		ProjectPath: "/test/project",
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Verify runArgs do NOT contain isolation flags
+	runArgs := result.Config.RunArgs
+	for _, arg := range runArgs {
+		if arg == "--cap-drop" || arg == "--memory" || arg == "--cpus" || arg == "--pids-limit" {
+			t.Errorf("Generate() should not apply isolation when disabled, found %s in runArgs: %v", arg, runArgs)
+			break
+		}
+	}
+}
+
+func TestGenerate_TemplateWithAllowlistExtend(t *testing.T) {
+	templates := []config.Template{
+		{
+			Name:  "extended-allowlist-template",
+			Image: "ubuntu:22.04",
+			Isolation: &config.IsolationConfig{
+				Network: &config.NetworkConfig{
+					AllowlistExtend: []string{"custom.example.com", "internal.corp.net"},
+				},
+			},
+		},
+	}
+
+	effective := templates[0].GetEffectiveIsolation()
+	if effective == nil || effective.Network == nil {
+		t.Fatal("effective isolation should not be nil")
+	}
+
+	// Should have default domains plus extended domains
+	allowlist := effective.Network.Allowlist
+
+	// Check for default domain
+	hasDefault := false
+	for _, domain := range allowlist {
+		if domain == "github.com" || domain == "api.anthropic.com" {
+			hasDefault = true
+			break
+		}
+	}
+	if !hasDefault {
+		t.Error("allowlist should include default domains")
+	}
+
+	// Check for extended domain
+	hasExtended := false
+	for _, domain := range allowlist {
+		if domain == "custom.example.com" {
+			hasExtended = true
+			break
+		}
+	}
+	if !hasExtended {
+		t.Error("allowlist should include extended domain custom.example.com")
 	}
 }

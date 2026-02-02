@@ -241,9 +241,12 @@ func TestForm_Submit_ReturnsCreateCommand(t *testing.T) {
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
 
-	// Form should close
-	if m.IsFormOpen() {
-		t.Error("Form should close after submit")
+	// Form should stay open but be in submitting state (showing progress)
+	if !m.IsFormOpen() {
+		t.Error("Form should stay open during submission")
+	}
+	if !m.IsFormSubmitting() {
+		t.Error("Form should be in submitting state after submit")
 	}
 
 	// Should return a command (not nil)
@@ -442,6 +445,103 @@ func TestFormView_HighlightsFocusedField(t *testing.T) {
 	// (exact styling may vary, but the view should render without error)
 	if view == "" {
 		t.Error("View should not be empty")
+	}
+}
+
+func TestForm_Submit_BlocksInputDuringSubmission(t *testing.T) {
+	m := newTestModel(t)
+
+	// Open form
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(Model)
+
+	// Fill out form - move to project path
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/', 't', 'm', 'p', '/', 'p', 'r', 'o', 'j'}})
+	m = updated.(Model)
+
+	// Submit with Enter
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	// Store current project path
+	originalPath := m.FormProjectPath()
+
+	// Try to type more text - should be blocked
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m', 'o', 'r', 'e'}})
+	m = updated.(Model)
+
+	// Project path should not change
+	if m.FormProjectPath() != originalPath {
+		t.Errorf("Input should be blocked during submission, path changed from %q to %q", originalPath, m.FormProjectPath())
+	}
+}
+
+func TestForm_Submit_EscapeCancels(t *testing.T) {
+	m := newTestModel(t)
+
+	// Open form
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(Model)
+
+	// Fill out form - move to project path
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/', 't', 'm', 'p', '/', 'p', 'r', 'o', 'j'}})
+	m = updated.(Model)
+
+	// Submit with Enter
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	// Verify in submitting state
+	if !m.IsFormSubmitting() {
+		t.Error("Form should be in submitting state")
+	}
+
+	// Press Escape to cancel
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(Model)
+
+	// Form should close
+	if m.IsFormOpen() {
+		t.Error("Form should close when Escape pressed during submission")
+	}
+}
+
+func TestFormView_ShowsProgress(t *testing.T) {
+	m := newTestModel(t)
+
+	// Open form
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	m = updated.(Model)
+
+	// Fill out form - move to project path
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/', 't', 'm', 'p', '/', 'p', 'r', 'o', 'j'}})
+	m = updated.(Model)
+
+	// Submit with Enter
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(Model)
+
+	view := m.View()
+
+	// Should still show Creating Container title (pulsing)
+	if !containsString(view, "Creating Container") {
+		t.Error("View should show 'Creating Container' title during submission")
+	}
+
+	// Should show the form values in disabled state
+	if !containsString(view, "/tmp/proj") {
+		t.Error("View should show project path during submission")
+	}
+
+	// Should show cancel hint
+	if !containsString(view, "cancel") {
+		t.Error("View should mention cancel option")
 	}
 }
 

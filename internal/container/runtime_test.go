@@ -278,3 +278,375 @@ func TestNewRuntime(t *testing.T) {
 		t.Error("exec should not be nil")
 	}
 }
+
+func TestRuntime_CreateNetwork(t *testing.T) {
+	tests := []struct {
+		name       string
+		network    string
+		execOutput string
+		execErr    error
+		wantID     string
+		wantErr    bool
+	}{
+		{
+			name:       "creates network successfully",
+			network:    "test-network",
+			execOutput: "abc123def456\n",
+			wantID:     "abc123def456",
+		},
+		{
+			name:       "handles output without newline",
+			network:    "test-network",
+			execOutput: "abc123def456",
+			wantID:     "abc123def456",
+		},
+		{
+			name:    "returns error on failure",
+			network: "test-network",
+			execErr: errors.New("network already exists"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedArgs []string
+			mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+				capturedArgs = append([]string{name}, args...)
+				return tt.execOutput, tt.execErr
+			}
+
+			r := NewRuntimeWithExecutor("docker", mockExec)
+			id, err := r.CreateNetwork(context.Background(), tt.network)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CreateNetwork() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr {
+				if id != tt.wantID {
+					t.Errorf("CreateNetwork() id = %q, want %q", id, tt.wantID)
+				}
+
+				// Verify command
+				wantArgs := []string{"docker", "network", "create", tt.network}
+				if len(capturedArgs) != len(wantArgs) {
+					t.Errorf("CreateNetwork() args = %v, want %v", capturedArgs, wantArgs)
+				}
+			}
+		})
+	}
+}
+
+func TestRuntime_RemoveNetwork(t *testing.T) {
+	tests := []struct {
+		name    string
+		network string
+		execErr error
+		wantErr bool
+	}{
+		{
+			name:    "removes network successfully",
+			network: "test-network",
+		},
+		{
+			name:    "returns error on failure",
+			network: "test-network",
+			execErr: errors.New("network in use"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedArgs []string
+			mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+				capturedArgs = append([]string{name}, args...)
+				return "", tt.execErr
+			}
+
+			r := NewRuntimeWithExecutor("docker", mockExec)
+			err := r.RemoveNetwork(context.Background(), tt.network)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RemoveNetwork() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr {
+				// Verify command includes -f flag
+				wantArgs := []string{"docker", "network", "rm", "-f", tt.network}
+				if len(capturedArgs) != len(wantArgs) {
+					t.Errorf("RemoveNetwork() args = %v, want %v", capturedArgs, wantArgs)
+				}
+			}
+		})
+	}
+}
+
+func TestRuntime_RunContainer(t *testing.T) {
+	tests := []struct {
+		name       string
+		opts       RunContainerOptions
+		execOutput string
+		execErr    error
+		wantID     string
+		wantErr    bool
+		wantArgs   []string
+	}{
+		{
+			name: "minimal container run",
+			opts: RunContainerOptions{
+				Image:  "nginx:alpine",
+				Detach: true,
+			},
+			execOutput: "container123\n",
+			wantID:     "container123",
+			wantArgs:   []string{"docker", "run", "-d", "nginx:alpine"},
+		},
+		{
+			name: "full options",
+			opts: RunContainerOptions{
+				Image:      "mitmproxy/mitmproxy:latest",
+				Name:       "proxy-sidecar",
+				Network:    "devagent-net",
+				Detach:     true,
+				AutoRemove: true,
+				Labels: map[string]string{
+					"devagent.managed": "true",
+					"devagent.sidecar": "proxy",
+				},
+				Env: map[string]string{
+					"PROXY_PORT": "8080",
+				},
+				Volumes: []string{
+					"/host/certs:/certs:ro",
+					"/host/config:/config",
+				},
+				Command: []string{"mitmdump", "-p", "8080"},
+			},
+			execOutput: "abc123\n",
+			wantID:     "abc123",
+			wantArgs: []string{"docker", "run", "-d", "--rm", "--name", "proxy-sidecar", "--network", "devagent-net", "--label", "devagent.managed=true", "--label", "devagent.sidecar=proxy", "-e", "PROXY_PORT=8080", "-v", "/host/certs:/certs:ro", "-v", "/host/config:/config", "mitmproxy/mitmproxy:latest", "mitmdump", "-p", "8080"},
+		},
+		{
+			name: "returns error on failure",
+			opts: RunContainerOptions{
+				Image:  "nonexistent:image",
+				Detach: true,
+			},
+			execErr: errors.New("image not found"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedArgs []string
+			mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+				capturedArgs = append([]string{name}, args...)
+				return tt.execOutput, tt.execErr
+			}
+
+			r := NewRuntimeWithExecutor("docker", mockExec)
+			id, err := r.RunContainer(context.Background(), tt.opts)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("RunContainer() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr {
+				if id != tt.wantID {
+					t.Errorf("RunContainer() id = %q, want %q", id, tt.wantID)
+				}
+
+				// Verify basic structure
+				if len(capturedArgs) < 3 {
+					t.Errorf("RunContainer() args too short: %v", capturedArgs)
+					return
+				}
+				if capturedArgs[0] != "docker" || capturedArgs[1] != "run" {
+					t.Errorf("RunContainer() should start with 'docker run', got: %v", capturedArgs[:2])
+				}
+
+				// Verify specific expected args if provided
+				if tt.wantArgs != nil {
+					if len(capturedArgs) != len(tt.wantArgs) {
+						t.Errorf("RunContainer() args = %v, want %v", capturedArgs, tt.wantArgs)
+					}
+					for i, want := range tt.wantArgs {
+						if i < len(capturedArgs) && capturedArgs[i] != want {
+							t.Errorf("RunContainer() args[%d] = %q, want %q", i, capturedArgs[i], want)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGetIsolationInfo(t *testing.T) {
+	tests := []struct {
+		name       string
+		inspectOut string
+		wantInfo   *IsolationInfo
+		wantErr    bool
+	}{
+		{
+			name: "parses full isolation config",
+			inspectOut: `[{
+				"HostConfig": {
+					"CapDrop": ["NET_RAW", "SYS_ADMIN"],
+					"CapAdd": ["SYS_PTRACE"],
+					"Memory": 4294967296,
+					"NanoCpus": 2000000000,
+					"PidsLimit": 512
+				},
+				"NetworkSettings": {
+					"Networks": {
+						"devagent-abc123-net": {}
+					}
+				}
+			}]`,
+			wantInfo: &IsolationInfo{
+				DroppedCaps:     []string{"NET_RAW", "SYS_ADMIN"},
+				AddedCaps:       []string{"SYS_PTRACE"},
+				MemoryLimit:     "4g",
+				CPULimit:        "2",
+				PidsLimit:       512,
+				NetworkIsolated: true,
+				NetworkName:     "devagent-abc123-net",
+			},
+		},
+		{
+			name: "parses container without network isolation",
+			inspectOut: `[{
+				"HostConfig": {
+					"CapDrop": ["NET_RAW"],
+					"CapAdd": null,
+					"Memory": 536870912,
+					"NanoCpus": 500000000,
+					"PidsLimit": 0
+				},
+				"NetworkSettings": {
+					"Networks": {
+						"bridge": {}
+					}
+				}
+			}]`,
+			wantInfo: &IsolationInfo{
+				DroppedCaps:     []string{"NET_RAW"},
+				AddedCaps:       nil,
+				MemoryLimit:     "512m",
+				CPULimit:        "0.50",
+				PidsLimit:       0,
+				NetworkIsolated: false,
+				NetworkName:     "",
+			},
+		},
+		{
+			name: "parses container with no limits",
+			inspectOut: `[{
+				"HostConfig": {
+					"CapDrop": null,
+					"CapAdd": null,
+					"Memory": 0,
+					"NanoCpus": 0,
+					"PidsLimit": 0
+				},
+				"NetworkSettings": {
+					"Networks": {}
+				}
+			}]`,
+			wantInfo: &IsolationInfo{
+				DroppedCaps:     nil,
+				AddedCaps:       nil,
+				MemoryLimit:     "",
+				CPULimit:        "",
+				PidsLimit:       0,
+				NetworkIsolated: false,
+				NetworkName:     "",
+			},
+		},
+		{
+			name:       "returns error for empty output",
+			inspectOut: `[]`,
+			wantErr:    true,
+		},
+		{
+			name:       "returns error for invalid JSON",
+			inspectOut: `invalid json`,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+				return tt.inspectOut, nil
+			}
+
+			r := NewRuntimeWithExecutor("docker", mockExec)
+			info, err := r.GetIsolationInfo(context.Background(), "test-container")
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetIsolationInfo() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if tt.wantErr {
+				return
+			}
+
+			// Compare results
+			if len(info.DroppedCaps) != len(tt.wantInfo.DroppedCaps) {
+				t.Errorf("DroppedCaps length: got %d, want %d", len(info.DroppedCaps), len(tt.wantInfo.DroppedCaps))
+			}
+			if len(info.AddedCaps) != len(tt.wantInfo.AddedCaps) {
+				t.Errorf("AddedCaps length: got %d, want %d", len(info.AddedCaps), len(tt.wantInfo.AddedCaps))
+			}
+			if info.MemoryLimit != tt.wantInfo.MemoryLimit {
+				t.Errorf("MemoryLimit: got %q, want %q", info.MemoryLimit, tt.wantInfo.MemoryLimit)
+			}
+			if info.CPULimit != tt.wantInfo.CPULimit {
+				t.Errorf("CPULimit: got %q, want %q", info.CPULimit, tt.wantInfo.CPULimit)
+			}
+			if info.PidsLimit != tt.wantInfo.PidsLimit {
+				t.Errorf("PidsLimit: got %d, want %d", info.PidsLimit, tt.wantInfo.PidsLimit)
+			}
+			if info.NetworkIsolated != tt.wantInfo.NetworkIsolated {
+				t.Errorf("NetworkIsolated: got %v, want %v", info.NetworkIsolated, tt.wantInfo.NetworkIsolated)
+			}
+			if info.NetworkName != tt.wantInfo.NetworkName {
+				t.Errorf("NetworkName: got %q, want %q", info.NetworkName, tt.wantInfo.NetworkName)
+			}
+		})
+	}
+}
+
+func TestFormatBytes(t *testing.T) {
+	tests := []struct {
+		bytes int64
+		want  string
+	}{
+		{0, "0"},
+		{1024 * 1024, "1m"},
+		{512 * 1024 * 1024, "512m"},
+		{1024 * 1024 * 1024, "1g"},
+		{4 * 1024 * 1024 * 1024, "4g"},
+		{1536 * 1024 * 1024, "1536m"},        // 1.5 GB shows as MB since not evenly divisible by GB
+		{100 * 1024 * 1024, "100m"},          // 100 MB
+		{1024*1024 + 512*1024, "1.5m"},       // 1.5 MB (non-round)
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			got := formatBytes(tt.bytes)
+			if got != tt.want {
+				t.Errorf("formatBytes(%d) = %q, want %q", tt.bytes, got, tt.want)
+			}
+		})
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 )
@@ -83,6 +84,25 @@ func (r *Runtime) RemoveContainer(ctx context.Context, id string) error {
 	return err
 }
 
+// InspectContainer returns the state of a container.
+func (r *Runtime) InspectContainer(ctx context.Context, id string) (ContainerState, error) {
+	output, err := r.exec(ctx, r.executable, "inspect", "--format", "{{.State.Status}}", id)
+	if err != nil {
+		return "", err
+	}
+	status := strings.TrimSpace(output)
+	switch status {
+	case "running":
+		return StateRunning, nil
+	case "exited", "dead":
+		return StateStopped, nil
+	case "created":
+		return StateCreated, nil
+	default:
+		return ContainerState(status), nil
+	}
+}
+
 // Exec runs a command inside a container as root.
 func (r *Runtime) Exec(ctx context.Context, id string, cmd []string) (string, error) {
 	args := append([]string{"exec", id}, cmd...)
@@ -94,6 +114,85 @@ func (r *Runtime) ExecAs(ctx context.Context, id string, user string, cmd []stri
 	args := []string{"exec", "-u", user, id}
 	args = append(args, cmd...)
 	return r.exec(ctx, r.executable, args...)
+}
+
+// CreateNetwork creates a Docker/Podman network and returns its ID
+func (r *Runtime) CreateNetwork(ctx context.Context, name string) (string, error) {
+	output, err := r.exec(ctx, r.executable, "network", "create", name)
+	if err != nil {
+		return "", fmt.Errorf("failed to create network %s: %w", name, err)
+	}
+	// Output is the network ID with a trailing newline
+	return strings.TrimSpace(output), nil
+}
+
+// RemoveNetwork removes a Docker/Podman network
+func (r *Runtime) RemoveNetwork(ctx context.Context, name string) error {
+	_, err := r.exec(ctx, r.executable, "network", "rm", "-f", name)
+	if err != nil {
+		return fmt.Errorf("failed to remove network %s: %w", name, err)
+	}
+	return nil
+}
+
+// RunContainer runs a container with the given options and returns its ID
+func (r *Runtime) RunContainer(ctx context.Context, opts RunContainerOptions) (string, error) {
+	args := []string{"run"}
+
+	if opts.Detach {
+		args = append(args, "-d")
+	}
+
+	if opts.AutoRemove {
+		args = append(args, "--rm")
+	}
+
+	if opts.Name != "" {
+		args = append(args, "--name", opts.Name)
+	}
+
+	if opts.Network != "" {
+		args = append(args, "--network", opts.Network)
+	}
+
+	// Add labels (sorted for deterministic output)
+	labelKeys := make([]string, 0, len(opts.Labels))
+	for key := range opts.Labels {
+		labelKeys = append(labelKeys, key)
+	}
+	sort.Strings(labelKeys)
+	for _, key := range labelKeys {
+		args = append(args, "--label", key+"="+opts.Labels[key])
+	}
+
+	// Add environment variables (sorted for deterministic output)
+	envKeys := make([]string, 0, len(opts.Env))
+	for key := range opts.Env {
+		envKeys = append(envKeys, key)
+	}
+	sort.Strings(envKeys)
+	for _, key := range envKeys {
+		args = append(args, "-e", key+"="+opts.Env[key])
+	}
+
+	// Add volume mounts
+	for _, vol := range opts.Volumes {
+		args = append(args, "-v", vol)
+	}
+
+	// Image must come before command
+	args = append(args, opts.Image)
+
+	// Add command if specified
+	args = append(args, opts.Command...)
+
+	output, err := r.exec(ctx, r.executable, args...)
+	if err != nil {
+		return "", fmt.Errorf("failed to run container: %w", err)
+	}
+
+	// Output is the container ID with a trailing newline
+	return strings.TrimSpace(output), nil
 }
 
 // containerJSON represents the JSON output from docker/podman ps --format json.
@@ -255,4 +354,89 @@ func parseLabels(labelStr string) map[string]string {
 	}
 
 	return labels
+}
+
+// inspectJSON represents the JSON output from docker/podman inspect for isolation info.
+type inspectJSON struct {
+	HostConfig struct {
+		CapDrop   []string `json:"CapDrop"`
+		CapAdd    []string `json:"CapAdd"`
+		Memory    int64    `json:"Memory"`
+		NanoCpus  int64    `json:"NanoCpus"`
+		PidsLimit int64    `json:"PidsLimit"`
+	} `json:"HostConfig"`
+	NetworkSettings struct {
+		Networks map[string]interface{} `json:"Networks"`
+	} `json:"NetworkSettings"`
+}
+
+// GetIsolationInfo returns isolation details for a container by inspecting its runtime config.
+func (r *Runtime) GetIsolationInfo(ctx context.Context, id string) (*IsolationInfo, error) {
+	output, err := r.exec(ctx, r.executable, "inspect", id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	// Parse JSON output (docker inspect returns an array)
+	var inspects []inspectJSON
+	if err := json.Unmarshal([]byte(output), &inspects); err != nil {
+		return nil, fmt.Errorf("failed to parse inspect output: %w", err)
+	}
+	if len(inspects) == 0 {
+		return nil, fmt.Errorf("no container found with id %s", id)
+	}
+
+	inspect := inspects[0]
+	info := &IsolationInfo{
+		DroppedCaps: inspect.HostConfig.CapDrop,
+		AddedCaps:   inspect.HostConfig.CapAdd,
+		PidsLimit:   int(inspect.HostConfig.PidsLimit),
+	}
+
+	// Convert memory limit to human-readable format
+	if inspect.HostConfig.Memory > 0 {
+		info.MemoryLimit = formatBytes(inspect.HostConfig.Memory)
+	}
+
+	// Convert CPU limit (NanoCpus is in billionths of a CPU)
+	if inspect.HostConfig.NanoCpus > 0 {
+		cpus := float64(inspect.HostConfig.NanoCpus) / 1e9
+		if cpus == float64(int(cpus)) {
+			info.CPULimit = fmt.Sprintf("%d", int(cpus))
+		} else {
+			info.CPULimit = fmt.Sprintf("%.2f", cpus)
+		}
+	}
+
+	// Check for network isolation (devagent-*-net pattern)
+	for netName := range inspect.NetworkSettings.Networks {
+		if strings.HasPrefix(netName, "devagent-") && strings.HasSuffix(netName, "-net") {
+			info.NetworkIsolated = true
+			info.NetworkName = netName
+			break
+		}
+	}
+
+	return info, nil
+}
+
+// formatBytes converts bytes to human-readable format (e.g., "4g", "512m").
+func formatBytes(bytes int64) string {
+	const (
+		gb = 1024 * 1024 * 1024
+		mb = 1024 * 1024
+	)
+	if bytes >= gb && bytes%gb == 0 {
+		return fmt.Sprintf("%dg", bytes/gb)
+	}
+	if bytes >= mb && bytes%mb == 0 {
+		return fmt.Sprintf("%dm", bytes/mb)
+	}
+	if bytes >= gb {
+		return fmt.Sprintf("%.1fg", float64(bytes)/float64(gb))
+	}
+	if bytes >= mb {
+		return fmt.Sprintf("%.1fm", float64(bytes)/float64(mb))
+	}
+	return fmt.Sprintf("%d", bytes)
 }

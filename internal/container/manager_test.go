@@ -2,6 +2,8 @@ package container
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 )
@@ -16,6 +18,16 @@ type mockRuntime struct {
 	startErr     error
 	stopErr      error
 	removeErr    error
+
+	// Network operation tracking
+	createNetworkCalled string
+	createNetworkErr    error
+	createNetworkID     string
+	removeNetworkCalled string
+	removeNetworkErr    error
+	runContainerCalled  *RunContainerOptions
+	runContainerErr     error
+	runContainerID      string
 }
 
 func (m *mockRuntime) ListContainers(ctx context.Context) ([]Container, error) {
@@ -46,6 +58,41 @@ func (m *mockRuntime) Exec(ctx context.Context, id string, cmd []string) (string
 
 func (m *mockRuntime) ExecAs(ctx context.Context, id string, user string, cmd []string) (string, error) {
 	return "", nil
+}
+
+func (m *mockRuntime) CreateNetwork(ctx context.Context, name string) (string, error) {
+	m.createNetworkCalled = name
+	if m.createNetworkErr != nil {
+		return "", m.createNetworkErr
+	}
+	if m.createNetworkID == "" {
+		return "mock-network-id", nil
+	}
+	return m.createNetworkID, nil
+}
+
+func (m *mockRuntime) RemoveNetwork(ctx context.Context, name string) error {
+	m.removeNetworkCalled = name
+	return m.removeNetworkErr
+}
+
+func (m *mockRuntime) RunContainer(ctx context.Context, opts RunContainerOptions) (string, error) {
+	m.runContainerCalled = &opts
+	if m.runContainerErr != nil {
+		return "", m.runContainerErr
+	}
+	if m.runContainerID == "" {
+		return "mock-container-id", nil
+	}
+	return m.runContainerID, nil
+}
+
+func (m *mockRuntime) InspectContainer(ctx context.Context, id string) (ContainerState, error) {
+	return StateRunning, nil
+}
+
+func (m *mockRuntime) GetIsolationInfo(ctx context.Context, id string) (*IsolationInfo, error) {
+	return &IsolationInfo{}, nil
 }
 
 func TestList_Empty(t *testing.T) {
@@ -242,4 +289,106 @@ func TestStart_RuntimeError(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error from Start")
 	}
+}
+
+func TestManager_GetSidecarsForProject(t *testing.T) {
+	mock := &mockRuntime{}
+	mgr := NewManagerWithRuntime(mock)
+
+	// Calculate hashes for test projects
+	project1Hash := calculateHash("/project/1")
+	project2Hash := calculateHash("/project/2")
+
+	// Add test sidecars
+	mgr.sidecars["sidecar-1"] = &Sidecar{
+		ID:        "sidecar-1",
+		Type:      "proxy",
+		ParentRef: project1Hash,
+		State:     StateRunning,
+	}
+	mgr.sidecars["sidecar-2"] = &Sidecar{
+		ID:        "sidecar-2",
+		Type:      "proxy",
+		ParentRef: project2Hash,
+		State:     StateRunning,
+	}
+	mgr.sidecars["sidecar-3"] = &Sidecar{
+		ID:        "sidecar-3",
+		Type:      "other",
+		ParentRef: project1Hash,
+		State:     StateStopped,
+	}
+
+	// Get sidecars for project 1
+	sidecars := mgr.GetSidecarsForProject("/project/1")
+	if len(sidecars) != 2 {
+		t.Errorf("GetSidecarsForProject() returned %d sidecars, want 2", len(sidecars))
+	}
+
+	// Get sidecars for project 2
+	sidecars = mgr.GetSidecarsForProject("/project/2")
+	if len(sidecars) != 1 {
+		t.Errorf("GetSidecarsForProject() returned %d sidecars, want 1", len(sidecars))
+	}
+
+	// Get sidecars for non-existent project
+	sidecars = mgr.GetSidecarsForProject("/project/nonexistent")
+	if len(sidecars) != 0 {
+		t.Errorf("GetSidecarsForProject() returned %d sidecars for non-existent project, want 0", len(sidecars))
+	}
+}
+
+func TestManager_RefreshSidecars(t *testing.T) {
+	mock := &mockRuntime{}
+	mgr := NewManagerWithRuntime(mock)
+
+	// Simulate containers returned from ListContainers
+	allContainers := []Container{
+		{
+			ID:    "devcontainer-1",
+			Name:  "devcontainer-1",
+			State: StateRunning,
+			Labels: map[string]string{
+				LabelManagedBy: "true",
+			},
+		},
+		{
+			ID:    "proxy-sidecar-1",
+			Name:  "devagent-abc123-proxy",
+			State: StateRunning,
+			Labels: map[string]string{
+				LabelManagedBy:   "true",
+				LabelSidecarOf:   "abc123", // Project hash, not container ID
+				LabelSidecarType: "proxy",
+			},
+		},
+	}
+
+	mgr.refreshSidecars(context.Background(), allContainers)
+
+	// Verify sidecar was discovered
+	if len(mgr.sidecars) != 1 {
+		t.Errorf("refreshSidecars() found %d sidecars, want 1", len(mgr.sidecars))
+	}
+
+	sidecar, ok := mgr.sidecars["proxy-sidecar-1"]
+	if !ok {
+		t.Fatal("sidecar not found in map")
+	}
+
+	if sidecar.ParentRef != "abc123" {
+		t.Errorf("sidecar.ParentRef = %q, want %q", sidecar.ParentRef, "abc123")
+	}
+	if sidecar.Type != "proxy" {
+		t.Errorf("sidecar.Type = %q, want %q", sidecar.Type, "proxy")
+	}
+	if sidecar.NetworkName != "devagent-abc123-net" {
+		t.Errorf("sidecar.NetworkName = %q, want %q", sidecar.NetworkName, "devagent-abc123-net")
+	}
+}
+
+// Helper function to calculate hash like manager does
+func calculateHash(projectPath string) string {
+	hash := sha256.Sum256([]byte(projectPath))
+	return hex.EncodeToString(hash[:])[:12]
 }

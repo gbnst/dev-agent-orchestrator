@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/list"
+
 	"devagent/internal/container"
 	"devagent/internal/logging"
 )
@@ -347,5 +349,132 @@ func TestModel_NextFocus_CirclesCycle(t *testing.T) {
 		if got != expected {
 			t.Errorf("nextFocus() = %d, want %d", got, expected)
 		}
+	}
+}
+
+// Tests for syncSelectionFromTree cache clearing behavior
+
+func TestSyncSelectionFromTree_ClearsCacheOnContainerChange(t *testing.T) {
+	m := newTestModel(t)
+
+	// Set up initial container selection with cached isolation info
+	container1 := &container.Container{ID: "container1", Name: "first"}
+	container2 := &container.Container{ID: "container2", Name: "second"}
+
+	m.containerList.SetItems([]list.Item{
+		containerItem{container: container1},
+		containerItem{container: container2},
+	})
+
+	m.treeItems = []TreeItem{
+		{Type: TreeItemAll},
+		{Type: TreeItemContainer, ContainerID: "container1"},
+		{Type: TreeItemContainer, ContainerID: "container2"},
+	}
+
+	// Select first container and set cache
+	m.selectedIdx = 1
+	m.selectedContainer = container1
+	m.cachedIsolationInfo = &container.IsolationInfo{MemoryLimit: "1GB"}
+
+	// Switch to second container
+	m.selectedIdx = 2
+	m.syncSelectionFromTree()
+
+	// Cache should be cleared because container changed
+	if m.cachedIsolationInfo != nil {
+		t.Error("cachedIsolationInfo should be nil after switching containers")
+	}
+	if m.selectedContainer.ID != "container2" {
+		t.Errorf("selectedContainer.ID = %q, want %q", m.selectedContainer.ID, "container2")
+	}
+}
+
+func TestSyncSelectionFromTree_PreservesCacheForSameContainer(t *testing.T) {
+	m := newTestModel(t)
+
+	// Set up container with session
+	cont := &container.Container{
+		ID:   "container1",
+		Name: "test",
+		Sessions: []container.Session{
+			{Name: "dev"},
+		},
+	}
+
+	m.containerList.SetItems([]list.Item{
+		containerItem{container: cont},
+	})
+
+	m.treeItems = []TreeItem{
+		{Type: TreeItemAll},
+		{Type: TreeItemContainer, ContainerID: "container1"},
+		{Type: TreeItemSession, ContainerID: "container1", SessionName: "dev"},
+	}
+	m.expandedContainers = map[string]bool{"container1": true}
+
+	// Select container and set cache
+	m.selectedIdx = 1
+	m.selectedContainer = cont
+	m.cachedIsolationInfo = &container.IsolationInfo{MemoryLimit: "2GB"}
+
+	// Navigate to session (same container)
+	m.selectedIdx = 2
+	m.syncSelectionFromTree()
+
+	// Cache should be preserved because it's the same container
+	if m.cachedIsolationInfo == nil {
+		t.Error("cachedIsolationInfo should be preserved when navigating to session of same container")
+	}
+	if m.cachedIsolationInfo.MemoryLimit != "2GB" {
+		t.Errorf("cachedIsolationInfo.MemoryLimit = %q, want %q", m.cachedIsolationInfo.MemoryLimit, "2GB")
+	}
+}
+
+func TestSyncSelectionFromTree_ClearsCacheWhenDeselectingContainer(t *testing.T) {
+	m := newTestModel(t)
+
+	cont := &container.Container{ID: "container1", Name: "test"}
+
+	m.containerList.SetItems([]list.Item{
+		containerItem{container: cont},
+	})
+
+	m.treeItems = []TreeItem{
+		{Type: TreeItemAll},
+		{Type: TreeItemContainer, ContainerID: "container1"},
+	}
+
+	// Select container and set cache
+	m.selectedIdx = 1
+	m.selectedContainer = cont
+	m.cachedIsolationInfo = &container.IsolationInfo{MemoryLimit: "1GB"}
+
+	// Navigate to "All Containers"
+	m.selectedIdx = 0
+	m.syncSelectionFromTree()
+
+	// Cache should be cleared because we left the container
+	if m.cachedIsolationInfo != nil {
+		t.Error("cachedIsolationInfo should be nil after deselecting container")
+	}
+	if m.selectedContainer != nil {
+		t.Error("selectedContainer should be nil when 'All Containers' is selected")
+	}
+}
+
+func TestSyncSelectionFromTree_ClearsCacheOnInvalidIndex(t *testing.T) {
+	m := newTestModel(t)
+
+	cont := &container.Container{ID: "container1", Name: "test"}
+	m.selectedContainer = cont
+	m.cachedIsolationInfo = &container.IsolationInfo{MemoryLimit: "1GB"}
+	m.selectedIdx = -1 // Invalid index
+
+	m.syncSelectionFromTree()
+
+	// Cache should be cleared
+	if m.cachedIsolationInfo != nil {
+		t.Error("cachedIsolationInfo should be nil after invalid selection")
 	}
 }

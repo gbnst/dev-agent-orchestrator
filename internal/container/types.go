@@ -56,6 +56,17 @@ func (c *Container) SessionCount() int {
 	return len(c.Sessions)
 }
 
+// Sidecar represents an auxiliary container that provides services to a devcontainer.
+// Note: ParentRef uses project path hash (not container ID) because the sidecar is created
+// before the devcontainer exists. This allows matching sidecars to containers via labels.
+type Sidecar struct {
+	ID          string // Container ID
+	Type        string // Sidecar type (e.g., "proxy")
+	ParentRef   string // Project path hash (12 chars) linking sidecar to devcontainer
+	NetworkName string // Docker network connecting sidecar and devcontainer
+	State       ContainerState
+}
+
 // BuildConfig represents the build section of a devcontainer.json.
 type BuildConfig struct {
 	Dockerfile string `json:"dockerfile,omitempty"`
@@ -73,7 +84,41 @@ type DevcontainerJSON struct {
 	ContainerEnv      map[string]string                 `json:"containerEnv,omitempty"`
 	RunArgs           []string                          `json:"runArgs,omitempty"`
 	Mounts            []string                          `json:"mounts,omitempty"`
+	CapAdd            []string                          `json:"capAdd,omitempty"`
+	SecurityOpt       []string                          `json:"securityOpt,omitempty"`
 }
+
+// RunContainerOptions configures a container to run via RuntimeInterface.RunContainer
+type RunContainerOptions struct {
+	Image      string            // Container image to run
+	Name       string            // Container name
+	Network    string            // Network to attach to
+	Volumes    []string          // Volume mounts (source:dest[:mode])
+	Env        map[string]string // Environment variables
+	Labels     map[string]string // Container labels
+	Command    []string          // Command to run (optional)
+	AutoRemove bool              // Remove container when it exits (--rm)
+	Detach     bool              // Run in background (-d)
+}
+
+// ProxyConfig holds configuration for network isolation proxy.
+// Used by Generate() when isolation with network allowlist is enabled.
+type ProxyConfig struct {
+	CertDir     string // Host directory containing mitmproxy CA cert
+	ProxyHost   string // Hostname of the proxy container
+	ProxyPort   string // Port the proxy listens on
+	NetworkName string // Docker network name
+}
+
+// ProgressStep represents a step during container creation.
+type ProgressStep struct {
+	Step    string // "network", "proxy", "config", "devcontainer"
+	Status  string // "started", "completed", "failed"
+	Message string
+}
+
+// ProgressCallback is called during container creation to report progress.
+type ProgressCallback func(ProgressStep)
 
 // CreateOptions holds options for creating a new container.
 type CreateOptions struct {
@@ -81,6 +126,8 @@ type CreateOptions struct {
 	Template    string
 	Name        string
 	Agent       string
+	Proxy       *ProxyConfig     // Optional proxy configuration for network isolation
+	OnProgress  ProgressCallback // Optional callback for progress updates
 }
 
 // Label constants for devagent metadata.
@@ -92,8 +139,33 @@ const (
 	LabelRemoteUser  = "devagent.remote_user"
 )
 
+// Sidecar label constants
+const (
+	LabelSidecarOf   = "devagent.sidecar_of"   // Project path hash this sidecar belongs to
+	LabelSidecarType = "devagent.sidecar_type" // Type of sidecar (e.g., "proxy")
+)
+
 // DefaultRemoteUser is the default user for devcontainer exec commands.
 const DefaultRemoteUser = "vscode"
+
+// IsolationInfo holds runtime isolation details queried from the container.
+// This information is retrieved from Docker/Podman inspect and associated sidecar data.
+type IsolationInfo struct {
+	// Security capabilities
+	DroppedCaps []string // Capabilities dropped from container
+	AddedCaps   []string // Capabilities added to container
+
+	// Resource limits (human-readable format)
+	MemoryLimit string // e.g., "4g", "512m", or empty if unlimited
+	CPULimit    string // e.g., "2", "0.5", or empty if unlimited
+	PidsLimit   int    // Process limit, 0 means unlimited
+
+	// Network isolation
+	NetworkIsolated bool     // True if container is on an isolated network
+	NetworkName     string   // Name of the isolated network (if any)
+	ProxySidecar    *Sidecar // Proxy sidecar (if network isolation enabled)
+	AllowedDomains  []string // Domains allowed through the proxy
+}
 
 // IsRunning returns true if the container is in a running state.
 func (c *Container) IsRunning() bool {

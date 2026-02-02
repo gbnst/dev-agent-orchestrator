@@ -864,3 +864,109 @@ func TestEscThenQ_ShowsQuitHint(t *testing.T) {
 		t.Error("should return a delayed clear command")
 	}
 }
+
+// Action menu tests
+
+func TestTKey_OpensActionMenu_WhenRunningContainer(t *testing.T) {
+	m := newTestModel(t)
+
+	containers := []*container.Container{
+		{ID: "aaa111222333", Name: "running-container", State: container.StateRunning},
+	}
+	m.containerList.SetItems(toListItems(containers))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1 // Container (after All)
+	m.syncSelectionFromTree()
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")}
+	updated, _ := m.Update(msg)
+	result := updated.(Model)
+
+	if !result.actionMenuOpen {
+		t.Error("action menu should open when 't' pressed on running container")
+	}
+}
+
+func TestTKey_NoOp_WhenStoppedContainer(t *testing.T) {
+	m := newTestModel(t)
+
+	containers := []*container.Container{
+		{ID: "aaa111222333", Name: "stopped-container", State: container.StateStopped},
+	}
+	m.containerList.SetItems(toListItems(containers))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1 // Container (after All)
+	m.syncSelectionFromTree()
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")}
+	updated, _ := m.Update(msg)
+	result := updated.(Model)
+
+	if result.actionMenuOpen {
+		t.Error("action menu should not open when 't' pressed on stopped container")
+	}
+}
+
+func TestTKey_NoOp_WhenNoContainerSelected(t *testing.T) {
+	m := newTestModel(t)
+
+	containers := []*container.Container{
+		{ID: "aaa111222333", Name: "container-1", State: container.StateRunning},
+	}
+	m.containerList.SetItems(toListItems(containers))
+	m.rebuildTreeItems()
+	m.selectedIdx = 0 // "All Containers"
+	m.syncSelectionFromTree()
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("t")}
+	updated, _ := m.Update(msg)
+	result := updated.(Model)
+
+	if result.actionMenuOpen {
+		t.Error("action menu should not open when no container is selected")
+	}
+}
+
+func TestEscapeKey_ClosesActionMenu(t *testing.T) {
+	m := newTestModel(t)
+	m.actionMenuOpen = true
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	updated, _ := m.Update(msg)
+	result := updated.(Model)
+
+	if result.actionMenuOpen {
+		t.Error("action menu should close when escape is pressed")
+	}
+}
+
+func TestActionMenu_BlocksOtherKeys(t *testing.T) {
+	m := newTestModel(t)
+	m.actionMenuOpen = true
+	m.logPanelOpen = false
+
+	// Press 'l' which would normally toggle log panel
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")}
+	updated, _ := m.Update(msg)
+	result := updated.(Model)
+
+	if result.logPanelOpen {
+		t.Error("action menu should block other key handlers")
+	}
+	if !result.actionMenuOpen {
+		t.Error("action menu should remain open after unhandled key")
+	}
+}
+
+func TestIsActionMenuOpen(t *testing.T) {
+	m := newTestModel(t)
+
+	if m.IsActionMenuOpen() {
+		t.Error("action menu should be closed by default")
+	}
+
+	m.actionMenuOpen = true
+	if !m.IsActionMenuOpen() {
+		t.Error("IsActionMenuOpen should return true when menu is open")
+	}
+}

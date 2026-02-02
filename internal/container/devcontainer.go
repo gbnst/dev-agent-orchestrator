@@ -125,10 +125,65 @@ func NewDevcontainerGenerator(cfg *config.Config, templates []config.Template) *
 	}
 }
 
+// buildIsolationRunArgs generates runtime arguments from isolation config
+func buildIsolationRunArgs(iso *config.IsolationConfig) []string {
+	if iso == nil {
+		return nil
+	}
+
+	var args []string
+
+	// Add capability drops
+	if iso.Caps != nil {
+		for _, cap := range iso.Caps.Drop {
+			args = append(args, "--cap-drop", cap)
+		}
+	}
+
+	// Add resource limits
+	if iso.Resources != nil {
+		if iso.Resources.Memory != "" {
+			args = append(args, "--memory", iso.Resources.Memory)
+		}
+		if iso.Resources.CPUs != "" {
+			args = append(args, "--cpus", iso.Resources.CPUs)
+		}
+		if iso.Resources.PidsLimit > 0 {
+			args = append(args, "--pids-limit", fmt.Sprintf("%d", iso.Resources.PidsLimit))
+		}
+	}
+
+	return args
+}
+
+// chainPostCreateCommand appends a command to an existing postCreateCommand.
+// If the existing command is empty, returns just the new command.
+// Commands are joined with " && " to run sequentially.
+func chainPostCreateCommand(existing, additional string) string {
+	if existing == "" {
+		return additional
+	}
+	if additional == "" {
+		return existing
+	}
+	return existing + " && " + additional
+}
+
 // GenerateResult holds the generated devcontainer config and template metadata.
 type GenerateResult struct {
 	Config       *DevcontainerJSON
 	TemplatePath string // Path to template directory for copying additional files
+}
+
+// GetTemplate retrieves a template by name.
+// Returns nil if template not found.
+func (g *DevcontainerGenerator) GetTemplate(templateName string) *config.Template {
+	for i := range g.templates {
+		if g.templates[i].Name == templateName {
+			return &g.templates[i]
+		}
+	}
+	return nil
 }
 
 // Generate creates a DevcontainerJSON from the given options.
@@ -202,6 +257,27 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 	// Set IS_DEMO to skip onboarding prompts
 	dc.ContainerEnv["IS_DEMO"] = "1"
 
+	// Add proxy environment variables if network isolation is enabled
+	if opts.Proxy != nil {
+		proxyURL := fmt.Sprintf("http://%s:%s", opts.Proxy.ProxyHost, opts.Proxy.ProxyPort)
+
+		// Standard proxy variables (lowercase and uppercase for compatibility)
+		dc.ContainerEnv["http_proxy"] = proxyURL
+		dc.ContainerEnv["https_proxy"] = proxyURL
+		dc.ContainerEnv["HTTP_PROXY"] = proxyURL
+		dc.ContainerEnv["HTTPS_PROXY"] = proxyURL
+
+		// Bypass proxy for localhost
+		dc.ContainerEnv["no_proxy"] = "localhost,127.0.0.1"
+		dc.ContainerEnv["NO_PROXY"] = "localhost,127.0.0.1"
+
+		// Certificate bundle paths for various runtimes
+		// These point to the system trust store that includes our CA cert
+		dc.ContainerEnv["REQUESTS_CA_BUNDLE"] = "/etc/ssl/certs/ca-certificates.crt"
+		dc.ContainerEnv["NODE_EXTRA_CA_CERTS"] = "/etc/ssl/certs/ca-certificates.crt"
+		dc.ContainerEnv["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt"
+	}
+
 	// Add devagent labels
 	dc.RunArgs = append(dc.RunArgs,
 		"--label", LabelManagedBy+"=true",
@@ -234,6 +310,25 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 		dc.RunArgs = append(dc.RunArgs, "--name", opts.Name)
 	}
 
+	// Add network attachment if network isolation is enabled
+	if opts.Proxy != nil && opts.Proxy.NetworkName != "" {
+		dc.RunArgs = append(dc.RunArgs, "--network", opts.Proxy.NetworkName)
+	}
+
+	// Get effective isolation (merges template config with defaults)
+	// This ensures templates without explicit isolation config get default isolation applied
+	effectiveIsolation := tmpl.GetEffectiveIsolation()
+
+	// Add isolation runtime arguments
+	if effectiveIsolation != nil {
+		dc.RunArgs = append(dc.RunArgs, buildIsolationRunArgs(effectiveIsolation)...)
+
+		// Add capAdd to devcontainer.json native field
+		if effectiveIsolation.Caps != nil && len(effectiveIsolation.Caps.Add) > 0 {
+			dc.CapAdd = effectiveIsolation.Caps.Add
+		}
+	}
+
 	// Add mount for Claude config directory
 	// This maps a per-container directory on host to /home/vscode/.claude in container
 	if opts.ProjectPath != "" {
@@ -254,6 +349,19 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 		dc.Mounts = append(dc.Mounts, mount)
 	}
 
+	// Add proxy certificate mount if network isolation is enabled
+	if opts.Proxy != nil && opts.Proxy.CertDir != "" {
+		// Mount the CA cert to a location where postCreateCommand can access it
+		certMount := fmt.Sprintf("source=%s,target=/tmp/mitmproxy-certs,type=bind,readonly",
+			opts.Proxy.CertDir)
+		dc.Mounts = append(dc.Mounts, certMount)
+
+		// Chain cert installation to postCreateCommand
+		// Copy cert with .crt extension and update trust store
+		certInstallCmd := "sudo cp /tmp/mitmproxy-certs/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca-cert.crt && sudo update-ca-certificates"
+		dc.PostCreateCommand = chainPostCreateCommand(dc.PostCreateCommand, certInstallCmd)
+	}
+
 	return &GenerateResult{
 		Config:       dc,
 		TemplatePath: tmpl.Path,
@@ -261,7 +369,7 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 }
 
 // WriteToProject writes the devcontainer.json and any additional template files
-// (like Dockerfile) to the project's .devcontainer directory.
+// (like Dockerfile and home directory) to the project's .devcontainer directory.
 func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *GenerateResult) error {
 	devcontainerDir := filepath.Join(projectPath, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
@@ -274,6 +382,17 @@ func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *Gener
 		dstDockerfile := filepath.Join(devcontainerDir, result.Config.Build.Dockerfile)
 		if err := copyFile(srcDockerfile, dstDockerfile); err != nil {
 			return fmt.Errorf("failed to copy Dockerfile: %w", err)
+		}
+	}
+
+	// Copy home directory if it exists (for Dockerfile COPY)
+	if result.TemplatePath != "" {
+		srcHome := filepath.Join(result.TemplatePath, "home")
+		if info, err := os.Stat(srcHome); err == nil && info.IsDir() {
+			dstHome := filepath.Join(devcontainerDir, "home")
+			if err := copyDir(srcHome, dstHome); err != nil {
+				return fmt.Errorf("failed to copy home directory: %w", err)
+			}
 		}
 	}
 
@@ -293,6 +412,28 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0644)
+}
+
+// copyDir recursively copies a directory from src to dst.
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		destPath := filepath.Join(dst, relPath)
+
+		if d.IsDir() {
+			return os.MkdirAll(destPath, 0755)
+		}
+
+		return copyFile(path, destPath)
+	})
 }
 
 // DevcontainerCLI wraps the devcontainer CLI.

@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-02-01
+Last verified: 2026-02-02
 
 ## Tech Stack
 - Language: Go 1.21+
@@ -8,6 +8,7 @@ Last verified: 2026-02-01
 - Logging: Zap + Lumberjack (file rotation)
 - Container Runtime: Docker or Podman (auto-detected)
 - Devcontainers: @devcontainers/cli
+- Network Isolation: mitmproxy (sidecar container with domain allowlist)
 
 ## Commands
 - `make build` - Build binary

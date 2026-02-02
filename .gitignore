@@ -32,3 +32,6 @@ Thumbs.db
 
 # Implementation plans (generated during development)
 docs/implementation-plans/
+
+# Binary
+devagent

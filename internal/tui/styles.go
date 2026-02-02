@@ -173,3 +173,21 @@ func (s *Styles) PanelHeaderUnfocusedStyle() lipgloss.Style {
 		BorderBottom(true).
 		BorderForeground(lipgloss.Color(s.flavor.Surface1().Hex))
 }
+
+// DisabledStyle returns the style for disabled/grayed out text.
+func (s *Styles) DisabledStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Overlay0().Hex))
+}
+
+// FormStepSuccessStyle returns the style for completed form steps (checkmark).
+func (s *Styles) FormStepSuccessStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Green().Hex))
+}
+
+// FormStepErrorStyle returns the style for failed form steps (x mark).
+func (s *Styles) FormStepErrorStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color(s.flavor.Red().Hex))
+}

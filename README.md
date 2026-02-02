@@ -8,6 +8,8 @@ A TUI for orchestrating development agent containers with integrated Claude Code
 - **Session Management**: Create and manage tmux sessions within containers
 - **Claude Code Integration**: Automatic auth token injection and persistent per-project configuration
 - **Multi-Runtime Support**: Works with Docker or Podman (auto-detected)
+- **Container Isolation**: Security hardening with capability dropping, resource limits, and network allowlisting
+- **Network Isolation**: Domain-based egress filtering via mitmproxy sidecar containers
 - **Live Logging**: Real-time log panel with scope filtering
 
 ## Prerequisites
@@ -74,6 +76,96 @@ Configuration files live in `~/.config/devagent/`:
 
 See `config/` directory for examples.
 
+### Container Isolation
+
+devagent applies security isolation to containers by default. Isolation settings are configured per-template in the `customizations.devagent.isolation` section of `devcontainer.json`.
+
+#### Default Isolation
+
+When no isolation config is specified in a template, devagent applies secure defaults:
+
+**Capabilities Dropped:**
+- `NET_RAW` - Prevents raw socket access (mitigates network attacks)
+- `SYS_ADMIN` - Prevents mount namespace manipulation
+- `SYS_PTRACE` - Prevents process tracing
+- `MKNOD` - Prevents device node creation
+- `NET_ADMIN` - Prevents network configuration changes
+- `SYS_MODULE` - Prevents kernel module loading
+- `SYS_RAWIO` - Prevents raw I/O operations
+- `SYS_BOOT` - Prevents reboot
+- `SYS_NICE` - Prevents priority manipulation
+- `SYS_RESOURCE` - Prevents resource limit manipulation
+
+**Resource Limits:**
+- Memory: 4GB
+- CPUs: 2
+- Process limit: 512
+
+**Network Allowlist (default domains):**
+- `api.anthropic.com` - Claude API
+- `github.com`, `*.github.com`, `api.github.com`, `raw.githubusercontent.com`, `objects.githubusercontent.com` - GitHub
+- `registry.npmjs.org` - npm
+- `pypi.org`, `files.pythonhosted.org` - Python packages
+- `proxy.golang.org`, `sum.golang.org`, `storage.googleapis.com`, `pkg.go.dev` - Go modules
+
+#### Template Isolation Configuration
+
+Configure isolation in your template's `devcontainer.json`:
+
+```json
+{
+  "customizations": {
+    "devagent": {
+      "isolation": {
+        "enabled": true,
+        "caps": {
+          "drop": ["NET_RAW", "SYS_ADMIN"],
+          "add": []
+        },
+        "resources": {
+          "memory": "4g",
+          "cpus": "2",
+          "pidsLimit": 512
+        },
+        "network": {
+          "allowlist": ["api.anthropic.com", "github.com"],
+          "allowlistExtend": ["my-internal-api.example.com"],
+          "passthrough": ["pinned-cert-service.example.com"]
+        }
+      }
+    }
+  }
+}
+```
+
+**Configuration Options:**
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Set to `false` to disable isolation entirely (default: `true`) |
+| `caps.drop` | Linux capabilities to drop (replaces defaults if specified) |
+| `caps.add` | Linux capabilities to add (use sparingly) |
+| `resources.memory` | Memory limit (e.g., "4g", "512m") |
+| `resources.cpus` | CPU limit (e.g., "2", "0.5") |
+| `resources.pidsLimit` | Maximum number of processes |
+| `network.allowlist` | Allowed domains (replaces defaults if specified) |
+| `network.allowlistExtend` | Additional domains to add to defaults |
+| `network.passthrough` | Domains that bypass TLS interception (for cert-pinned services) |
+
+#### Network Isolation
+
+When a network allowlist is configured, devagent creates a mitmproxy sidecar container that filters egress traffic:
+
+- Only domains in the allowlist can be accessed
+- HTTPS traffic is intercepted to enforce domain filtering
+- Domains in `passthrough` bypass TLS interception (for services with certificate pinning)
+- The proxy's CA certificate is automatically installed in the devcontainer
+
+The sidecar is automatically managed:
+- Created before the devcontainer starts
+- Destroyed when the devcontainer is destroyed
+- Shares a dedicated Docker network with the devcontainer
+
 ### Runtime Selection
 
 In `config.yaml`, set the runtime explicitly:
@@ -125,13 +217,32 @@ make dev
 | `d` | Destroy selected container (with confirmation) |
 | `r` | Refresh container list |
 
+**Container Creation:**
+
+When creating a container (`c`), the form displays real-time progress with step-by-step feedback:
+
+1. **Network creation** - Creates isolated Docker network (if network isolation enabled)
+2. **Proxy sidecar** - Starts mitmproxy container (if network isolation enabled)
+3. **Config generation** - Generates devcontainer.json with all settings
+4. **Devcontainer startup** - Builds and starts the container
+
+Each step shows a spinner while in progress and a checkmark when complete. Press `Esc` to cancel during creation, or `Enter`/`Esc` to close after completion.
+
 #### Session Operations
 
 | Key | Action |
 |-----|--------|
-| `t` | Create new tmux session |
-| `a` | Attach to selected session |
+| `t` | Open action menu (on container) / Create new tmux session (on session) |
 | `k` | Kill selected session (with confirmation) |
+
+**Action Menu (`t` on running container):**
+
+The action menu shows copyable commands for interacting with the container:
+- Open in VS Code
+- Create tmux session (named or auto-named)
+- Interactive shell
+
+Use `↑/↓` to navigate and `Enter` to copy the selected command to clipboard. Press `Esc` to close.
 
 #### General
 

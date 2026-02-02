@@ -19,6 +19,12 @@ import (
 	"devagent/internal/logging"
 )
 
+// FormStatusStep represents a completed step during form submission.
+type FormStatusStep struct {
+	Success bool
+	Message string
+}
+
 // TreeItemType represents whether a tree item is a container or session.
 type TreeItemType int
 
@@ -101,14 +107,26 @@ type Model struct {
 	formFocusedField  FormField
 	formError         string
 
+	// Form submission progress state
+	formSubmitting     bool
+	formTitlePulse     int // cycles 0-3 for pulsing effect
+	formStatusSpinner  spinner.Model
+	formStatusSteps    []FormStatusStep
+	formCurrentStep    string
+	formCompleted      bool // true when submission finished (success or error)
+	formCompletedError bool // true if submission ended with error
+
 	// Session view state
 	sessionViewOpen    bool
 	selectedContainer  *container.Container
 	selectedSessionIdx int
 
-	// Session creation form state
+	// Session creation form state (deprecated - kept for session view)
 	sessionFormOpen bool
 	sessionFormName string
+
+	// Action menu state - shows commands for the selected container
+	actionMenuOpen bool
 
 	// Session created confirmation state
 	sessionCreatedOpen bool
@@ -129,6 +147,17 @@ type Model struct {
 	expandedContainers map[string]bool
 	detailPanelOpen    bool
 	panelFocus         PanelFocus
+
+	// Detail panel viewport for scrolling
+	detailViewport viewport.Model
+	detailReady    bool   // viewport initialized
+	detailContent  string // cached content for the detail panel
+
+	// Cached isolation info for selected container (avoids blocking View())
+	cachedIsolationInfo *container.IsolationInfo
+
+	// Progress channel for container creation (owned by Model, not package-level)
+	formProgressChan chan formProgressMsg
 
 	// Status bar
 	statusMessage string
@@ -387,6 +416,16 @@ func (m *Model) closeSessionView() {
 	m.sessionCreatedName = ""
 }
 
+// IsActionMenuOpen returns whether the action menu is open.
+func (m Model) IsActionMenuOpen() bool {
+	return m.actionMenuOpen
+}
+
+// closeActionMenu closes the action menu.
+func (m *Model) closeActionMenu() {
+	m.actionMenuOpen = false
+}
+
 // IsSessionFormOpen returns whether the session creation form is open.
 func (m Model) IsSessionFormOpen() bool {
 	return m.sessionFormOpen
@@ -523,11 +562,20 @@ func (m Model) consumeLogEntries(logMgr interface {
 	Entries() <-chan logging.LogEntry
 }) tea.Cmd {
 	return func() tea.Msg {
-		// Batch read up to 50 entries
-		var entries []logging.LogEntry
-		for i := 0; i < 50; i++ {
+		ch := logMgr.Entries()
+
+		// Block waiting for at least one entry
+		entry, ok := <-ch
+		if !ok {
+			// Channel closed, stop consuming
+			return logEntriesMsg{entries: nil}
+		}
+
+		// Got one entry, now batch read up to 49 more without blocking
+		entries := []logging.LogEntry{entry}
+		for i := 0; i < 49; i++ {
 			select {
-			case entry, ok := <-logMgr.Entries():
+			case entry, ok := <-ch:
 				if !ok {
 					// Channel closed
 					return logEntriesMsg{entries: entries}
@@ -557,6 +605,39 @@ func (m *Model) updateLogViewportContent() {
 
 	if m.logAutoScroll {
 		m.logViewport.GotoBottom()
+	}
+}
+
+// updateDetailViewportContent updates the detail viewport with the current detail content.
+// This caches the content and sets it in the viewport.
+func (m *Model) updateDetailViewportContent() {
+	m.detailContent = m.renderDetailContent()
+	m.detailViewport.SetContent(m.detailContent)
+}
+
+// renderDetailContent returns the content string for the detail panel.
+// Dispatches to the appropriate render function based on selection.
+func (m *Model) renderDetailContent() string {
+	// Check if we have a selection
+	if m.selectedIdx < 0 || m.selectedIdx >= len(m.treeItems) {
+		return m.styles.InfoStyle().Render("Select an item to view details")
+	}
+
+	item := m.treeItems[m.selectedIdx]
+
+	switch item.Type {
+	case TreeItemAll:
+		return m.renderAllContainersDetailContent()
+	case TreeItemContainer:
+		if m.selectedContainer == nil {
+			return m.styles.InfoStyle().Render("Select an item to view details")
+		}
+		return m.renderContainerDetailContent()
+	default:
+		if m.selectedContainer == nil {
+			return m.styles.InfoStyle().Render("Select an item to view details")
+		}
+		return m.renderSessionDetailContent()
 	}
 }
 
@@ -616,10 +697,21 @@ func (m *Model) toggleTreeExpand() {
 // based on the current tree selection (selectedIdx), and keeps the log
 // filter in sync so it always matches the active display scope.
 func (m *Model) syncSelectionFromTree() {
+	// Remember previous container ID to detect actual container changes
+	prevContainerID := ""
+	if m.selectedContainer != nil {
+		prevContainerID = m.selectedContainer.ID
+	}
+
 	if m.selectedIdx < 0 || m.selectedIdx >= len(m.treeItems) {
 		m.selectedContainer = nil
 		m.selectedSessionIdx = 0
+		// Clear cache only if container changed
+		if prevContainerID != "" {
+			m.cachedIsolationInfo = nil
+		}
 		m.setLogFilterFromContext()
+		m.refreshDetailViewport()
 		return
 	}
 
@@ -628,7 +720,12 @@ func (m *Model) syncSelectionFromTree() {
 	if item.Type == TreeItemAll {
 		m.selectedContainer = nil
 		m.selectedSessionIdx = 0
+		// Clear cache only if container changed
+		if prevContainerID != "" {
+			m.cachedIsolationInfo = nil
+		}
 		m.setLogFilterFromContext()
+		m.refreshDetailViewport()
 		return
 	}
 
@@ -638,12 +735,18 @@ func (m *Model) syncSelectionFromTree() {
 			if ci.container.ID == item.ContainerID {
 				m.selectedContainer = ci.container
 
+				// Clear cache only if container changed
+				if ci.container.ID != prevContainerID {
+					m.cachedIsolationInfo = nil
+				}
+
 				// If it's a session, find the session index
 				if item.Type == TreeItemSession {
 					for i, sess := range ci.container.Sessions {
 						if sess.Name == item.SessionName {
 							m.selectedSessionIdx = i
 							m.setLogFilterFromContext()
+							m.refreshDetailViewport()
 							return
 						}
 					}
@@ -651,9 +754,39 @@ func (m *Model) syncSelectionFromTree() {
 					m.selectedSessionIdx = 0
 				}
 				m.setLogFilterFromContext()
+				m.refreshDetailViewport()
 				return
 			}
 		}
+	}
+}
+
+// initDetailViewport initializes the detail viewport when the panel is opened.
+func (m *Model) initDetailViewport() {
+	layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
+
+	// Account for panel header (1 line) and border padding (2 lines)
+	detailHeight := layout.Detail.Height - 3
+	if detailHeight < 1 {
+		detailHeight = 1
+	}
+	// Account for border padding on width
+	detailWidth := layout.Detail.Width - 4
+	if detailWidth < 1 {
+		detailWidth = 1
+	}
+
+	m.detailViewport = viewport.New(detailWidth, detailHeight)
+	m.detailReady = true
+	m.updateDetailViewportContent()
+}
+
+// refreshDetailViewport updates the detail viewport content if it's ready.
+func (m *Model) refreshDetailViewport() {
+	if m.detailReady && m.detailPanelOpen {
+		m.updateDetailViewportContent()
+		// Reset scroll position when selection changes
+		m.detailViewport.GotoTop()
 	}
 }
 

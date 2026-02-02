@@ -19,6 +19,11 @@ func (m Model) View() string {
 		return m.renderConfirmDialog()
 	}
 
+	// Action menu is a modal overlay
+	if m.actionMenuOpen {
+		return m.renderActionMenu()
+	}
+
 	// Session detail is a modal overlay (keep this one centered for now)
 	if m.sessionViewOpen {
 		return m.renderSessionView()
@@ -80,6 +85,12 @@ func (m Model) View() string {
 
 // renderCreateForm renders the container creation form as a left-justified input area.
 func (m Model) renderCreateForm() string {
+	// Handle submitting or completed state (progress display)
+	if m.formSubmitting || m.formCompleted {
+		return m.renderFormSubmitting()
+	}
+
+	// Normal form rendering
 	title := m.styles.TitleStyle().Render("Create Container")
 
 	// Template selection - compact horizontal display
@@ -152,6 +163,95 @@ func (m Model) renderCreateForm() string {
 	parts = append(parts, "", help)
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderFormSubmitting renders the form in submitting state with progress.
+func (m Model) renderFormSubmitting() string {
+	// Title - pulsing while submitting, static when completed
+	var title string
+	if m.formCompleted {
+		title = m.styles.TitleStyle().Render("Create Container")
+	} else {
+		title = m.renderPulsingTitle("Creating Container")
+	}
+
+	// Disabled form fields (grayed out)
+	templateLabel := m.styles.DisabledStyle().Render("Template:     ")
+	templateValue := m.styles.DisabledStyle().Render(m.templates[m.formTemplateIdx].Name)
+	templateLine := templateLabel + templateValue
+
+	projectPathLabel := m.styles.DisabledStyle().Render("Project Path: ")
+	projectPathValue := m.styles.DisabledStyle().Render(m.formProjectPath)
+	projectPathLine := projectPathLabel + projectPathValue
+
+	nameLabel := m.styles.DisabledStyle().Render("Name:         ")
+	nameValue := m.formContainerName
+	if nameValue == "" {
+		nameValue = "(auto)"
+	}
+	nameValue = m.styles.DisabledStyle().Render(nameValue)
+	nameLine := nameLabel + nameValue
+
+	parts := []string{
+		title,
+		"",
+		templateLine,
+		projectPathLine,
+		nameLine,
+		"",
+	}
+
+	// Completed steps with checkmarks
+	for _, step := range m.formStatusSteps {
+		var icon string
+		if step.Success {
+			icon = m.styles.FormStepSuccessStyle().Render("✓")
+		} else {
+			icon = m.styles.FormStepErrorStyle().Render("✗")
+		}
+		parts = append(parts, icon+" "+step.Message)
+	}
+
+	// Current step with spinner (only while submitting)
+	if m.formCurrentStep != "" && !m.formCompleted {
+		currentLine := m.formStatusSpinner.View() + " " + m.formCurrentStep
+		parts = append(parts, currentLine)
+	}
+
+	// Final error status line when completed with error
+	// (Success is already shown as a step from the manager)
+	if m.formCompleted && m.formCompletedError {
+		parts = append(parts, m.styles.ErrorStyle().Render("✗ Creation failed"))
+	}
+
+	// Help text
+	if m.formCompleted {
+		parts = append(parts, "", m.styles.HelpStyle().Render("Enter/Esc: continue"))
+	} else {
+		parts = append(parts, "", m.styles.HelpStyle().Render("Esc: cancel"))
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderPulsingTitle renders a title that pulses between dim and bright.
+func (m Model) renderPulsingTitle(text string) string {
+	// Pulse pattern: bright -> medium -> dim -> medium -> repeat
+	var style lipgloss.Style
+	switch m.formTitlePulse {
+	case 0:
+		// Bright (mauve)
+		style = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(m.styles.flavor.Mauve().Hex))
+	case 1, 3:
+		// Medium (text)
+		style = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(m.styles.flavor.Text().Hex))
+	case 2:
+		// Dim (overlay)
+		style = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(m.styles.flavor.Overlay1().Hex))
+	default:
+		style = m.styles.TitleStyle()
+	}
+	return style.Render(text)
 }
 
 // renderSessionView renders the session list for a container.
@@ -269,7 +369,7 @@ func (m Model) renderSessionCreated() string {
 		if user == "" {
 			user = container.DefaultRemoteUser
 		}
-		attachCmd = fmt.Sprintf("%s exec -it -u %s -e TERM=xterm-256color -e LANG=en_US.UTF-8 %s tmux attach -t %s", runtimePath, user, m.selectedContainer.Name, m.sessionCreatedName)
+		attachCmd = fmt.Sprintf("%s exec -it -u %s %s tmux attach -t %s", runtimePath, user, m.selectedContainer.Name, m.sessionCreatedName)
 	}
 	attachLine := m.styles.InfoStyle().Render(fmt.Sprintf("Attach: %s", attachCmd))
 
@@ -327,6 +427,62 @@ func (m Model) renderSessionForm() string {
 		"",
 		help,
 	)
+}
+
+// renderActionMenu renders the container action menu showing commands to copy.
+func (m Model) renderActionMenu() string {
+	containerName := ""
+	containerState := ""
+	if m.selectedContainer != nil {
+		containerName = m.selectedContainer.Name
+		containerState = string(m.selectedContainer.State)
+	}
+
+	title := m.styles.TitleStyle().Render("Container Actions")
+	subtitle := m.styles.SubtitleStyle().Render(fmt.Sprintf("%s (%s)", containerName, containerState))
+
+	// Generate actions for this container
+	actions := GenerateContainerActions(m.selectedContainer, m.manager.RuntimePath())
+
+	var lines []string
+	for _, action := range actions {
+		label := m.styles.AccentStyle().Render(action.Label)
+		cmd := m.styles.InfoStyle().Render("  " + action.Command)
+		lines = append(lines, label, cmd, "")
+	}
+
+	// Add VS Code palette instructions as the last option
+	paletteLabel := m.styles.AccentStyle().Render("VS Code Command Palette")
+	paletteCmd := m.styles.InfoStyle().Render("  " + GetVSCodePaletteInstructions())
+	lines = append(lines, paletteLabel, paletteCmd)
+
+	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
+
+	help := m.styles.HelpStyle().Render("Esc: close")
+
+	parts := []string{
+		title,
+		subtitle,
+		"",
+		content,
+		"",
+		help,
+	}
+
+	view := lipgloss.JoinVertical(lipgloss.Left, parts...)
+	boxed := m.styles.BoxStyle().Render(view)
+
+	if m.width > 0 && m.height > 0 {
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			boxed,
+		)
+	}
+
+	return boxed
 }
 
 // renderConfirmDialog renders the confirmation dialog as a centered modal.
@@ -431,7 +587,7 @@ func (m Model) renderContextualHelp() string {
 		} else if len(m.treeItems) > 0 && allSelected {
 			help = "↑/↓: navigate • →: details • c: create • tab: next panel • l: logs"
 		} else if len(m.treeItems) > 0 {
-			help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: session • tab: next panel • l: logs"
+			help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: actions • tab: next panel • l: logs"
 		} else {
 			help = "c: create container • l: logs"
 		}
@@ -679,39 +835,22 @@ func (m Model) renderDetailPanel(layout Layout) string {
 	header := headerStyle.Width(layout.Detail.Width).Render(" Details")
 
 	// Body styling (keep left border, subtract 1 for header)
+	// Use MaxHeight to prevent content from expanding the terminal
+	bodyHeight := layout.Detail.Height - 1
 	panelStyle := lipgloss.NewStyle().
 		Width(layout.Detail.Width-2).
-		Height(layout.Detail.Height-1).
+		Height(bodyHeight).
+		MaxHeight(bodyHeight).
 		Padding(1).
 		Border(lipgloss.NormalBorder(), false, false, false, true).
 		BorderForeground(lipgloss.Color(m.styles.flavor.Surface1().Hex))
 
-	// Check if we have a selection
-	if m.selectedIdx < 0 || m.selectedIdx >= len(m.treeItems) {
-		return lipgloss.JoinVertical(lipgloss.Left,
-			header,
-			panelStyle.Render(m.styles.InfoStyle().Render("Select an item to view details")),
-		)
-	}
-
-	item := m.treeItems[m.selectedIdx]
-
+	// Use viewport if initialized, otherwise render directly (for tests)
 	var content string
-	switch item.Type {
-	case TreeItemAll:
-		content = m.renderAllContainersDetailContent()
-	case TreeItemContainer:
-		if m.selectedContainer == nil {
-			content = m.styles.InfoStyle().Render("Select an item to view details")
-		} else {
-			content = m.renderContainerDetailContent()
-		}
-	default:
-		if m.selectedContainer == nil {
-			content = m.styles.InfoStyle().Render("Select an item to view details")
-		} else {
-			content = m.renderSessionDetailContent()
-		}
+	if m.detailReady {
+		content = m.detailViewport.View()
+	} else {
+		content = m.renderDetailContent()
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, panelStyle.Render(content))
@@ -780,7 +919,119 @@ func (m Model) renderContainerDetailContent() string {
 		}
 	}
 
+	// Always show isolation section (actual values, loading, or unknown placeholders)
+	lines = append(lines, m.renderIsolationSection(c.State, m.cachedIsolationInfo)...)
+
 	return strings.Join(lines, "\n")
+}
+
+// renderIsolationInfo formats isolation details for display.
+func (m Model) renderIsolationInfo(info *container.IsolationInfo) []string {
+	var lines []string
+
+	// Resource Limits section - always show header for consistency
+	lines = append(lines, "", "Resource Limits:")
+	hasLimits := info.MemoryLimit != "" || info.CPULimit != "" || info.PidsLimit > 0
+	if hasLimits {
+		if info.MemoryLimit != "" {
+			lines = append(lines, fmt.Sprintf("  Memory:    %s", info.MemoryLimit))
+		}
+		if info.CPULimit != "" {
+			lines = append(lines, fmt.Sprintf("  CPUs:      %s", info.CPULimit))
+		}
+		if info.PidsLimit > 0 {
+			lines = append(lines, fmt.Sprintf("  PIDs:      %d", info.PidsLimit))
+		}
+	} else {
+		lines = append(lines, "  None configured")
+	}
+
+	// Security section - always show header for consistency
+	lines = append(lines, "", "Security:")
+	hasCaps := len(info.DroppedCaps) > 0 || len(info.AddedCaps) > 0
+	if hasCaps {
+		if len(info.DroppedCaps) > 0 {
+			lines = append(lines, "  Dropped Capabilities:")
+			for _, cap := range info.DroppedCaps {
+				lines = append(lines, fmt.Sprintf("    • %s", cap))
+			}
+		}
+		if len(info.AddedCaps) > 0 {
+			lines = append(lines, "  Added Capabilities:")
+			for _, cap := range info.AddedCaps {
+				lines = append(lines, fmt.Sprintf("    • %s", cap))
+			}
+		}
+	} else {
+		lines = append(lines, "  Default capabilities")
+	}
+
+	// Network Isolation section
+	lines = append(lines, "", "Network Isolation:")
+	if info.NetworkIsolated {
+		lines = append(lines, "  Status:    Enabled")
+		if info.NetworkName != "" {
+			lines = append(lines, fmt.Sprintf("  Network:   %s", info.NetworkName))
+		}
+		if info.ProxySidecar != nil {
+			status := "running"
+			if info.ProxySidecar.State != container.StateRunning {
+				status = string(info.ProxySidecar.State)
+			}
+			lines = append(lines, fmt.Sprintf("  Proxy:     %s", status))
+		}
+		if len(info.AllowedDomains) > 0 {
+			lines = append(lines, "", "  Allowed Domains:")
+			for _, domain := range info.AllowedDomains {
+				lines = append(lines, fmt.Sprintf("    • %s", domain))
+			}
+		}
+	} else {
+		lines = append(lines, "  Status:    Disabled")
+	}
+
+	return lines
+}
+
+// renderIsolationSection renders the isolation info section, handling all states:
+// - Running + cached info: shows actual values
+// - Running + no cache: shows "Loading..."
+// - Not running: shows "Unknown" placeholders
+func (m Model) renderIsolationSection(state container.ContainerState, info *container.IsolationInfo) []string {
+	// If running with cached info, use the full renderer
+	if state == container.StateRunning && info != nil {
+		return m.renderIsolationInfo(info)
+	}
+
+	// Show placeholder section
+	var lines []string
+	lines = append(lines, "", "Resource Limits:")
+
+	if state == container.StateRunning {
+		// Running but still fetching
+		lines = append(lines, "  Loading...")
+	} else {
+		// Not running - can't inspect
+		lines = append(lines, "  Memory:    Unknown")
+		lines = append(lines, "  CPUs:      Unknown")
+		lines = append(lines, "  PIDs:      Unknown")
+	}
+
+	lines = append(lines, "", "Security:")
+	if state == container.StateRunning {
+		lines = append(lines, "  Loading...")
+	} else {
+		lines = append(lines, "  Capabilities: Unknown")
+	}
+
+	lines = append(lines, "", "Network Isolation:")
+	if state == container.StateRunning {
+		lines = append(lines, "  Loading...")
+	} else {
+		lines = append(lines, "  Status:    Unknown")
+	}
+
+	return lines
 }
 
 // renderSessionDetailContent renders detail content for a session.

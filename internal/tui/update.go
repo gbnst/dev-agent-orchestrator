@@ -46,6 +46,15 @@ type logEntriesMsg struct {
 // clearStatusMsg is sent after a timed delay to clear the status bar.
 type clearStatusMsg struct{}
 
+// formAutoCloseMsg is sent to auto-close the form after completion.
+type formAutoCloseMsg struct{}
+
+// isolationInfoMsg is sent when isolation info is fetched for the selected container.
+type isolationInfoMsg struct {
+	info        *container.IsolationInfo
+	containerID string
+}
+
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -71,18 +80,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateLogViewportContent()
 		}
 
+		// Initialize or update detail viewport
+		if m.detailPanelOpen {
+			// Account for panel header (1 line) and border padding (2 lines)
+			detailHeight := layout.Detail.Height - 3
+			if detailHeight < 1 {
+				detailHeight = 1
+			}
+			// Account for border padding on width
+			detailWidth := layout.Detail.Width - 4
+			if detailWidth < 1 {
+				detailWidth = 1
+			}
+			if !m.detailReady {
+				m.detailViewport = viewport.New(detailWidth, detailHeight)
+				m.detailReady = true
+			} else {
+				m.detailViewport.Width = detailWidth
+				m.detailViewport.Height = detailHeight
+			}
+			m.updateDetailViewportContent()
+		}
+
 		return m, nil
 
 	case spinner.TickMsg:
+		var cmds []tea.Cmd
+
+		// Update status spinner if loading
 		if m.statusLevel == StatusLoading {
 			var cmd tea.Cmd
 			m.statusSpinner, cmd = m.statusSpinner.Update(msg)
+			cmds = append(cmds, cmd)
 
 			// Update list delegate with new spinner frame
 			m.containerDelegate = m.containerDelegate.WithSpinnerState(m.statusSpinner.View(), m.pendingOperations)
 			m.containerList.SetDelegate(m.containerDelegate)
+		}
 
-			return m, cmd
+		// Update form status spinner if submitting
+		if m.formSubmitting {
+			var cmd tea.Cmd
+			m.formStatusSpinner, cmd = m.formStatusSpinner.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+
+		if len(cmds) > 0 {
+			return m, tea.Batch(cmds...)
 		}
 		return m, nil
 
@@ -117,6 +161,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleConfirmKey(msg)
 		}
 
+		// Handle action menu
+		if m.actionMenuOpen {
+			return m.handleActionMenuKey(msg)
+		}
+
 		// Handle form input when form is open
 		if m.formOpen {
 			return m.handleFormKey(msg)
@@ -137,10 +186,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.Type {
 			case tea.KeyUp:
 				m.moveTreeSelectionUp()
-				return m, nil
+				return m, m.fetchIsolationInfoIfNeeded()
 			case tea.KeyDown:
 				m.moveTreeSelectionDown()
-				return m, nil
+				return m, m.fetchIsolationInfoIfNeeded()
 			case tea.KeyEnter:
 				// Toggle expand/collapse for containers, open detail for others
 				if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
@@ -151,8 +200,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			case tea.KeyRight:
-				// Open detail panel
+				// Open detail panel and initialize viewport
 				m.detailPanelOpen = true
+				m.initDetailViewport()
 				return m, nil
 			case tea.KeyLeft:
 				// Close detail panel
@@ -201,11 +251,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Handle detail panel Escape to return focus to tree
-		if m.panelFocus == FocusDetail {
+		// Handle detail panel Escape/Left to return focus to tree or close panel
+		if m.panelFocus == FocusDetail && m.detailPanelOpen {
 			if msg.Type == tea.KeyEscape {
 				m.panelFocus = FocusTree
 				m.quitHintCount = 0
+				return m, nil
+			}
+			if msg.Type == tea.KeyLeft {
+				m.detailPanelOpen = false
+				m.panelFocus = FocusTree
+				return m, nil
+			}
+		}
+
+		// Handle detail panel scrolling when focused and viewport ready
+		if m.panelFocus == FocusDetail && m.detailPanelOpen && m.detailReady {
+			switch msg.Type {
+			case tea.KeyUp:
+				m.detailViewport.ScrollUp(1)
+				return m, nil
+			case tea.KeyDown:
+				m.detailViewport.ScrollDown(1)
+				return m, nil
+			case tea.KeyPgUp:
+				m.detailViewport.HalfPageUp()
+				return m, nil
+			case tea.KeyPgDown:
+				m.detailViewport.HalfPageDown()
+				return m, nil
+			}
+
+			// Also handle j/k/g/G for vim-style navigation
+			switch msg.String() {
+			case "j":
+				m.detailViewport.ScrollDown(1)
+				return m, nil
+			case "k":
+				m.detailViewport.ScrollUp(1)
+				return m, nil
+			case "g":
+				m.detailViewport.GotoTop()
+				return m, nil
+			case "G":
+				m.detailViewport.GotoBottom()
 				return m, nil
 			}
 		}
@@ -282,11 +371,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "t":
-			// Create session in selected container
-			if m.selectedContainer != nil {
-				m.logger.Debug("opening session form")
-				m.sessionViewOpen = true
-				m.openSessionForm()
+			// Open action menu for selected container
+			if m.selectedContainer != nil && m.selectedContainer.State == container.StateRunning {
+				m.logger.Debug("opening action menu")
+				m.actionMenuOpen = true
 				return m, nil
 			}
 
@@ -472,6 +560,70 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearStatus()
 		}
 		return m, nil
+
+	case isolationInfoMsg:
+		// Update cached isolation info if it's still for the selected container
+		if m.selectedContainer != nil && m.selectedContainer.ID == msg.containerID {
+			m.cachedIsolationInfo = msg.info
+			// Refresh detail viewport to show the new info
+			if m.detailReady && m.detailPanelOpen {
+				m.updateDetailViewportContent()
+			}
+		}
+		return m, nil
+
+	case formProgressMsg:
+		// Handle individual progress update
+		switch msg.step.Status {
+		case "started":
+			m.setFormCurrentStep(msg.step.Message)
+		case "completed":
+			m.addFormStatusStep(true, msg.step.Message)
+			m.formCurrentStep = ""
+		case "failed":
+			m.addFormStatusStep(false, msg.step.Message)
+			m.formCurrentStep = ""
+		}
+		// Continue waiting for more progress
+		return m, waitForProgress(m.formProgressChan, "")
+
+	case formCreationDoneMsg:
+		// Clear pending operation
+		m.clearPending(msg.id)
+
+		// Close the progress channel
+		if m.formProgressChan != nil {
+			close(m.formProgressChan)
+			m.formProgressChan = nil
+		}
+
+		// Handle completion
+		if msg.err != nil {
+			m.logger.Error("container creation failed", "error", msg.err)
+			m.addFormStatusStep(false, "Creation failed: "+msg.err.Error())
+			closeCmd := m.finishFormSubmission(false)
+			return m, closeCmd
+		}
+
+		m.logger.Info("container action completed", "action", "create", "containerID", msg.id)
+		closeCmd := m.finishFormSubmission(true)
+		refreshCmd := m.refreshContainers()
+		return m, tea.Batch(closeCmd, refreshCmd)
+
+	case formAutoCloseMsg:
+		// Auto-close the form after completion delay
+		if m.formCompleted {
+			m.resetForm()
+		}
+		return m, nil
+
+	case formTitlePulseMsg:
+		// Cycle the title pulse if still submitting
+		if m.formSubmitting {
+			m.formTitlePulse = (m.formTitlePulse + 1) % 4
+			return m, tickTitlePulse()
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -512,6 +664,25 @@ func (m Model) destroyContainer(id string) tea.Cmd {
 
 // handleFormKey processes key events when the form is open.
 func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// If form is submitting, only allow Escape to cancel
+	if m.formSubmitting {
+		if msg.Type == tea.KeyEscape {
+			// Cancel the submission - the container creation is async so we just close
+			m.resetForm()
+			return m, nil
+		}
+		// Block all other input during submission
+		return m, nil
+	}
+
+	// If form is completed (showing result), Enter or Escape closes it
+	if m.formCompleted {
+		if msg.Type == tea.KeyEnter || msg.Type == tea.KeyEscape {
+			m.resetForm()
+		}
+		return m, nil
+	}
+
 	// Handle special keys by type first
 	switch msg.Type {
 	case tea.KeyEscape:
@@ -522,14 +693,15 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !m.validateForm() {
 			return m, nil
 		}
-		// Submit the form
+		// Submit the form - keep it open with progress
 		containerName := m.formContainerName
 		m.logger.Info("creating container", "name", containerName)
 		m.setPending(containerName, "create")
-		loadingCmd := m.setLoading("Creating " + containerName + "...")
-		createCmd := m.createContainer()
-		m.resetForm()
-		return m, tea.Batch(loadingCmd, createCmd)
+		spinnerCmd := m.startFormSubmission()
+		// Create the progress channel and store it in the model
+		m.formProgressChan = make(chan formProgressMsg, 20)
+		createCmd := m.createContainerWithProgress()
+		return m, tea.Batch(spinnerCmd, createCmd)
 
 	case tea.KeyTab:
 		// Cycle through fields
@@ -592,8 +764,20 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// createContainer returns a command to create a container with form values.
-func (m Model) createContainer() tea.Cmd {
+// formProgressMsg delivers a single progress update during container creation.
+type formProgressMsg struct {
+	step container.ProgressStep
+}
+
+// formCreationDoneMsg is sent when container creation completes.
+type formCreationDoneMsg struct {
+	err error
+	id  string
+}
+
+// createContainerWithProgress returns a command to create a container with progress reporting.
+// The caller must set m.formProgressChan before calling this function.
+func (m Model) createContainerWithProgress() tea.Cmd {
 	templateName := ""
 	if len(m.templates) > m.formTemplateIdx {
 		templateName = m.templates[m.formTemplateIdx].Name
@@ -602,16 +786,110 @@ func (m Model) createContainer() tea.Cmd {
 	projectPath := strings.TrimSpace(m.formProjectPath)
 	containerName := strings.TrimSpace(m.formContainerName)
 
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	// Capture the channel for use in goroutine
+	progressChan := m.formProgressChan
+
+	// Start container creation in background
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 
 		_, err := m.manager.Create(ctx, container.CreateOptions{
 			ProjectPath: projectPath,
 			Template:    templateName,
 			Name:        containerName,
+			OnProgress: func(step container.ProgressStep) {
+				// Send progress to channel (non-blocking)
+				select {
+				case progressChan <- formProgressMsg{step: step}:
+				default:
+				}
+			},
 		})
-		return containerActionMsg{action: "create", id: containerName, err: err}
+
+		// Send completion message
+		select {
+		case progressChan <- formProgressMsg{step: container.ProgressStep{
+			Step:   "done",
+			Status: "completed",
+		}}:
+		default:
+		}
+
+		// Close channel and send done message through it
+		// We use a special "done" step to signal completion
+		_ = err // Error will be sent via the done message
+		// Store error for the done message
+		if err != nil {
+			select {
+			case progressChan <- formProgressMsg{step: container.ProgressStep{
+				Step:    "error",
+				Status:  "failed",
+				Message: err.Error(),
+			}}:
+			default:
+			}
+		}
+	}()
+
+	// Return command to wait for first progress message
+	return waitForProgress(progressChan, containerName)
+}
+
+// waitForProgress returns a command that waits for the next progress message.
+func waitForProgress(progressChan chan formProgressMsg, containerName string) tea.Cmd {
+	return func() tea.Msg {
+		if progressChan == nil {
+			return formCreationDoneMsg{id: containerName, err: nil}
+		}
+
+		msg, ok := <-progressChan
+		if !ok {
+			// Channel closed
+			return formCreationDoneMsg{id: containerName, err: nil}
+		}
+
+		// Check for completion signals
+		if msg.step.Step == "done" {
+			return formCreationDoneMsg{id: containerName, err: nil}
+		}
+		if msg.step.Step == "error" {
+			return formCreationDoneMsg{id: containerName, err: fmt.Errorf("%s", msg.step.Message)}
+		}
+
+		return msg
+	}
+}
+
+// fetchIsolationInfoIfNeeded returns a command to fetch isolation info if a running container is selected.
+func (m Model) fetchIsolationInfoIfNeeded() tea.Cmd {
+	if m.selectedContainer == nil {
+		return nil
+	}
+	if m.selectedContainer.State != container.StateRunning {
+		return nil
+	}
+	return m.fetchIsolationInfo(m.selectedContainer.ID)
+}
+
+// fetchIsolationInfo returns a command to fetch isolation info for a container.
+func (m Model) fetchIsolationInfo(containerID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		// Find the container
+		c, ok := m.manager.Get(containerID)
+		if !ok {
+			return isolationInfoMsg{info: nil, containerID: containerID}
+		}
+
+		info, err := m.manager.GetContainerIsolationInfo(ctx, c)
+		if err != nil {
+			return isolationInfoMsg{info: nil, containerID: containerID}
+		}
+
+		return isolationInfoMsg{info: info, containerID: containerID}
 	}
 }
 
@@ -822,5 +1100,15 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKey(tea.KeyMsg{Type: tea.KeyEscape})
 	}
 
+	return m, nil
+}
+
+// handleActionMenuKey processes key events when the action menu is open.
+func (m Model) handleActionMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.closeActionMenu()
+		return m, nil
+	}
 	return m, nil
 }
