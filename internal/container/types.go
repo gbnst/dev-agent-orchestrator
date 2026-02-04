@@ -88,6 +88,7 @@ type DevcontainerJSON struct {
 	Mounts            []string                          `json:"mounts,omitempty"`
 	CapAdd            []string                          `json:"capAdd,omitempty"`
 	SecurityOpt       []string                          `json:"securityOpt,omitempty"`
+	WorkspaceFolder   string                            `json:"workspaceFolder,omitempty"`
 }
 
 // RunContainerOptions configures a container to run via RuntimeInterface.RunContainer

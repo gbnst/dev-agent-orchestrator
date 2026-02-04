@@ -26,22 +26,25 @@ func GenerateContainerActions(c *container.Container, runtimePath string) []Acti
 		user = container.DefaultRemoteUser
 	}
 
+	// Read workspace folder from devcontainer.json (defaults to /workspaces)
+	workspaceFolder := container.ReadWorkspaceFolder(c.ProjectPath)
+
 	actions := []ActionCommand{
 		{
 			Label:   "Open in VS Code",
-			Command: GenerateVSCodeCommand(c.ProjectPath, "/workspaces"),
+			Command: GenerateVSCodeCommand(c.ProjectPath, workspaceFolder),
 		},
 		{
 			Label:   "Create tmux session (named)",
-			Command: fmt.Sprintf("%s exec -it -u %s -e TERM=xterm-256color -e COLORTERM=truecolor %s tmux -u new-session -s mysession", runtimePath, user, c.Name),
+			Command: fmt.Sprintf("%s exec -it -u %s -w %s -e TERM=xterm-256color -e COLORTERM=truecolor %s tmux -u new-session -s mysession", runtimePath, user, workspaceFolder, c.Name),
 		},
 		{
 			Label:   "Create tmux session (auto)",
-			Command: fmt.Sprintf("%s exec -it -u %s -e TERM=xterm-256color -e COLORTERM=truecolor %s tmux -u new-session", runtimePath, user, c.Name),
+			Command: fmt.Sprintf("%s exec -it -u %s -w %s -e TERM=xterm-256color -e COLORTERM=truecolor %s tmux -u new-session", runtimePath, user, workspaceFolder, c.Name),
 		},
 		{
 			Label:   "Interactive shell",
-			Command: fmt.Sprintf("%s exec -it -u %s %s /bin/bash", runtimePath, user, c.Name),
+			Command: fmt.Sprintf("%s exec -it -u %s -w %s %s /bin/bash", runtimePath, user, workspaceFolder, c.Name),
 		},
 	}
 

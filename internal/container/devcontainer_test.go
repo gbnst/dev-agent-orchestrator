@@ -1221,6 +1221,59 @@ func TestGenerate_TemplateWithAllowlistExtend(t *testing.T) {
 	}
 }
 
+func TestReadWorkspaceFolder_Default(t *testing.T) {
+	// No devcontainer.json - should return default
+	result := ReadWorkspaceFolder("/nonexistent/path")
+	if result != "/workspaces" {
+		t.Errorf("ReadWorkspaceFolder() = %q, want %q", result, "/workspaces")
+	}
+}
+
+func TestReadWorkspaceFolder_EmptyPath(t *testing.T) {
+	result := ReadWorkspaceFolder("")
+	if result != "/workspaces" {
+		t.Errorf("ReadWorkspaceFolder() = %q, want %q", result, "/workspaces")
+	}
+}
+
+func TestReadWorkspaceFolder_CustomFolder(t *testing.T) {
+	tmpDir := t.TempDir()
+	devcontainerDir := filepath.Join(tmpDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	// Write devcontainer.json with custom workspaceFolder
+	dcJSON := `{"name": "test", "workspaceFolder": "/home/vscode/project"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(dcJSON), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json: %v", err)
+	}
+
+	result := ReadWorkspaceFolder(tmpDir)
+	if result != "/home/vscode/project" {
+		t.Errorf("ReadWorkspaceFolder() = %q, want %q", result, "/home/vscode/project")
+	}
+}
+
+func TestReadWorkspaceFolder_NoWorkspaceFolderField(t *testing.T) {
+	tmpDir := t.TempDir()
+	devcontainerDir := filepath.Join(tmpDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	// Write devcontainer.json without workspaceFolder
+	dcJSON := `{"name": "test", "image": "ubuntu:22.04"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(dcJSON), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json: %v", err)
+	}
+
+	result := ReadWorkspaceFolder(tmpDir)
+	if result != "/workspaces" {
+		t.Errorf("ReadWorkspaceFolder() = %q, want %q", result, "/workspaces")
+	}
+}
+
 func TestGetClaudeConfigDir_Default(t *testing.T) {
 	// Clear XDG_CONFIG_HOME to test default behavior
 	t.Setenv("XDG_CONFIG_HOME", "")

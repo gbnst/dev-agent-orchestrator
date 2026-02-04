@@ -156,6 +156,31 @@ func copyClaudeTemplateFiles(templatePath, claudeDir string) error {
 	})
 }
 
+// ReadWorkspaceFolder reads the workspaceFolder from a project's devcontainer.json.
+// Returns the workspace folder path, or a default of "/workspaces" if not specified or on error.
+func ReadWorkspaceFolder(projectPath string) string {
+	defaultFolder := "/workspaces"
+	if projectPath == "" {
+		return defaultFolder
+	}
+
+	jsonPath := filepath.Join(projectPath, ".devcontainer", "devcontainer.json")
+	data, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return defaultFolder
+	}
+
+	var dc DevcontainerJSON
+	if err := json.Unmarshal(data, &dc); err != nil {
+		return defaultFolder
+	}
+
+	if dc.WorkspaceFolder != "" {
+		return dc.WorkspaceFolder
+	}
+	return defaultFolder
+}
+
 // DevcontainerGenerator creates devcontainer.json configurations.
 type DevcontainerGenerator struct {
 	cfg       *config.Config
