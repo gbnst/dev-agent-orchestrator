@@ -130,7 +130,8 @@ Configure isolation in your template's `devcontainer.json`:
         "network": {
           "allowlist": ["api.anthropic.com", "github.com"],
           "allowlistExtend": ["my-internal-api.example.com"],
-          "passthrough": ["pinned-cert-service.example.com"]
+          "passthrough": ["pinned-cert-service.example.com"],
+          "blockGitHubPRMerge": true
         }
       }
     }
@@ -151,6 +152,7 @@ Configure isolation in your template's `devcontainer.json`:
 | `network.allowlist` | Allowed domains (replaces defaults if specified) |
 | `network.allowlistExtend` | Additional domains to add to defaults |
 | `network.passthrough` | Domains that bypass TLS interception (for cert-pinned services) |
+| `network.blockGitHubPRMerge` | Block GitHub PR merge API calls (default: `false`) |
 
 #### Network Isolation
 
@@ -160,6 +162,14 @@ When a network allowlist is configured, devagent creates a mitmproxy sidecar con
 - HTTPS traffic is intercepted to enforce domain filtering
 - Domains in `passthrough` bypass TLS interception (for services with certificate pinning)
 - The proxy's CA certificate is automatically installed in the devcontainer
+
+**GitHub PR Merge Blocking:**
+
+When `blockGitHubPRMerge` is enabled, the proxy intercepts and blocks GitHub PR merge requests, returning a 403 error. This prevents agents from merging pull requests while still allowing all other GitHub operations (reading, creating PRs, pushing code, etc.).
+
+Blocked endpoints:
+- REST API: `PUT /repos/{owner}/{repo}/pulls/{number}/merge`
+- GraphQL API: `POST /graphql` with `mergePullRequest` mutation
 
 The sidecar is automatically managed:
 - Created before the devcontainer starts

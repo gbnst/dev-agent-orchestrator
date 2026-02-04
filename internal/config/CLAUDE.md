@@ -1,6 +1,6 @@
 # Config Domain
 
-Last verified: 2026-02-01
+Last verified: 2026-02-04
 
 ## Purpose
 Loads and validates application configuration (config.yaml) and devcontainer templates. Provides isolation configuration schema and defaults for container security settings.
@@ -20,6 +20,7 @@ Loads and validates application configuration (config.yaml) and devcontainer tem
 - DefaultIsolation applied when template has no isolation config; disabled with `enabled: false`
 - AllowlistExtend appends to defaults; Allowlist replaces defaults entirely
 - Passthrough domains bypass TLS interception (for cert-pinned services)
+- BlockGitHubPRMerge blocks GitHub PR merge API calls when enabled (default: false)
 - GetEffectiveIsolation() on Template returns merged config with defaults
 
 ## Invariants
@@ -36,3 +37,4 @@ Loads and validates application configuration (config.yaml) and devcontainer tem
 - Caps.Drop: NET_RAW, SYS_ADMIN, SYS_PTRACE, MKNOD, NET_ADMIN, SYS_MODULE, SYS_RAWIO, SYS_BOOT, SYS_NICE, SYS_RESOURCE
 - Resources: 4GB memory, 2 CPUs, 512 pids limit
 - Network.Allowlist: api.anthropic.com, github.com, *.github.com, registry.npmjs.org, pypi.org, proxy.golang.org, etc.
+- Network.BlockGitHubPRMerge: false (opt-in to block PR merges)

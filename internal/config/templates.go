@@ -38,9 +38,10 @@ type ResourceConfig struct {
 
 // NetworkConfig defines network isolation settings
 type NetworkConfig struct {
-	Allowlist       []string `json:"allowlist,omitempty"`       // Allowed domains
-	AllowlistExtend []string `json:"allowlistExtend,omitempty"` // Domains to add to defaults
-	Passthrough     []string `json:"passthrough,omitempty"`     // Certificate-pinned domains (bypass TLS interception)
+	Allowlist          []string `json:"allowlist,omitempty"`          // Allowed domains
+	AllowlistExtend    []string `json:"allowlistExtend,omitempty"`    // Domains to add to defaults
+	Passthrough        []string `json:"passthrough,omitempty"`        // Certificate-pinned domains (bypass TLS interception)
+	BlockGitHubPRMerge bool     `json:"blockGitHubPRMerge,omitempty"` // Block GitHub PR merge API calls
 }
 
 // Template represents a loaded devcontainer template with devagent extensions.
@@ -134,6 +135,9 @@ func parseIsolationConfig(devagent map[string]interface{}) *IsolationConfig {
 					config.Network.Passthrough = append(config.Network.Passthrough, s)
 				}
 			}
+		}
+		if blockPRMerge, ok := network["blockGitHubPRMerge"].(bool); ok {
+			config.Network.BlockGitHubPRMerge = blockPRMerge
 		}
 	}
 
@@ -254,6 +258,10 @@ func MergeIsolationConfig(template *IsolationConfig, defaults *IsolationConfig) 
 		if len(template.Network.Passthrough) > 0 {
 			merged.Network.Passthrough = template.Network.Passthrough
 		}
+		// BlockGitHubPRMerge: template value overrides default
+		if template.Network.BlockGitHubPRMerge {
+			merged.Network.BlockGitHubPRMerge = true
+		}
 	}
 
 	return merged
@@ -289,9 +297,10 @@ func copyIsolationConfig(src *IsolationConfig) *IsolationConfig {
 
 	if src.Network != nil {
 		dst.Network = &NetworkConfig{
-			Allowlist:       append([]string{}, src.Network.Allowlist...),
-			AllowlistExtend: append([]string{}, src.Network.AllowlistExtend...),
-			Passthrough:     append([]string{}, src.Network.Passthrough...),
+			Allowlist:          append([]string{}, src.Network.Allowlist...),
+			AllowlistExtend:    append([]string{}, src.Network.AllowlistExtend...),
+			Passthrough:        append([]string{}, src.Network.Passthrough...),
+			BlockGitHubPRMerge: src.Network.BlockGitHubPRMerge,
 		}
 	}
 

@@ -56,7 +56,8 @@
             "pkg.go.dev"
           ],
           "allowlistExtend": [],
-          "passthrough": []
+          "passthrough": [],
+          "blockGitHubPRMerge": true
         }
       }
     }

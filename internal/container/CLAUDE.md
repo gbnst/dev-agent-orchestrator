@@ -1,9 +1,9 @@
 # Container Domain
 
-Last verified: 2026-02-02
+Last verified: 2026-02-04
 
 ## Purpose
-Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker or Podman, and tmux session management within containers. Manages per-container Claude Code configuration including auth token injection and persistent settings. Provides network isolation via mitmproxy sidecars with domain allowlisting.
+Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker or Podman, and tmux session management within containers. Manages per-container Claude Code configuration including auth token injection and persistent settings. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking.
 
 ## Contracts
 - **Exposes**: `Manager`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ProxyConfig`, `RunContainerOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`
@@ -25,6 +25,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Template claude files: Copied from template's home/vscode/.claude/ to container's claude dir on creation (won't overwrite existing)
 - Sidecar architecture: Proxy sidecars use project path hash as ParentRef (not container ID) because sidecar is created before devcontainer exists
 - Network isolation via mitmproxy: Filter script (allowlist) and --ignore-hosts (passthrough) control traffic; CA cert mounted and installed in devcontainer
+- GitHub PR merge blocking: When BlockGitHubPRMerge enabled, filter script blocks PUT to /repos/.*/pulls/\d+/merge and POST /graphql with mergePullRequest
 - Proxy environment variables: http_proxy, https_proxy, and cert paths (REQUESTS_CA_BUNDLE, NODE_EXTRA_CA_CERTS, SSL_CERT_FILE) auto-injected when isolation enabled
 
 ## Invariants
@@ -40,7 +41,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - `manager.go` - Manager struct, lifecycle operations, session management, sidecar lifecycle (createProxySidecar, destroySidecar, etc.), GetContainerIsolationInfo()
 - `runtime.go` - RuntimeInterface impl for Docker/Podman CLI, ExecAs for user-specific commands, CreateNetwork, RemoveNetwork, RunContainer, InspectContainer(), GetIsolationInfo()
 - `devcontainer.go` - DevcontainerGenerator, DevcontainerCLI, Claude config management, proxy env injection, CA cert mount
-- `proxy.go` - Mitmproxy filter script generation (GenerateFilterScript), passthrough patterns (GenerateIgnoreHostsPattern), proxy config/cert directory management, ReadAllowlistFromFilterScript()
+- `proxy.go` - Mitmproxy filter script generation (GenerateFilterScript with allowlist and blockGitHubPRMerge), passthrough patterns (GenerateIgnoreHostsPattern), proxy config/cert directory management, ReadAllowlistFromFilterScript()
 - `types.go` - Container, Session, Sidecar, CreateOptions, ProxyConfig, RunContainerOptions, IsolationInfo, ProgressStep, ProgressCallback, state constants, label constants
 
 ## Gotchas

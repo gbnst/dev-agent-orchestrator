@@ -13,14 +13,18 @@ import (
 )
 
 const filterScriptTemplate = `from mitmproxy import http
+import re
 
 # Allowlist of permitted domains
 # Wildcards are supported: "*.github.com" matches "api.github.com"
 ALLOWED_DOMAINS = [
 %s]
 
+# Block GitHub PR merge API calls
+BLOCK_GITHUB_PR_MERGE = %s
+
 class AllowlistFilter:
-    """Blocks requests to domains not in the allowlist."""
+    """Blocks requests to domains not in the allowlist and optionally blocks PR merges."""
 
     def _is_allowed(self, host: str) -> bool:
         """Check if host matches any allowed domain pattern."""
@@ -34,7 +38,38 @@ class AllowlistFilter:
                 return True
         return False
 
+    def _is_github_pr_merge(self, flow: http.HTTPFlow) -> bool:
+        """Check if request is a GitHub PR merge attempt."""
+        if not BLOCK_GITHUB_PR_MERGE:
+            return False
+
+        host = flow.request.pretty_host
+        if host not in ("api.github.com", "github.com") and not host.endswith(".github.com"):
+            return False
+
+        # REST API: PUT /repos/{owner}/{repo}/pulls/{number}/merge
+        if flow.request.method == "PUT":
+            if re.match(r"^/repos/[^/]+/[^/]+/pulls/\d+/merge$", flow.request.path):
+                return True
+
+        # GraphQL API: POST /graphql with mergePullRequest mutation
+        if flow.request.method == "POST" and flow.request.path == "/graphql":
+            content = flow.request.get_text()
+            if content and "mergePullRequest" in content:
+                return True
+
+        return False
+
     def request(self, flow: http.HTTPFlow) -> None:
+        # Check PR merge block first
+        if self._is_github_pr_merge(flow):
+            flow.response = http.Response.make(
+                403,
+                b"Merging pull requests is not allowed in this environment. Do not retry.\n",
+                {"Content-Type": "text/plain"}
+            )
+            return
+
         host = flow.request.pretty_host
         if not self._is_allowed(host):
             flow.response = http.Response.make(
@@ -48,12 +83,17 @@ addons = [AllowlistFilter()]
 
 // GenerateFilterScript generates a mitmproxy Python filter script from an allowlist.
 // The script blocks all HTTP/HTTPS requests to domains not in the allowlist.
-func GenerateFilterScript(allowlist []string) string {
+// If blockGitHubPRMerge is true, it also blocks GitHub PR merge API calls.
+func GenerateFilterScript(allowlist []string, blockGitHubPRMerge bool) string {
 	var domains strings.Builder
 	for _, domain := range allowlist {
 		domains.WriteString(fmt.Sprintf("    %q,\n", domain))
 	}
-	return fmt.Sprintf(filterScriptTemplate, domains.String())
+	blockMerge := "False"
+	if blockGitHubPRMerge {
+		blockMerge = "True"
+	}
+	return fmt.Sprintf(filterScriptTemplate, domains.String(), blockMerge)
 }
 
 // GenerateIgnoreHostsPattern generates a regex pattern for mitmproxy --ignore-hosts flag.
@@ -142,13 +182,13 @@ func ProxyCertExists(projectPath string) (bool, error) {
 
 // WriteFilterScript writes a mitmproxy filter script to the project's proxy config directory.
 // Returns the path to the written script.
-func WriteFilterScript(projectPath string, allowlist []string) (string, error) {
+func WriteFilterScript(projectPath string, allowlist []string, blockGitHubPRMerge bool) (string, error) {
 	configDir, err := GetProxyConfigDir(projectPath)
 	if err != nil {
 		return "", err
 	}
 
-	scriptContent := GenerateFilterScript(allowlist)
+	scriptContent := GenerateFilterScript(allowlist, blockGitHubPRMerge)
 	scriptPath := filepath.Join(configDir, "filter.py")
 
 	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0644); err != nil {

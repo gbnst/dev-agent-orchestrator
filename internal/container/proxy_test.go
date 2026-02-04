@@ -49,7 +49,7 @@ func TestGenerateFilterScript(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := GenerateFilterScript(tt.allowlist)
+			got := GenerateFilterScript(tt.allowlist, false)
 
 			// Verify script structure
 			if !strings.Contains(got, "from mitmproxy import http") {
@@ -203,7 +203,7 @@ func TestWriteFilterScript(t *testing.T) {
 	projectPath := "/some/project/path"  // Can use fixed path now since data dir is redirected
 	allowlist := []string{"github.com", "api.anthropic.com"}
 
-	scriptPath, err := WriteFilterScript(projectPath, allowlist)
+	scriptPath, err := WriteFilterScript(projectPath, allowlist, false)
 	if err != nil {
 		t.Fatalf("WriteFilterScript() error = %v", err)
 	}
@@ -449,4 +449,97 @@ func TestReadAllowlistFromFilterScript(t *testing.T) {
 			t.Errorf("ReadAllowlistFromFilterScript()[1] = %q, want %q", domains[1], "api.anthropic.com")
 		}
 	})
+}
+
+func TestGenerateFilterScript_BlockGitHubPRMerge(t *testing.T) {
+	tests := []struct {
+		name                string
+		blockGitHubPRMerge  bool
+		wantContains        []string
+		wantNotContains     []string
+	}{
+		{
+			name:               "blocking disabled",
+			blockGitHubPRMerge: false,
+			wantContains: []string{
+				"BLOCK_GITHUB_PR_MERGE = False",
+				"def _is_github_pr_merge",
+			},
+			wantNotContains: []string{
+				"BLOCK_GITHUB_PR_MERGE = True",
+			},
+		},
+		{
+			name:               "blocking enabled",
+			blockGitHubPRMerge: true,
+			wantContains: []string{
+				"BLOCK_GITHUB_PR_MERGE = True",
+				"def _is_github_pr_merge",
+				`re.match(r"^/repos/[^/]+/[^/]+/pulls/\d+/merge$"`,
+				`"mergePullRequest" in content`,
+				"Merging pull requests is not allowed",
+			},
+			wantNotContains: []string{
+				"BLOCK_GITHUB_PR_MERGE = False",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GenerateFilterScript([]string{"github.com"}, tt.blockGitHubPRMerge)
+
+			for _, want := range tt.wantContains {
+				if !strings.Contains(got, want) {
+					t.Errorf("script should contain %q", want)
+				}
+			}
+
+			for _, notWant := range tt.wantNotContains {
+				if strings.Contains(got, notWant) {
+					t.Errorf("script should NOT contain %q", notWant)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateFilterScript_PRMergeDetection(t *testing.T) {
+	// Verify the generated script has correct regex patterns for PR merge detection
+	script := GenerateFilterScript([]string{"github.com"}, true)
+
+	// REST API pattern should match PUT /repos/{owner}/{repo}/pulls/{number}/merge
+	restPatternChecks := []string{
+		`flow.request.method == "PUT"`,
+		`re.match(r"^/repos/[^/]+/[^/]+/pulls/\d+/merge$", flow.request.path)`,
+	}
+	for _, check := range restPatternChecks {
+		if !strings.Contains(script, check) {
+			t.Errorf("script should contain REST API check: %q", check)
+		}
+	}
+
+	// GraphQL pattern should check POST to /graphql with mergePullRequest in body
+	graphqlPatternChecks := []string{
+		`flow.request.method == "POST"`,
+		`flow.request.path == "/graphql"`,
+		`flow.request.get_text()`,
+		`"mergePullRequest" in content`,
+	}
+	for _, check := range graphqlPatternChecks {
+		if !strings.Contains(script, check) {
+			t.Errorf("script should contain GraphQL API check: %q", check)
+		}
+	}
+
+	// Should check for GitHub hosts
+	hostChecks := []string{
+		`host not in ("api.github.com", "github.com")`,
+		`host.endswith(".github.com")`,
+	}
+	for _, check := range hostChecks {
+		if !strings.Contains(script, check) {
+			t.Errorf("script should contain host check: %q", check)
+		}
+	}
 }

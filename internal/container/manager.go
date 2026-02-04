@@ -296,7 +296,7 @@ func (m *Manager) createProxySidecar(ctx context.Context, projectPath string, ne
 		// Merge with default allowlist
 		allowlist = append(config.DefaultIsolation.Network.Allowlist, networkConfig.AllowlistExtend...)
 	}
-	if _, err := WriteFilterScript(projectPath, allowlist); err != nil {
+	if _, err := WriteFilterScript(projectPath, allowlist, networkConfig.BlockGitHubPRMerge); err != nil {
 		m.runtime.RemoveNetwork(ctx, networkName) //nolint:errcheck
 		return nil, "", fmt.Errorf("failed to write filter script: %w", err)
 	}
