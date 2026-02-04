@@ -1,10 +1,11 @@
 {
   "name": "go-project",
-  "image": "mcr.microsoft.com/devcontainers/go:1.25",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/stu-bell/devcontainer-features/claude-code:0": {},
     "ghcr.io/devcontainers-contrib/features/apt-packages:1": {
       "packages": "tmux"
     }

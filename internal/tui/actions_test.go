@@ -82,11 +82,11 @@ func TestGenerateContainerActions_ContainsExpectedActions(t *testing.T) {
 	if !strings.Contains(actions[0].Command, "code --folder-uri") {
 		t.Errorf("VS Code command missing folder-uri: %s", actions[0].Command)
 	}
-	if !strings.Contains(actions[1].Command, "tmux new-session -s mysession") {
-		t.Errorf("named session command missing session name: %s", actions[1].Command)
+	if !strings.Contains(actions[1].Command, "tmux -u new-session -s mysession") {
+		t.Errorf("named session command missing -u flag or session name: %s", actions[1].Command)
 	}
-	if !strings.Contains(actions[2].Command, "tmux new-session") || strings.Contains(actions[2].Command, "-s ") {
-		t.Errorf("auto session command should not have session name: %s", actions[2].Command)
+	if !strings.Contains(actions[2].Command, "tmux -u new-session") || strings.Contains(actions[2].Command, "-s ") {
+		t.Errorf("auto session command should have -u flag but not session name: %s", actions[2].Command)
 	}
 	if !strings.Contains(actions[3].Command, "/bin/bash") {
 		t.Errorf("interactive shell command missing: %s", actions[3].Command)

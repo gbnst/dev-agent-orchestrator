@@ -21,7 +21,8 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Labels for metadata: devagent.managed, devagent.project_path, devagent.template, devagent.remote_user, devagent.sidecar_of, devagent.sidecar_type
 - RemoteUser defaults to "vscode" per devcontainer spec; all exec operations use ExecAs with this user
 - Per-project Claude config: Each container gets a unique .claude directory (hashed by project path) mounted from ~/.local/share/devagent/claude-configs/
-- Auth token injection: Reads ~/.claude/create-auth-token and injects as CLAUDE_CODE_OAUTH_TOKEN via containerEnv
+- Auth token auto-provisioning: Checks for `{XDG_CONFIG_HOME}/claude/.devagent-claude-token` (or `~/.claude/.devagent-claude-token`), runs `claude setup-token` if missing (non-blocking on error)
+- Token injection via bind mount: Token file mounted read-only to `/run/secrets/claude-token`, shell profiles export CLAUDE_CODE_OAUTH_TOKEN from mounted file (not via containerEnv)
 - Template claude files: Copied from template's home/vscode/.claude/ to container's claude dir on creation (won't overwrite existing)
 - Sidecar architecture: Proxy sidecars use project path hash as ParentRef (not container ID) because sidecar is created before devcontainer exists
 - Network isolation via mitmproxy: Filter script (allowlist) and --ignore-hosts (passthrough) control traffic; CA cert mounted and installed in devcontainer
@@ -49,7 +50,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Session is duplicated from tmux package to avoid import cycles
 - RuntimePath() returns full binary path to bypass shell aliases
 - Session.AttachCommand(runtime, user) requires both runtime and user parameters
-- Claude auth token file must exist at ~/.claude/create-auth-token for auth injection to work
+- Claude auth token is auto-provisioned via `claude setup-token` if not present; token stored in `~/.claude/.devagent-claude-token` (XDG-aware)
 - Sidecar ParentRef is project path hash (12 chars), not container ID
-- Proxy health check waits for port 8080 to be listening (30s timeout)
+- Proxy health check waits for container to be running (30s timeout)
 - Network names follow pattern: devagent-{hash}-net; proxy names: devagent-{hash}-proxy

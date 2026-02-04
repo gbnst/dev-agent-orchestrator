@@ -33,11 +33,11 @@ func GenerateContainerActions(c *container.Container, runtimePath string) []Acti
 		},
 		{
 			Label:   "Create tmux session (named)",
-			Command: fmt.Sprintf("%s exec -it -u %s %s tmux new-session -s mysession", runtimePath, user, c.Name),
+			Command: fmt.Sprintf("%s exec -it -u %s %s tmux -u new-session -s mysession", runtimePath, user, c.Name),
 		},
 		{
 			Label:   "Create tmux session (auto)",
-			Command: fmt.Sprintf("%s exec -it -u %s %s tmux new-session", runtimePath, user, c.Name),
+			Command: fmt.Sprintf("%s exec -it -u %s %s tmux -u new-session", runtimePath, user, c.Name),
 		},
 		{
 			Label:   "Interactive shell",

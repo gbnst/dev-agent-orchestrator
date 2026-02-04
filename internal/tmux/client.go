@@ -113,7 +113,7 @@ func (c *Client) parseSessionLine(containerID, line string) Session {
 func (c *Client) CreateSession(ctx context.Context, containerID, name string) error {
 	c.logger.Info("creating tmux session", "containerID", containerID, "session", name)
 
-	_, err := c.exec(ctx, containerID, []string{"tmux", "new-session", "-d", "-s", name})
+	_, err := c.exec(ctx, containerID, []string{"tmux", "-u", "new-session", "-d", "-s", name})
 	if err != nil {
 		c.logger.Error("failed to create session", "containerID", containerID, "session", name, "error", err)
 		return err

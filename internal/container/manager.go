@@ -333,9 +333,7 @@ func (m *Manager) createProxySidecar(ctx context.Context, projectPath string, ne
 
 	// Wait for proxy to be ready (health check)
 	if err := m.waitForProxyReady(ctx, sidecarID, 30*time.Second); err != nil {
-		m.runtime.StopContainer(ctx, sidecarID)       //nolint:errcheck
-		m.runtime.RemoveContainer(ctx, sidecarID)     //nolint:errcheck
-		m.runtime.RemoveNetwork(ctx, networkName)      //nolint:errcheck
+		m.cleanupFailedSidecar(ctx, sidecarID, networkName)
 		return nil, "", fmt.Errorf("proxy failed to become ready: %w", err)
 	}
 
@@ -351,20 +349,14 @@ func (m *Manager) createProxySidecar(ctx context.Context, projectPath string, ne
 	return sidecar, hashStr, nil
 }
 
-// waitForProxyReady waits for the mitmproxy container to be running and accepting connections.
+// waitForProxyReady waits for the mitmproxy container to be running.
 func (m *Manager) waitForProxyReady(ctx context.Context, containerID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
 		state, err := m.runtime.InspectContainer(ctx, containerID)
 		if err == nil && state == StateRunning {
-			// Container is running, verify port 8080 is listening
-			// Use nc (netcat) to check if the port is accepting connections
-			_, err := m.runtime.Exec(ctx, containerID, []string{"nc", "-z", "localhost", "8080"})
-			if err == nil {
-				return nil
-			}
-			// Port not ready yet, continue waiting
+			return nil
 		}
 
 		select {
@@ -376,6 +368,40 @@ func (m *Manager) waitForProxyReady(ctx context.Context, containerID string, tim
 	}
 
 	return fmt.Errorf("timeout waiting for proxy to be ready after %v", timeout)
+}
+
+// cleanupFailedSidecar cleans up a sidecar that failed during creation.
+// It stops the container, waits for it to be removed, then removes the network.
+func (m *Manager) cleanupFailedSidecar(ctx context.Context, containerID, networkName string) {
+	m.logger.Info("cleaning up failed sidecar", "containerID", containerID, "network", networkName)
+
+	// Stop the container
+	if err := m.runtime.StopContainer(ctx, containerID); err != nil {
+		m.logger.Warn("failed to stop sidecar during cleanup", "error", err)
+	}
+
+	// Remove the container and wait for it to be gone
+	if err := m.runtime.RemoveContainer(ctx, containerID); err != nil {
+		m.logger.Warn("failed to remove sidecar during cleanup", "error", err)
+	}
+
+	// Wait for container to be fully removed before removing network
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		_, err := m.runtime.InspectContainer(ctx, containerID)
+		if err != nil {
+			// Container is gone, safe to remove network
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Remove the network
+	if networkName != "" {
+		if err := m.runtime.RemoveNetwork(ctx, networkName); err != nil {
+			m.logger.Warn("failed to remove network during cleanup", "error", err)
+		}
+	}
 }
 
 // destroySidecar stops and removes a sidecar container and its network.
@@ -740,7 +766,7 @@ func (m *Manager) CreateSession(ctx context.Context, containerID, sessionName st
 	scopedLogger.Info("creating tmux session")
 
 	user := m.getContainerUser(containerID)
-	_, err := m.runtime.ExecAs(ctx, containerID, user, []string{"tmux", "new-session", "-d", "-s", sessionName})
+	_, err := m.runtime.ExecAs(ctx, containerID, user, []string{"tmux", "-u", "new-session", "-d", "-s", sessionName})
 	if err != nil {
 		scopedLogger.Error("failed to create session", "error", err)
 		return err

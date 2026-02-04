@@ -807,25 +807,21 @@ func (m Model) createContainerWithProgress() tea.Cmd {
 			},
 		})
 
-		// Send completion message
-		select {
-		case progressChan <- formProgressMsg{step: container.ProgressStep{
-			Step:   "done",
-			Status: "completed",
-		}}:
-		default:
-		}
-
-		// Close channel and send done message through it
-		// We use a special "done" step to signal completion
-		_ = err // Error will be sent via the done message
-		// Store error for the done message
+		// Send completion or error message (mutually exclusive)
 		if err != nil {
 			select {
 			case progressChan <- formProgressMsg{step: container.ProgressStep{
 				Step:    "error",
 				Status:  "failed",
 				Message: err.Error(),
+			}}:
+			default:
+			}
+		} else {
+			select {
+			case progressChan <- formProgressMsg{step: container.ProgressStep{
+				Step:   "done",
+				Status: "completed",
 			}}:
 			default:
 			}

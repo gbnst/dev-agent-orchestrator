@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,15 @@ import (
 
 	"devagent/internal/config"
 )
+
+// TestMain sets up the test environment, including mocking claude setup-token
+func TestMain(m *testing.M) {
+	// Mock claude setup-token to prevent it from opening browser auth flows
+	claudeSetupTokenFunc = func() (string, error) {
+		return "", errors.New("claude CLI not available in tests")
+	}
+	os.Exit(m.Run())
+}
 
 func TestGenerate_TemplateNotFound(t *testing.T) {
 	cfg := &config.Config{}
@@ -491,23 +501,29 @@ func TestGenerate_AddsClaudeMount(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	// Should have exactly one mount for .claude directory
-	if len(result.Config.Mounts) != 1 {
-		t.Fatalf("Expected 1 mount, got %d", len(result.Config.Mounts))
+	// Should have at least one mount for .claude directory
+	if len(result.Config.Mounts) < 1 {
+		t.Fatalf("Expected at least 1 mount, got %d", len(result.Config.Mounts))
 	}
 
-	mount := result.Config.Mounts[0]
-	// Mount should target /home/vscode/.claude
-	if !strings.Contains(mount, "target=/home/vscode/.claude") {
-		t.Errorf("Mount should target /home/vscode/.claude, got: %s", mount)
+	// Find the .claude mount
+	var claudeMount string
+	for _, mount := range result.Config.Mounts {
+		if strings.Contains(mount, "target=/home/vscode/.claude") {
+			claudeMount = mount
+			break
+		}
+	}
+	if claudeMount == "" {
+		t.Fatalf("Expected .claude mount not found in: %v", result.Config.Mounts)
 	}
 	// Mount should be a bind type
-	if !strings.Contains(mount, "type=bind") {
-		t.Errorf("Mount should be type=bind, got: %s", mount)
+	if !strings.Contains(claudeMount, "type=bind") {
+		t.Errorf("Mount should be type=bind, got: %s", claudeMount)
 	}
 	// Source should be in devagent data directory
-	if !strings.Contains(mount, "source=") {
-		t.Errorf("Mount should have source, got: %s", mount)
+	if !strings.Contains(claudeMount, "source=") {
+		t.Errorf("Mount should have source, got: %s", claudeMount)
 	}
 }
 
@@ -530,14 +546,16 @@ func TestGenerate_ClaudeMountUsesRemoteUser(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if len(result.Config.Mounts) != 1 {
-		t.Fatalf("Expected 1 mount, got %d", len(result.Config.Mounts))
+	// Find the .claude mount with custom remoteUser
+	var claudeMount string
+	for _, mount := range result.Config.Mounts {
+		if strings.Contains(mount, "target=/home/developer/.claude") {
+			claudeMount = mount
+			break
+		}
 	}
-
-	mount := result.Config.Mounts[0]
-	// Mount should target /home/developer/.claude (custom remoteUser)
-	if !strings.Contains(mount, "target=/home/developer/.claude") {
-		t.Errorf("Mount should target /home/developer/.claude, got: %s", mount)
+	if claudeMount == "" {
+		t.Fatalf("Expected .claude mount for developer user not found in: %v", result.Config.Mounts)
 	}
 }
 
@@ -559,9 +577,11 @@ func TestGenerate_NoClaudeMountWithoutProjectPath(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	// Should have no mounts when no project path
-	if len(result.Config.Mounts) != 0 {
-		t.Errorf("Expected 0 mounts without project path, got %d", len(result.Config.Mounts))
+	// Should have no .claude mount when no project path (may have token mount)
+	for _, mount := range result.Config.Mounts {
+		if strings.Contains(mount, "target=/home/vscode/.claude") {
+			t.Errorf("Should not have .claude mount without project path, got: %s", mount)
+		}
 	}
 }
 
@@ -1198,5 +1218,179 @@ func TestGenerate_TemplateWithAllowlistExtend(t *testing.T) {
 	}
 	if !hasExtended {
 		t.Error("allowlist should include extended domain custom.example.com")
+	}
+}
+
+func TestGetClaudeConfigDir_Default(t *testing.T) {
+	// Clear XDG_CONFIG_HOME to test default behavior
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	dir := getClaudeConfigDir()
+
+	// Should return ~/.claude
+	home, _ := os.UserHomeDir()
+	expected := filepath.Join(home, ".claude")
+	if dir != expected {
+		t.Errorf("getClaudeConfigDir() = %q, want %q", dir, expected)
+	}
+}
+
+func TestGetClaudeConfigDir_XDGOverride(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/custom/config")
+
+	dir := getClaudeConfigDir()
+
+	expected := "/custom/config/claude"
+	if dir != expected {
+		t.Errorf("getClaudeConfigDir() = %q, want %q", dir, expected)
+	}
+}
+
+func TestEnsureClaudeToken_ExistingToken(t *testing.T) {
+	// Create a temp directory with a token file
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Create claude dir and token file
+	claudeDir := filepath.Join(tmpDir, "claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create claude dir: %v", err)
+	}
+
+	tokenPath := filepath.Join(claudeDir, ".devagent-claude-token")
+	expectedToken := "test-oauth-token-12345"
+	if err := os.WriteFile(tokenPath, []byte(expectedToken), 0600); err != nil {
+		t.Fatalf("Failed to write token: %v", err)
+	}
+
+	// Call ensureClaudeToken - should read existing token
+	gotPath, gotToken := ensureClaudeToken()
+
+	if gotPath != tokenPath {
+		t.Errorf("ensureClaudeToken() path = %q, want %q", gotPath, tokenPath)
+	}
+	if gotToken != expectedToken {
+		t.Errorf("ensureClaudeToken() token = %q, want %q", gotToken, expectedToken)
+	}
+}
+
+func TestEnsureClaudeToken_TokenWithWhitespace(t *testing.T) {
+	// Test that token is trimmed of whitespace
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	claudeDir := filepath.Join(tmpDir, "claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create claude dir: %v", err)
+	}
+
+	tokenPath := filepath.Join(claudeDir, ".devagent-claude-token")
+	// Write token with trailing newline
+	if err := os.WriteFile(tokenPath, []byte("test-token\n"), 0600); err != nil {
+		t.Fatalf("Failed to write token: %v", err)
+	}
+
+	gotPath, gotToken := ensureClaudeToken()
+
+	if gotPath != tokenPath {
+		t.Errorf("ensureClaudeToken() path = %q, want %q", gotPath, tokenPath)
+	}
+	// Token should be trimmed
+	if gotToken != "test-token" {
+		t.Errorf("ensureClaudeToken() token = %q, want %q", gotToken, "test-token")
+	}
+}
+
+func TestGenerate_AddsClaudeTokenMount(t *testing.T) {
+	// Create temp directory with token
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	t.Setenv("XDG_DATA_HOME", tmpDir) // For claude config dir
+
+	// Create claude dir and token file
+	claudeDir := filepath.Join(tmpDir, "claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create claude dir: %v", err)
+	}
+	tokenPath := filepath.Join(claudeDir, ".devagent-claude-token")
+	if err := os.WriteFile(tokenPath, []byte("test-token"), 0600); err != nil {
+		t.Fatalf("Failed to write token: %v", err)
+	}
+
+	templates := []config.Template{
+		{
+			Name:  "test-template",
+			Image: "ubuntu:22.04",
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template:    "test-template",
+		Name:        "test-container",
+		ProjectPath: "/test/project",
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Verify token mount was added
+	foundTokenMount := false
+	for _, mount := range result.Config.Mounts {
+		if strings.Contains(mount, "/run/secrets/claude-token") && strings.Contains(mount, "readonly") {
+			foundTokenMount = true
+			break
+		}
+	}
+	if !foundTokenMount {
+		t.Errorf("token mount not found in Mounts: %v", result.Config.Mounts)
+	}
+}
+
+func TestGenerate_NoClaudeTokenEnvInContainerEnv(t *testing.T) {
+	// Verify CLAUDE_CODE_OAUTH_TOKEN is NOT in containerEnv anymore
+	// (it's now injected via shell profile from mounted file)
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+
+	// Create claude dir and token file
+	claudeDir := filepath.Join(tmpDir, "claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("Failed to create claude dir: %v", err)
+	}
+	tokenPath := filepath.Join(claudeDir, ".devagent-claude-token")
+	if err := os.WriteFile(tokenPath, []byte("test-token"), 0600); err != nil {
+		t.Fatalf("Failed to write token: %v", err)
+	}
+
+	templates := []config.Template{
+		{
+			Name:  "test-template",
+			Image: "ubuntu:22.04",
+		},
+	}
+
+	cfg := &config.Config{
+		Runtime: "docker",
+	}
+
+	gen := NewDevcontainerGenerator(cfg, templates)
+	result, err := gen.Generate(CreateOptions{
+		Template:    "test-template",
+		Name:        "test-container",
+		ProjectPath: "/test/project",
+	})
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Verify CLAUDE_CODE_OAUTH_TOKEN is NOT in containerEnv
+	if _, ok := result.Config.ContainerEnv["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
+		t.Error("CLAUDE_CODE_OAUTH_TOKEN should not be in containerEnv (now uses mounted file)")
 	}
 }

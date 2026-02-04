@@ -127,8 +127,8 @@ func TestClient_CreateSession(t *testing.T) {
 		t.Errorf("containerID = %q, want %q", call.containerID, "container1")
 	}
 
-	// Should call: tmux new-session -d -s dev
-	expectedCmd := []string{"tmux", "new-session", "-d", "-s", "dev"}
+	// Should call: tmux -u new-session -d -s dev
+	expectedCmd := []string{"tmux", "-u", "new-session", "-d", "-s", "dev"}
 	if len(call.cmd) != len(expectedCmd) {
 		t.Fatalf("cmd = %v, want %v", call.cmd, expectedCmd)
 	}

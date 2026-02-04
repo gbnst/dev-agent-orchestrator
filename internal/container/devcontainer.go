@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -44,6 +45,67 @@ func ensureClaudeDir(projectPath string) (string, error) {
 		return "", fmt.Errorf("failed to create claude config directory: %w", err)
 	}
 	return dir, nil
+}
+
+// getClaudeConfigDir returns the XDG-compliant Claude config directory.
+// Uses $XDG_CONFIG_HOME/claude or ~/.claude as fallback.
+func getClaudeConfigDir() string {
+	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
+		return filepath.Join(xdgConfig, "claude")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".claude")
+	}
+	return filepath.Join(home, ".claude")
+}
+
+// claudeSetupTokenFunc is the function used to run claude setup-token.
+// It's a package-level variable so tests can override it.
+var claudeSetupTokenFunc = func() (string, error) {
+	cmd := exec.Command("claude", "setup-token")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
+// ensureClaudeToken ensures a Claude OAuth token exists for devagent use.
+// Returns the token file path and token content, or empty strings on error.
+// Errors are non-blocking - logged but don't prevent container creation.
+func ensureClaudeToken() (tokenPath string, token string) {
+	claudeDir := getClaudeConfigDir()
+	tokenPath = filepath.Join(claudeDir, ".devagent-claude-token")
+
+	// Check if token file already exists
+	if data, err := os.ReadFile(tokenPath); err == nil {
+		return tokenPath, strings.TrimSpace(string(data))
+	}
+
+	// Token doesn't exist, try to create it via claude setup-token
+	output, err := claudeSetupTokenFunc()
+	if err != nil {
+		// Non-blocking: log would go here, but we just return empty
+		return "", ""
+	}
+
+	token = strings.TrimSpace(output)
+	if token == "" {
+		return "", ""
+	}
+
+	// Ensure claude config directory exists
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		return "", ""
+	}
+
+	// Save token to file
+	if err := os.WriteFile(tokenPath, []byte(token), 0600); err != nil {
+		return "", ""
+	}
+
+	return tokenPath, token
 }
 
 // copyClaudeTemplateFiles copies files from template's home/vscode/.claude/ to the claude config dir.
@@ -92,23 +154,6 @@ func copyClaudeTemplateFiles(templatePath, claudeDir string) error {
 		// Copy the file
 		return copyFile(path, destPath)
 	})
-}
-
-// readClaudeAuthToken reads ~/.claude/create-auth-token and returns the token.
-// Returns empty string if the file doesn't exist or can't be read.
-func readClaudeAuthToken() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-
-	tokenPath := filepath.Join(home, ".claude", "create-auth-token")
-	tokenData, err := os.ReadFile(tokenPath)
-	if err != nil {
-		return ""
-	}
-
-	return strings.TrimSpace(string(tokenData))
 }
 
 // DevcontainerGenerator creates devcontainer.json configurations.
@@ -249,11 +294,6 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 		}
 	}
 
-	// Inject Claude auth token from ~/.claude/create-auth-token
-	if token := readClaudeAuthToken(); token != "" {
-		dc.ContainerEnv["CLAUDE_CODE_OAUTH_TOKEN"] = token
-	}
-
 	// Set IS_DEMO to skip onboarding prompts
 	dc.ContainerEnv["IS_DEMO"] = "1"
 
@@ -347,6 +387,13 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 		// Format: source=<host-path>,target=<container-path>,type=bind
 		mount := fmt.Sprintf("source=%s,target=/home/%s/.claude,type=bind", claudeDir, remoteUser)
 		dc.Mounts = append(dc.Mounts, mount)
+	}
+
+	// Add mount for Claude OAuth token (if available)
+	// Token is provisioned via 'claude setup-token' if not already present
+	if tokenPath, _ := ensureClaudeToken(); tokenPath != "" {
+		tokenMount := fmt.Sprintf("source=%s,target=/run/secrets/claude-token,type=bind,readonly", tokenPath)
+		dc.Mounts = append(dc.Mounts, tokenMount)
 	}
 
 	// Add proxy certificate mount if network isolation is enabled
