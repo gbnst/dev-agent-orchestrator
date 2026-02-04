@@ -28,8 +28,10 @@ type Session struct {
 
 // AttachCommand returns the command to attach to this session.
 // The user parameter specifies which user to exec as (typically "vscode").
+// Includes -e flags for TERM/COLORTERM since docker exec inherits TERM=dumb by default,
+// and -u flag for tmux to enable UTF-8 support.
 func (s Session) AttachCommand(runtime string, user string) string {
-	return fmt.Sprintf("%s exec -it -u %s %s tmux attach -t %s", runtime, user, s.ContainerID, s.Name)
+	return fmt.Sprintf("%s exec -it -u %s -e TERM=xterm-256color -e COLORTERM=truecolor %s tmux -u attach -t %s", runtime, user, s.ContainerID, s.Name)
 }
 
 // Container represents a devagent-managed container.

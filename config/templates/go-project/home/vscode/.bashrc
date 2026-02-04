@@ -1,6 +1,8 @@
 # ~/.bashrc: executed by bash for non-login shells
 
 # UTF-8 and color support (required for proper terminal rendering)
+# Fix TERM=dumb inherited from docker exec without -e TERM=...
+[ "$TERM" = "dumb" ] && export TERM=xterm-256color
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
 export COLORTERM=truecolor
