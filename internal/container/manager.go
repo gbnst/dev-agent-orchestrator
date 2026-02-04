@@ -43,6 +43,7 @@ type Manager struct {
 	containers  map[string]*Container
 	sidecars    map[string]*Sidecar // Maps sidecar container ID to Sidecar
 	logger      *logging.ScopedLogger
+	logManager  interface{ For(string) *logging.ScopedLogger } // for per-container loggers
 }
 
 // NewManager creates a new Manager with the given config and templates.
@@ -106,6 +107,7 @@ func NewManagerWithRuntimeAndLogger(runtime RuntimeInterface, logManager interfa
 		containers: make(map[string]*Container),
 		sidecars:   make(map[string]*Sidecar),
 		logger:     logger,
+		logManager: logManager,
 	}
 }
 
@@ -138,6 +140,7 @@ func NewManagerWithConfigAndLogger(cfg *config.Config, templates []config.Templa
 		containers:  make(map[string]*Container),
 		sidecars:    make(map[string]*Sidecar),
 		logger:      logger,
+		logManager:  logManager,
 	}
 }
 
@@ -175,6 +178,15 @@ func (m *Manager) List() []*Container {
 		result = append(result, c)
 	}
 	return result
+}
+
+// containerLogger returns a logger scoped to a specific container.
+// Falls back to base "container" scope if name is empty or logManager is nil.
+func (m *Manager) containerLogger(name string) *logging.ScopedLogger {
+	if name == "" || m.logManager == nil {
+		return m.logger
+	}
+	return m.logManager.For("container." + name)
 }
 
 // refreshSidecars populates the sidecars map from container labels.
@@ -531,7 +543,7 @@ func reportProgress(opts CreateOptions, step ProgressStep) {
 
 // Create generates a devcontainer.json and starts a new container.
 func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Container, error) {
-	scopedLogger := m.logger.With("projectPath", opts.ProjectPath, "template", opts.Template, "name", opts.Name)
+	scopedLogger := m.containerLogger(opts.Name).With("projectPath", opts.ProjectPath, "template", opts.Template)
 	scopedLogger.Info("creating container")
 
 	if m.generator == nil {
@@ -662,14 +674,14 @@ func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Container, e
 
 // Start starts a stopped container.
 func (m *Manager) Start(ctx context.Context, id string) error {
-	scopedLogger := m.logger.With("containerID", id)
-	scopedLogger.Info("starting container")
-
 	c, ok := m.containers[id]
 	if !ok {
-		scopedLogger.Error("failed to start container", "error", "container not found")
+		m.logger.Error("failed to start container", "containerID", id, "error", "container not found")
 		return errors.New("container not found: " + id)
 	}
+
+	scopedLogger := m.containerLogger(c.Name).With("containerID", id)
+	scopedLogger.Info("starting container")
 
 	// Start sidecars first (using project path from container labels)
 	if projectPath := c.ProjectPath; projectPath != "" {
@@ -691,14 +703,14 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 
 // Stop stops a running container.
 func (m *Manager) Stop(ctx context.Context, id string) error {
-	scopedLogger := m.logger.With("containerID", id)
-	scopedLogger.Info("stopping container")
-
 	c, ok := m.containers[id]
 	if !ok {
-		scopedLogger.Error("failed to stop container", "error", "container not found")
+		m.logger.Error("failed to stop container", "containerID", id, "error", "container not found")
 		return errors.New("container not found: " + id)
 	}
+
+	scopedLogger := m.containerLogger(c.Name).With("containerID", id)
+	scopedLogger.Info("stopping container")
 
 	if err := m.runtime.StopContainer(ctx, c.ID); err != nil {
 		scopedLogger.Error("failed to stop container", "error", err)
@@ -718,14 +730,14 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 
 // Destroy stops (if running) and removes a container.
 func (m *Manager) Destroy(ctx context.Context, id string) error {
-	scopedLogger := m.logger.With("containerID", id)
-	scopedLogger.Info("destroying container")
-
 	c, ok := m.containers[id]
 	if !ok {
-		scopedLogger.Error("failed to destroy container", "error", "container not found")
+		m.logger.Error("failed to destroy container", "containerID", id, "error", "container not found")
 		return errors.New("container not found: " + id)
 	}
+
+	scopedLogger := m.containerLogger(c.Name).With("containerID", id)
+	scopedLogger.Info("destroying container")
 
 	// Stop first if running
 	if c.State == StateRunning {
@@ -760,9 +772,18 @@ func (m *Manager) getContainerUser(containerID string) string {
 	return DefaultRemoteUser
 }
 
+// getContainerName returns the name of a container by ID, or empty string if not found.
+func (m *Manager) getContainerName(containerID string) string {
+	if c, ok := m.containers[containerID]; ok {
+		return c.Name
+	}
+	return ""
+}
+
 // CreateSession creates a tmux session inside a container.
 func (m *Manager) CreateSession(ctx context.Context, containerID, sessionName string) error {
-	scopedLogger := m.logger.With("containerID", containerID, "session", sessionName)
+	containerName := m.getContainerName(containerID)
+	scopedLogger := m.containerLogger(containerName).With("containerID", containerID, "session", sessionName)
 	scopedLogger.Info("creating tmux session")
 
 	user := m.getContainerUser(containerID)
@@ -778,7 +799,8 @@ func (m *Manager) CreateSession(ctx context.Context, containerID, sessionName st
 
 // KillSession destroys a tmux session inside a container.
 func (m *Manager) KillSession(ctx context.Context, containerID, sessionName string) error {
-	scopedLogger := m.logger.With("containerID", containerID, "session", sessionName)
+	containerName := m.getContainerName(containerID)
+	scopedLogger := m.containerLogger(containerName).With("containerID", containerID, "session", sessionName)
 	scopedLogger.Info("killing tmux session")
 
 	user := m.getContainerUser(containerID)
@@ -794,7 +816,8 @@ func (m *Manager) KillSession(ctx context.Context, containerID, sessionName stri
 
 // ListSessions lists tmux sessions inside a container.
 func (m *Manager) ListSessions(ctx context.Context, containerID string) ([]Session, error) {
-	scopedLogger := m.logger.With("containerID", containerID)
+	containerName := m.getContainerName(containerID)
+	scopedLogger := m.containerLogger(containerName).With("containerID", containerID)
 	scopedLogger.Debug("listing tmux sessions")
 
 	user := m.getContainerUser(containerID)

@@ -530,8 +530,8 @@ func (m Model) filteredLogEntries() []logging.LogEntry {
 }
 
 // setLogFilterFromContext sets the log filter based on current UI state.
-// Filter scopes match the logger scopes used by the container and tmux
-// packages: "container" for all container operations, "tmux" for sessions.
+// Filter scopes match the logger scopes used by the container package:
+// "container.<name>" for container-specific operations.
 func (m *Model) setLogFilterFromContext() {
 	if m.selectedContainer == nil {
 		m.logFilter = ""
@@ -539,20 +539,8 @@ func (m *Model) setLogFilterFromContext() {
 		return
 	}
 
-	// Check if we're on a session item in the tree
-	if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
-		item := m.treeItems[m.selectedIdx]
-		if item.Type == TreeItemSession {
-			if session := m.SelectedSession(); session != nil {
-				m.logFilter = "tmux"
-				m.logFilterLabel = fmt.Sprintf("%s > %s", m.selectedContainer.Name, session.Name)
-				return
-			}
-		}
-	}
-
-	// Default to container filter
-	m.logFilter = "container"
+	// Filter by container-specific scope
+	m.logFilter = "container." + m.selectedContainer.Name
 	m.logFilterLabel = m.selectedContainer.Name
 }
 

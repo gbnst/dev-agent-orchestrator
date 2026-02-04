@@ -155,8 +155,8 @@ func TestSetLogFilterFromContext_ContainerSelected(t *testing.T) {
 
 	m.setLogFilterFromContext()
 
-	if m.logFilter != "container" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container")
+	if m.logFilter != "container.test-container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test-container")
 	}
 	if m.logFilterLabel != "test-container" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")
@@ -183,11 +183,12 @@ func TestSetLogFilterFromContext_SessionSelected(t *testing.T) {
 
 	m.setLogFilterFromContext()
 
-	if m.logFilter != "tmux" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "tmux")
+	// With per-container scopes, even sessions filter by container name
+	if m.logFilter != "container.test-container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test-container")
 	}
-	if m.logFilterLabel != "test-container > dev" {
-		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container > dev")
+	if m.logFilterLabel != "test-container" {
+		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")
 	}
 }
 
@@ -202,8 +203,8 @@ func TestSetLogFilterFromContext_ContainerWithoutSessions(t *testing.T) {
 
 	m.setLogFilterFromContext()
 
-	if m.logFilter != "container" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container")
+	if m.logFilter != "container.test-container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test-container")
 	}
 	if m.logFilterLabel != "test-container" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")
@@ -219,8 +220,8 @@ func TestSetLogFilterFromContext_ShortContainerID(t *testing.T) {
 
 	m.setLogFilterFromContext()
 
-	if m.logFilter != "container" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container")
+	if m.logFilter != "container.test-container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test-container")
 	}
 	if m.logFilterLabel != "test-container" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")

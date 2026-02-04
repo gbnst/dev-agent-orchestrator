@@ -85,8 +85,14 @@ func TestGenerateContainerActions_ContainsExpectedActions(t *testing.T) {
 	if !strings.Contains(actions[1].Command, "tmux -u new-session -s mysession") {
 		t.Errorf("named session command missing -u flag or session name: %s", actions[1].Command)
 	}
+	if !strings.Contains(actions[1].Command, "-e TERM=xterm-256color") {
+		t.Errorf("named session command missing TERM env: %s", actions[1].Command)
+	}
 	if !strings.Contains(actions[2].Command, "tmux -u new-session") || strings.Contains(actions[2].Command, "-s ") {
 		t.Errorf("auto session command should have -u flag but not session name: %s", actions[2].Command)
+	}
+	if !strings.Contains(actions[2].Command, "-e COLORTERM=truecolor") {
+		t.Errorf("auto session command missing COLORTERM env: %s", actions[2].Command)
 	}
 	if !strings.Contains(actions[3].Command, "/bin/bash") {
 		t.Errorf("interactive shell command missing: %s", actions[3].Command)

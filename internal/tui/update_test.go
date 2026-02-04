@@ -225,8 +225,8 @@ func TestLogFilter_SyncsOnTreeNavigation(t *testing.T) {
 	// syncSelectionFromTree now syncs the log filter
 	m.syncSelectionFromTree()
 
-	if m.logFilter != "container" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container")
+	if m.logFilter != "container.test" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test")
 	}
 	if m.logFilterLabel != "test" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test")
@@ -328,8 +328,8 @@ func TestSetError_SetsLogFilter(t *testing.T) {
 
 	m.setError("test failed", fmt.Errorf("test error"))
 
-	if m.logFilter != "container" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container")
+	if m.logFilter != "container.test" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test")
 	}
 	if m.logFilterLabel != "test" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test")
