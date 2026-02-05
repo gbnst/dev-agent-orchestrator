@@ -1,23 +1,25 @@
 # Container Domain
 
-Last verified: 2026-02-04
+Last verified: 2026-02-05
 
 ## Purpose
-Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker or Podman, and tmux session management within containers. Manages per-container Claude Code configuration including auth token injection and persistent settings. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking.
+Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker or Podman, and tmux session management within containers. Supports two orchestration modes: direct Docker API calls (legacy) and Docker Compose (preferred for network isolation). Manages per-container Claude Code configuration including auth token injection and persistent settings. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking.
 
 ## Contracts
-- **Exposes**: `Manager`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ProxyConfig`, `RunContainerOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`
-- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Claude config directories persist across container recreations. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via postCreateCommand. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers.
-- **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation.
+- **Exposes**: `Manager`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `ProcessDevcontainerTemplate`
+- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Claude config directories persist across container recreations. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via postCreateCommand. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network.
+- **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation. For compose mode: docker-compose or podman-compose available.
 
 ## Dependencies
-- **Uses**: config.Config, config.IsolationConfig, config.DefaultIsolation, logging.Manager (optional), @devcontainers/cli (external), mitmproxy/mitmproxy (external image)
+- **Uses**: config.Config, config.Template, logging.Manager (optional), @devcontainers/cli (external), mitmproxy/mitmproxy (external image)
 - **Used by**: TUI (Model), main.go
 - **Boundary**: Container operations only; no UI concerns
 
 ## Key Decisions
-- RuntimeInterface abstraction: Enables mock testing without real containers; includes network ops (CreateNetwork, RemoveNetwork, RunContainer)
-- Devcontainer CLI for creation: Handles complex setup (features, mounts, env)
+- RuntimeInterface abstraction: Enables mock testing without real containers; includes network ops (CreateNetwork, RemoveNetwork, RunContainer) and compose lifecycle ops (ComposeUp, ComposeStart, ComposeStop, ComposeDown)
+- Devcontainer CLI for creation: Handles complex setup (features, mounts, env); supports both image-based and dockerComposeFile modes
+- Compose orchestration: When CreateOptions.UseCompose is true, generates docker-compose.yml with app service (devcontainer) + proxy service (mitmproxy) in isolated network; uses devcontainer CLI's dockerComposeFile property
+- Compose file generation: ComposeGenerator processes docker-compose.yml.tmpl and filter.py.tmpl via processFilterTemplate(); Dockerfile.proxy is loaded as static file; filter.py.tmpl is embedded in template directories; DevcontainerGenerator.WriteAll() writes all files to .devcontainer/
 - Labels for metadata: devagent.managed, devagent.project_path, devagent.template, devagent.remote_user, devagent.sidecar_of, devagent.sidecar_type
 - RemoteUser defaults to "vscode" per devcontainer spec; all exec operations use ExecAs with this user
 - Per-project Claude config: Each container gets a unique .claude directory (hashed by project path) mounted from ~/.local/share/devagent/claude-configs/
@@ -25,8 +27,8 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Token injection via bind mount: Token file mounted read-only to `/run/secrets/claude-token`, shell profiles export CLAUDE_CODE_OAUTH_TOKEN from mounted file (not via containerEnv)
 - Template claude files: Copied from template's home/vscode/.claude/ to container's claude dir on creation (won't overwrite existing)
 - Sidecar architecture: Proxy sidecars use project path hash as ParentRef (not container ID) because sidecar is created before devcontainer exists
-- Network isolation via mitmproxy: Filter script (allowlist) and --ignore-hosts (passthrough) control traffic; CA cert mounted and installed in devcontainer
-- GitHub PR merge blocking: When BlockGitHubPRMerge enabled, filter script blocks PUT to /repos/.*/pulls/\d+/merge and POST /graphql with mergePullRequest
+- Network isolation via mitmproxy: Proxy command is static (no `--ignore-hosts` flag); filter.py.tmpl (from template) controls traffic with hardcoded allowlist and passthrough domains via the filter script's `load()` hook using `ctx.options.ignore_hosts`; CA cert mounted and installed in devcontainer via CertInstallCommand in postCreateCommand
+- GitHub PR merge blocking: When BLOCK_GITHUB_PR_MERGE enabled in filter.py.tmpl, filter script blocks PUT to /repos/.*/pulls/\d+/merge and POST /graphql with mergePullRequest
 - Proxy environment variables: http_proxy, https_proxy, and cert paths (REQUESTS_CA_BUNDLE, NODE_EXTRA_CA_CERTS, SSL_CERT_FILE) auto-injected when isolation enabled
 
 ## Invariants
@@ -39,11 +41,12 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Network and proxy configs cleaned up only on Destroy (not Stop)
 
 ## Key Files
-- `manager.go` - Manager struct, lifecycle operations, session management, sidecar lifecycle (createProxySidecar, destroySidecar, etc.), GetContainerIsolationInfo()
-- `runtime.go` - RuntimeInterface impl for Docker/Podman CLI, ExecAs for user-specific commands, CreateNetwork, RemoveNetwork, RunContainer, InspectContainer(), GetIsolationInfo()
-- `devcontainer.go` - DevcontainerGenerator, DevcontainerCLI, Claude config management, proxy env injection, CA cert mount
-- `proxy.go` - Mitmproxy filter script generation (GenerateFilterScript with allowlist and blockGitHubPRMerge), passthrough patterns (GenerateIgnoreHostsPattern), proxy config/cert directory management, ReadAllowlistFromFilterScript()
-- `types.go` - Container, Session, Sidecar, CreateOptions, ProxyConfig, RunContainerOptions, IsolationInfo, ProgressStep, ProgressCallback, state constants, label constants
+- `manager.go` - Manager struct, lifecycle operations (Create/Start/Stop/Destroy and WithCompose variants), session management, sidecar lifecycle, GetContainerIsolationInfo(), IsComposeContainer()
+- `runtime.go` - RuntimeInterface impl for Docker/Podman CLI, ExecAs for user-specific commands, CreateNetwork, RemoveNetwork, RunContainer, InspectContainer(), GetIsolationInfo(), ComposeUp/Start/Stop/Down
+- `compose.go` - ComposeGenerator with processFilterTemplate() and processComposeTemplate(), TemplateData (ProjectHash, ProjectPath, ProjectName, WorkspaceFolder, ClaudeConfigDir, TemplateName, ContainerName, CertInstallCommand), ComposeResult, ComposeOptions; processes docker-compose.yml.tmpl and filter.py.tmpl for compose-based orchestration
+- `devcontainer.go` - DevcontainerGenerator, GenerateResult, DevcontainerCLI, ProcessDevcontainerTemplate; Claude config management, proxy env injection, CA cert mount; WriteComposeFiles(), WriteAll()
+- `proxy.go` - Mitmproxy utility functions: proxy config/cert directory management (GetProxyConfigDir, GetProxyCertDir, GetProxyCACertPath, ProxyCertExists), allowlist parsing from filter script (ReadAllowlistFromFilterScript, parseAllowlistFromScript), CleanupProxyConfigs
+- `types.go` - Container, Session, Sidecar, CreateOptions (UseCompose flag), IsolationInfo, DevcontainerJSON (DockerComposeFile, Service, RemoteUser fields), BuildConfig, ProgressStep, ProgressCallback, state constants, label constants
 
 ## Gotchas
 - Container IDs may be truncated; Create() does prefix matching on refresh
@@ -54,3 +57,8 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Sidecar ParentRef is project path hash (12 chars), not container ID
 - Proxy health check waits for container to be running (30s timeout)
 - Network names follow pattern: devagent-{hash}-net; proxy names: devagent-{hash}-proxy
+- Compose mode: workspace mount IS in docker-compose.yml (devcontainer CLI doesn't auto-mount in compose mode)
+- Compose mode requires templates to define isolation config (no hardcoded defaults)
+- Podman + dockerComposeFile: Known devcontainer CLI bug #863; see docs/PODMAN.md for workarounds
+- IsComposeContainer() checks for docker-compose.yml existence in project's .devcontainer/ directory
+- filter.py.tmpl is processed as a Go template via processFilterTemplate() but currently has no Go template placeholders (all config is hardcoded in the template)

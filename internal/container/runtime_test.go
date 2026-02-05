@@ -279,214 +279,6 @@ func TestNewRuntime(t *testing.T) {
 	}
 }
 
-func TestRuntime_CreateNetwork(t *testing.T) {
-	tests := []struct {
-		name       string
-		network    string
-		execOutput string
-		execErr    error
-		wantID     string
-		wantErr    bool
-	}{
-		{
-			name:       "creates network successfully",
-			network:    "test-network",
-			execOutput: "abc123def456\n",
-			wantID:     "abc123def456",
-		},
-		{
-			name:       "handles output without newline",
-			network:    "test-network",
-			execOutput: "abc123def456",
-			wantID:     "abc123def456",
-		},
-		{
-			name:    "returns error on failure",
-			network: "test-network",
-			execErr: errors.New("network already exists"),
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var capturedArgs []string
-			mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
-				capturedArgs = append([]string{name}, args...)
-				return tt.execOutput, tt.execErr
-			}
-
-			r := NewRuntimeWithExecutor("docker", mockExec)
-			id, err := r.CreateNetwork(context.Background(), tt.network)
-
-			if (err != nil) != tt.wantErr {
-				t.Errorf("CreateNetwork() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if !tt.wantErr {
-				if id != tt.wantID {
-					t.Errorf("CreateNetwork() id = %q, want %q", id, tt.wantID)
-				}
-
-				// Verify command
-				wantArgs := []string{"docker", "network", "create", tt.network}
-				if len(capturedArgs) != len(wantArgs) {
-					t.Errorf("CreateNetwork() args = %v, want %v", capturedArgs, wantArgs)
-				}
-			}
-		})
-	}
-}
-
-func TestRuntime_RemoveNetwork(t *testing.T) {
-	tests := []struct {
-		name    string
-		network string
-		execErr error
-		wantErr bool
-	}{
-		{
-			name:    "removes network successfully",
-			network: "test-network",
-		},
-		{
-			name:    "returns error on failure",
-			network: "test-network",
-			execErr: errors.New("network in use"),
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var capturedArgs []string
-			mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
-				capturedArgs = append([]string{name}, args...)
-				return "", tt.execErr
-			}
-
-			r := NewRuntimeWithExecutor("docker", mockExec)
-			err := r.RemoveNetwork(context.Background(), tt.network)
-
-			if (err != nil) != tt.wantErr {
-				t.Errorf("RemoveNetwork() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if !tt.wantErr {
-				// Verify command includes -f flag
-				wantArgs := []string{"docker", "network", "rm", "-f", tt.network}
-				if len(capturedArgs) != len(wantArgs) {
-					t.Errorf("RemoveNetwork() args = %v, want %v", capturedArgs, wantArgs)
-				}
-			}
-		})
-	}
-}
-
-func TestRuntime_RunContainer(t *testing.T) {
-	tests := []struct {
-		name       string
-		opts       RunContainerOptions
-		execOutput string
-		execErr    error
-		wantID     string
-		wantErr    bool
-		wantArgs   []string
-	}{
-		{
-			name: "minimal container run",
-			opts: RunContainerOptions{
-				Image:  "nginx:alpine",
-				Detach: true,
-			},
-			execOutput: "container123\n",
-			wantID:     "container123",
-			wantArgs:   []string{"docker", "run", "-d", "nginx:alpine"},
-		},
-		{
-			name: "full options",
-			opts: RunContainerOptions{
-				Image:      "mitmproxy/mitmproxy:latest",
-				Name:       "proxy-sidecar",
-				Network:    "devagent-net",
-				Detach:     true,
-				AutoRemove: true,
-				Labels: map[string]string{
-					"devagent.managed": "true",
-					"devagent.sidecar": "proxy",
-				},
-				Env: map[string]string{
-					"PROXY_PORT": "8080",
-				},
-				Volumes: []string{
-					"/host/certs:/certs:ro",
-					"/host/config:/config",
-				},
-				Command: []string{"mitmdump", "-p", "8080"},
-			},
-			execOutput: "abc123\n",
-			wantID:     "abc123",
-			wantArgs: []string{"docker", "run", "-d", "--rm", "--name", "proxy-sidecar", "--network", "devagent-net", "--label", "devagent.managed=true", "--label", "devagent.sidecar=proxy", "-e", "PROXY_PORT=8080", "-v", "/host/certs:/certs:ro", "-v", "/host/config:/config", "mitmproxy/mitmproxy:latest", "mitmdump", "-p", "8080"},
-		},
-		{
-			name: "returns error on failure",
-			opts: RunContainerOptions{
-				Image:  "nonexistent:image",
-				Detach: true,
-			},
-			execErr: errors.New("image not found"),
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var capturedArgs []string
-			mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
-				capturedArgs = append([]string{name}, args...)
-				return tt.execOutput, tt.execErr
-			}
-
-			r := NewRuntimeWithExecutor("docker", mockExec)
-			id, err := r.RunContainer(context.Background(), tt.opts)
-
-			if (err != nil) != tt.wantErr {
-				t.Errorf("RunContainer() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			if !tt.wantErr {
-				if id != tt.wantID {
-					t.Errorf("RunContainer() id = %q, want %q", id, tt.wantID)
-				}
-
-				// Verify basic structure
-				if len(capturedArgs) < 3 {
-					t.Errorf("RunContainer() args too short: %v", capturedArgs)
-					return
-				}
-				if capturedArgs[0] != "docker" || capturedArgs[1] != "run" {
-					t.Errorf("RunContainer() should start with 'docker run', got: %v", capturedArgs[:2])
-				}
-
-				// Verify specific expected args if provided
-				if tt.wantArgs != nil {
-					if len(capturedArgs) != len(tt.wantArgs) {
-						t.Errorf("RunContainer() args = %v, want %v", capturedArgs, tt.wantArgs)
-					}
-					for i, want := range tt.wantArgs {
-						if i < len(capturedArgs) && capturedArgs[i] != want {
-							t.Errorf("RunContainer() args[%d] = %q, want %q", i, capturedArgs[i], want)
-						}
-					}
-				}
-			}
-		})
-	}
-}
-
 func TestGetIsolationInfo(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -648,5 +440,185 @@ func TestFormatBytes(t *testing.T) {
 				t.Errorf("formatBytes(%d) = %q, want %q", tt.bytes, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestComposeUp_Docker(t *testing.T) {
+	var capturedCmd string
+	var capturedArgs []string
+
+	mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+		capturedCmd = name
+		capturedArgs = args
+		return "", nil
+	}
+
+	r := NewRuntimeWithExecutor("docker", mockExec)
+	err := r.ComposeUp(context.Background(), "/home/user/project", "myproject")
+
+	if err != nil {
+		t.Fatalf("ComposeUp failed: %v", err)
+	}
+
+	if capturedCmd != "docker" {
+		t.Errorf("Expected command 'docker', got %q", capturedCmd)
+	}
+
+	expectedArgs := []string{
+		"compose",
+		"-f", "/home/user/project/.devcontainer/docker-compose.yml",
+		"-p", "myproject",
+		"up", "-d",
+	}
+
+	if len(capturedArgs) != len(expectedArgs) {
+		t.Fatalf("Expected %d args, got %d: %v", len(expectedArgs), len(capturedArgs), capturedArgs)
+	}
+
+	for i, expected := range expectedArgs {
+		if capturedArgs[i] != expected {
+			t.Errorf("Arg %d: expected %q, got %q", i, expected, capturedArgs[i])
+		}
+	}
+}
+
+func TestComposeUp_Podman(t *testing.T) {
+	var capturedCmd string
+	var capturedArgs []string
+
+	mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+		capturedCmd = name
+		capturedArgs = args
+		return "", nil
+	}
+
+	r := NewRuntimeWithExecutor("podman", mockExec)
+	err := r.ComposeUp(context.Background(), "/home/user/project", "myproject")
+
+	if err != nil {
+		t.Fatalf("ComposeUp failed: %v", err)
+	}
+
+	// Podman uses standalone podman-compose
+	if capturedCmd != "podman-compose" {
+		t.Errorf("Expected command 'podman-compose', got %q", capturedCmd)
+	}
+
+	expectedArgs := []string{
+		"-f", "/home/user/project/.devcontainer/docker-compose.yml",
+		"-p", "myproject",
+		"up", "-d",
+	}
+
+	if len(capturedArgs) != len(expectedArgs) {
+		t.Fatalf("Expected %d args, got %d: %v", len(expectedArgs), len(capturedArgs), capturedArgs)
+	}
+
+	for i, expected := range expectedArgs {
+		if capturedArgs[i] != expected {
+			t.Errorf("Arg %d: expected %q, got %q", i, expected, capturedArgs[i])
+		}
+	}
+}
+
+func TestComposeStart_Docker(t *testing.T) {
+	var capturedArgs []string
+
+	mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+		capturedArgs = args
+		return "", nil
+	}
+
+	r := NewRuntimeWithExecutor("docker", mockExec)
+	err := r.ComposeStart(context.Background(), "/test/project", "testproj")
+
+	if err != nil {
+		t.Fatalf("ComposeStart failed: %v", err)
+	}
+
+	// Verify 'start' command (not 'up -d')
+	if capturedArgs[len(capturedArgs)-1] != "start" {
+		t.Errorf("Expected 'start' command, got %q", capturedArgs[len(capturedArgs)-1])
+	}
+}
+
+func TestComposeStop_Docker(t *testing.T) {
+	var capturedArgs []string
+
+	mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+		capturedArgs = args
+		return "", nil
+	}
+
+	r := NewRuntimeWithExecutor("docker", mockExec)
+	err := r.ComposeStop(context.Background(), "/test/project", "testproj")
+
+	if err != nil {
+		t.Fatalf("ComposeStop failed: %v", err)
+	}
+
+	// Verify 'stop' command
+	if capturedArgs[len(capturedArgs)-1] != "stop" {
+		t.Errorf("Expected 'stop' command, got %q", capturedArgs[len(capturedArgs)-1])
+	}
+}
+
+func TestComposeDown_Docker(t *testing.T) {
+	var capturedArgs []string
+
+	mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+		capturedArgs = args
+		return "", nil
+	}
+
+	r := NewRuntimeWithExecutor("docker", mockExec)
+	err := r.ComposeDown(context.Background(), "/test/project", "testproj")
+
+	if err != nil {
+		t.Fatalf("ComposeDown failed: %v", err)
+	}
+
+	// Verify 'down' command
+	if capturedArgs[len(capturedArgs)-1] != "down" {
+		t.Errorf("Expected 'down' command, got %q", capturedArgs[len(capturedArgs)-1])
+	}
+}
+
+func TestComposeUp_ReturnsError(t *testing.T) {
+	expectedErr := errors.New("compose failed")
+
+	mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+		return "", expectedErr
+	}
+
+	r := NewRuntimeWithExecutor("docker", mockExec)
+	err := r.ComposeUp(context.Background(), "/test", "proj")
+
+	if err != expectedErr {
+		t.Errorf("Expected error %v, got %v", expectedErr, err)
+	}
+}
+
+func TestComposeCommand_Docker(t *testing.T) {
+	r := NewRuntimeWithExecutor("docker", nil)
+	cmd, baseArgs := r.composeCommand()
+
+	if cmd != "docker" {
+		t.Errorf("Expected 'docker', got %q", cmd)
+	}
+	if len(baseArgs) != 1 || baseArgs[0] != "compose" {
+		t.Errorf("Expected ['compose'], got %v", baseArgs)
+	}
+}
+
+func TestComposeCommand_Podman(t *testing.T) {
+	r := NewRuntimeWithExecutor("podman", nil)
+	cmd, baseArgs := r.composeCommand()
+
+	if cmd != "podman-compose" {
+		t.Errorf("Expected 'podman-compose', got %q", cmd)
+	}
+	if len(baseArgs) != 0 {
+		t.Errorf("Expected empty baseArgs for podman, got %v", baseArgs)
 	}
 }

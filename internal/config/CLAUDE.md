@@ -1,40 +1,30 @@
 # Config Domain
 
-Last verified: 2026-02-04
+Last verified: 2026-02-05
 
 ## Purpose
-Loads and validates application configuration (config.yaml) and devcontainer templates. Provides isolation configuration schema and defaults for container security settings.
+Loads and validates application configuration (config.yaml) and devcontainer templates.
 
 ## Contracts
-- **Exposes**: `Config`, `Template`, `IsolationConfig`, `CapConfig`, `ResourceConfig`, `NetworkConfig`, `DefaultIsolation`, `MergeIsolationConfig`, `LoadTemplates`
-- **Guarantees**: Templates loaded from `~/.config/devagent/templates/` (XDG-compliant). DefaultIsolation provides secure defaults. MergeIsolationConfig handles template override and allowlistExtend merging.
-- **Expects**: Valid YAML/JSON in config and template files. Template directories contain devcontainer.json.
+- **Exposes**: `Config`, `Template`, `LoadTemplates`, `LoadTemplatesFrom`, `SetTemplatesPath`
+- **Guarantees**: Templates loaded from `~/.config/devagent/templates/` (XDG-compliant). Templates discovered by presence of `docker-compose.yml.tmpl` marker file. Template struct contains only `Name` and `Path`.
+- **Expects**: Valid YAML in config files. Template directories contain `docker-compose.yml.tmpl`.
 
 ## Dependencies
-- **Uses**: os, encoding/json (stdlib only)
-- **Used by**: container.Manager, container.DevcontainerGenerator, TUI
+- **Uses**: os, path/filepath (stdlib only)
+- **Used by**: container.Manager, container.ComposeGenerator, container.DevcontainerGenerator, TUI
 - **Boundary**: Configuration loading only; no container operations
 
 ## Key Decisions
-- Template.Isolation parsed from `customizations.devagent.isolation` in devcontainer.json
-- DefaultIsolation applied when template has no isolation config; disabled with `enabled: false`
-- AllowlistExtend appends to defaults; Allowlist replaces defaults entirely
-- Passthrough domains bypass TLS interception (for cert-pinned services)
-- BlockGitHubPRMerge blocks GitHub PR merge API calls when enabled (default: false)
-- GetEffectiveIsolation() on Template returns merged config with defaults
+- Template discovery uses `docker-compose.yml.tmpl` as marker file (not `devcontainer.json`)
+- All orchestration config (caps, resources, network allowlists) is hardcoded in template files
+- No `IsolationConfig` types — isolation is entirely template-driven
 
 ## Invariants
-- DefaultIsolation never nil; provides sensible security defaults
-- MergeIsolationConfig returns nil only when isolation explicitly disabled
-- Template isolation settings override defaults (not merged additively, except allowlistExtend)
-- Capability drops/adds from template replace defaults, not append
+- Template.Name always equals the directory name
+- Template.Path is the absolute path to the template directory
+- Templates without `docker-compose.yml.tmpl` are ignored during discovery
 
 ## Key Files
 - `config.go` - Config struct, loading, credential management
-- `templates.go` - Template loading, IsolationConfig schema, DefaultIsolation, MergeIsolationConfig
-
-## Default Isolation Values
-- Caps.Drop: NET_RAW, SYS_ADMIN, SYS_PTRACE, MKNOD, NET_ADMIN, SYS_MODULE, SYS_RAWIO, SYS_BOOT, SYS_NICE, SYS_RESOURCE
-- Resources: 4GB memory, 2 CPUs, 512 pids limit
-- Network.Allowlist: api.anthropic.com, github.com, *.github.com, registry.npmjs.org, pypi.org, proxy.golang.org, etc.
-- Network.BlockGitHubPRMerge: false (opt-in to block PR merges)
+- `templates.go` - Template loading, discovery

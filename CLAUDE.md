@@ -1,12 +1,13 @@
 # devagent
 
-Last verified: 2026-02-02
+Last verified: 2026-02-05
 
 ## Tech Stack
 - Language: Go 1.21+
 - TUI: Bubbletea + Bubbles + Lipgloss
 - Logging: Zap + Lumberjack (file rotation)
 - Container Runtime: Docker or Podman (auto-detected)
+- Orchestration: Docker Compose (preferred) or direct Docker API
 - Devcontainers: @devcontainers/cli
 - Network Isolation: mitmproxy (sidecar container with domain allowlist)
 
@@ -21,13 +22,14 @@ Last verified: 2026-02-02
 ## Project Structure
 - `internal/logging/` - Structured logging with dual sinks (file + TUI channel)
 - `internal/tui/` - Bubbletea TUI with tree navigation, detail panel, log panel
-- `internal/container/` - Container lifecycle management
+- `internal/container/` - Container lifecycle management (see internal/container/CLAUDE.md for contracts)
 - `internal/tmux/` - Tmux session management within containers
 - `internal/config/` - Configuration loading and validation
 - `internal/e2e/` - E2E test utilities
 - `config/` - Development config (config.yaml + templates/)
-- `config/templates/<name>/devcontainer.json` - Native devcontainer templates with devagent extensions
+- `config/templates/<name>/` - Template directories (docker-compose.yml.tmpl, devcontainer.json.tmpl, filter.py.tmpl, Dockerfile, Dockerfile.proxy)
 - `docs/` - Design plans and implementation phases
+- `docs/PODMAN.md` - Podman compatibility notes and workarounds
 
 ## Conventions
 - Functional Core / Imperative Shell pattern (see file header comments)

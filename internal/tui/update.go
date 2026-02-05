@@ -635,7 +635,12 @@ func (m Model) startContainer(id string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		err := m.manager.Start(ctx, id)
+		var err error
+		if m.manager.IsComposeContainer(id) {
+			err = m.manager.StartWithCompose(ctx, id)
+		} else {
+			err = m.manager.Start(ctx, id)
+		}
 		return containerActionMsg{action: "start", id: id, err: err}
 	}
 }
@@ -646,7 +651,12 @@ func (m Model) stopContainer(id string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		err := m.manager.Stop(ctx, id)
+		var err error
+		if m.manager.IsComposeContainer(id) {
+			err = m.manager.StopWithCompose(ctx, id)
+		} else {
+			err = m.manager.Stop(ctx, id)
+		}
 		return containerActionMsg{action: "stop", id: id, err: err}
 	}
 }
@@ -657,7 +667,12 @@ func (m Model) destroyContainer(id string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		err := m.manager.Destroy(ctx, id)
+		var err error
+		if m.manager.IsComposeContainer(id) {
+			err = m.manager.DestroyWithCompose(ctx, id)
+		} else {
+			err = m.manager.Destroy(ctx, id)
+		}
 		return containerActionMsg{action: "destroy", id: id, err: err}
 	}
 }
@@ -794,7 +809,7 @@ func (m Model) createContainerWithProgress() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 
-		_, err := m.manager.Create(ctx, container.CreateOptions{
+		_, err := m.manager.CreateWithCompose(ctx, container.CreateOptions{
 			ProjectPath: projectPath,
 			Template:    templateName,
 			Name:        containerName,

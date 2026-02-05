@@ -1,0 +1,68 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devagent-{{.ProjectHash}}-app
+    depends_on:
+      proxy:
+        condition: service_started
+    networks:
+      - isolated
+    environment:
+      - http_proxy=http://devagent-{{.ProjectHash}}-proxy:8080
+      - https_proxy=http://devagent-{{.ProjectHash}}-proxy:8080
+      - HTTP_PROXY=http://devagent-{{.ProjectHash}}-proxy:8080
+      - HTTPS_PROXY=http://devagent-{{.ProjectHash}}-proxy:8080
+      - no_proxy=localhost,127.0.0.1
+      - NO_PROXY=localhost,127.0.0.1
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+      - NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+      - IS_DEMO=1
+    volumes:
+      - {{.ProjectPath}}:{{.WorkspaceFolder}}:cached
+      - proxy-certs:/tmp/mitmproxy-certs:ro
+      - {{.ClaudeConfigDir}}:/home/vscode/.claude:cached
+      - {{.ClaudeTokenPath}}:/run/secrets/claude-token:ro
+    cap_drop:
+      - NET_RAW
+      - SYS_ADMIN
+      - SYS_PTRACE
+      - MKNOD
+      - NET_ADMIN
+      - SYS_MODULE
+      - SYS_RAWIO
+      - SYS_BOOT
+      - SYS_NICE
+      - SYS_RESOURCE
+    mem_limit: 4g
+    cpus: "2"
+    pids_limit: 512
+    labels:
+      devagent.managed: "true"
+      devagent.project_path: "{{.ProjectPath}}"
+      devagent.template: "{{.TemplateName}}"
+    command: sleep infinity
+
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.proxy
+    container_name: devagent-{{.ProjectHash}}-proxy
+    networks:
+      - isolated
+    volumes:
+      - proxy-certs:/home/mitmproxy/.mitmproxy
+    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/home/mitmproxy/filter.py"]
+    labels:
+      devagent.managed: "true"
+      devagent.sidecar_of: "{{.ProjectHash}}"
+      devagent.sidecar_type: "proxy"
+
+networks:
+  isolated:
+    name: devagent-{{.ProjectHash}}-net
+
+volumes:
+  proxy-certs:
