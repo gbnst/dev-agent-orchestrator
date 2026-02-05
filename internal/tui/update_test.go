@@ -327,6 +327,7 @@ func TestSetError_SetsLogFilter(t *testing.T) {
 	m.selectedContainer = &container.Container{ID: "abc123456789", Name: "test"}
 
 	m.setError("test failed", fmt.Errorf("test error"))
+	m.setLogFilterFromContext() // Must be explicit now
 
 	if m.logFilter != "container.test" {
 		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test")

@@ -35,6 +35,9 @@ type TemplateData struct {
 	TemplateName       string // Template name (e.g., "basic")
 	ContainerName      string // Container name for devcontainer.json
 	CertInstallCommand string // Command to wait for, copy, and trust mitmproxy CA cert
+	ProxyImage         string // Docker image for mitmproxy sidecar (default: mitmproxy/mitmproxy:latest)
+	ProxyPort          string // Port mitmproxy listens on (default: 8080)
+	RemoteUser         string // User for devcontainer exec commands (default: vscode)
 }
 
 // ComposeGenerator creates docker-compose.yml and related files for container orchestration.
@@ -87,7 +90,7 @@ func (g *ComposeGenerator) Generate(opts ComposeOptions) (*ComposeResult, error)
 	}
 
 	// Load Dockerfile.proxy from template (static file)
-	dockerfileProxy, err := g.loadDockerfileProxy(tmpl.Path)
+	dockerfileProxy, err := g.loadDockerfileProxy(tmpl.Path, data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Dockerfile.proxy: %w", err)
 	}
@@ -127,6 +130,9 @@ func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.T
 		TemplateName:       tmpl.Name,
 		ContainerName:      opts.Name,
 		CertInstallCommand: certInstallCommand,
+		ProxyImage:         "mitmproxy/mitmproxy:latest",
+		ProxyPort:          "8080",
+		RemoteUser:         DefaultRemoteUser, // "vscode" — config-driven override is out of scope for this phase
 	}
 }
 
@@ -143,13 +149,13 @@ func (g *ComposeGenerator) processFilterTemplate(templatePath string, data Templ
 }
 
 // loadDockerfileProxy loads the static Dockerfile.proxy from the template directory.
-func (g *ComposeGenerator) loadDockerfileProxy(templatePath string) (string, error) {
+func (g *ComposeGenerator) loadDockerfileProxy(templatePath string, data TemplateData) (string, error) {
 	dockerfilePath := filepath.Join(templatePath, "Dockerfile.proxy")
 	content, err := os.ReadFile(dockerfilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Fallback to generated content for backward compatibility
-			return generateDockerfileProxy(), nil
+			return generateDockerfileProxy(data), nil
 		}
 		return "", err
 	}
@@ -161,15 +167,15 @@ func (g *ComposeGenerator) loadDockerfileProxy(templatePath string) (string, err
 // NOTE: Do NOT set USER mitmproxy in this Dockerfile. The mitmproxy base image
 // has an entrypoint script that runs usermod and gosu (both require root) before
 // switching to the mitmproxy user. Setting USER breaks the entrypoint.
-func generateDockerfileProxy() string {
-	return `FROM mitmproxy/mitmproxy:latest
+func generateDockerfileProxy(data TemplateData) string {
+	return fmt.Sprintf(`FROM %s
 
 # Copy filter script into container
 COPY filter.py /home/mitmproxy/filter.py
 
 # Expose proxy port
-EXPOSE 8080
-`
+EXPOSE %s
+`, data.ProxyImage, data.ProxyPort)
 }
 
 // processTemplate reads a template file and processes it with the given data.

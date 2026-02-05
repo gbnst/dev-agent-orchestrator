@@ -44,10 +44,7 @@ func TestWriteToProject_CreatesDirectory(t *testing.T) {
 
 	g := NewDevcontainerGenerator(nil, nil)
 	result := &GenerateResult{
-		Config: &DevcontainerJSON{
-			Name:  "test",
-			Image: "ubuntu:22.04",
-		},
+		DevcontainerTemplate: `{"name": "test", "image": "ubuntu:22.04"}`,
 	}
 
 	err := g.WriteToProject(projectPath, result)
@@ -80,14 +77,15 @@ func TestWriteToProject_ValidJSON(t *testing.T) {
 	}
 
 	g := NewDevcontainerGenerator(nil, nil)
+	templateContent := `{
+  "name": "test-container",
+  "image": "ubuntu:22.04",
+  "containerEnv": {
+    "FOO": "bar"
+  }
+}`
 	result := &GenerateResult{
-		Config: &DevcontainerJSON{
-			Name:  "test-container",
-			Image: "ubuntu:22.04",
-			ContainerEnv: map[string]string{
-				"FOO": "bar",
-			},
-		},
+		DevcontainerTemplate: templateContent,
 	}
 
 	err := g.WriteToProject(projectPath, result)
@@ -115,6 +113,28 @@ func TestWriteToProject_ValidJSON(t *testing.T) {
 	}
 	if readBack.ContainerEnv["FOO"] != "bar" {
 		t.Errorf("ContainerEnv[FOO]: got %q", readBack.ContainerEnv["FOO"])
+	}
+}
+
+func TestWriteToProject_EmptyTemplate(t *testing.T) {
+	tempDir := t.TempDir()
+	projectPath := filepath.Join(tempDir, "myproject")
+	if err := os.MkdirAll(projectPath, 0755); err != nil {
+		t.Fatalf("Failed to create project dir: %v", err)
+	}
+
+	g := NewDevcontainerGenerator(nil, nil)
+	result := &GenerateResult{
+		DevcontainerTemplate: "",
+	}
+
+	err := g.WriteToProject(projectPath, result)
+	if err == nil {
+		t.Fatal("Expected error when DevcontainerTemplate is empty")
+	}
+
+	if !strings.Contains(err.Error(), "no devcontainer template content generated") {
+		t.Errorf("Error message: got %q, want substring %q", err.Error(), "no devcontainer template content generated")
 	}
 }
 
@@ -550,12 +570,12 @@ func TestWriteAll_WritesDevcontainerAndComposeFiles(t *testing.T) {
 	gen := NewDevcontainerGenerator(cfg, templates)
 
 	devcontainerResult := &GenerateResult{
-		Config: &DevcontainerJSON{
-			Name:              "test",
-			DockerComposeFile: "docker-compose.yml",
-			Service:           "app",
-			WorkspaceFolder:   "/workspaces/test",
-		},
+		DevcontainerTemplate: `{
+  "name": "test",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/test"
+}`,
 	}
 
 	composeResult := &ComposeResult{
@@ -598,10 +618,10 @@ func TestWriteAll_WithoutComposeResult(t *testing.T) {
 	gen := NewDevcontainerGenerator(cfg, nil)
 
 	devcontainerResult := &GenerateResult{
-		Config: &DevcontainerJSON{
-			Name:  "test",
-			Image: "ubuntu",
-		},
+		DevcontainerTemplate: `{
+  "name": "test",
+  "image": "ubuntu"
+}`,
 	}
 
 	// composeResult is nil - should only write devcontainer.json

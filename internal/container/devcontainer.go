@@ -32,9 +32,9 @@ func getDataDir() string {
 // getContainerClaudeDir returns the host path for a container's .claude directory.
 // Uses a hash of the project path to create a unique directory per container.
 func getContainerClaudeDir(projectPath string) string {
-	// Use SHA256 hash of project path for uniqueness (truncated to 12 chars)
+	// Use SHA256 hash of project path for uniqueness
 	hash := sha256.Sum256([]byte(projectPath))
-	hashStr := hex.EncodeToString(hash[:])[:12]
+	hashStr := hex.EncodeToString(hash[:])[:HashTruncLen]
 	return filepath.Join(getDataDir(), "claude-configs", hashStr)
 }
 
@@ -255,6 +255,9 @@ func (g *DevcontainerGenerator) generateFromTemplate(tmpl *config.Template, opts
 		TemplateName:       tmpl.Name,
 		ContainerName:      opts.Name,
 		CertInstallCommand: certInstallCommand,
+		ProxyImage:         "mitmproxy/mitmproxy:latest",
+		ProxyPort:          "8080",
+		RemoteUser:         DefaultRemoteUser,
 	}
 
 	// Process the template
@@ -310,18 +313,11 @@ func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *Gener
 
 	jsonPath := filepath.Join(devcontainerDir, "devcontainer.json")
 
-	// Use template-driven output if available, otherwise use JSON struct
-	if result.DevcontainerTemplate != "" {
-		return os.WriteFile(jsonPath, []byte(result.DevcontainerTemplate), 0644)
+	if result.DevcontainerTemplate == "" {
+		return fmt.Errorf("no devcontainer template content generated")
 	}
 
-	// Fallback to struct-based JSON generation
-	data, err := json.MarshalIndent(result.Config, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(jsonPath, data, 0644)
+	return os.WriteFile(jsonPath, []byte(result.DevcontainerTemplate), 0644)
 }
 
 // WriteComposeFiles writes docker-compose.yml, Dockerfile.proxy, and filter.py

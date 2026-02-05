@@ -478,6 +478,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.logger.Error("container action failed", "action", msg.action, "containerID", msg.id, "error", msg.err)
 			m.setError(fmt.Sprintf("Failed to %s container", msg.action), msg.err)
+			m.setLogFilterFromContext() // Explicit: filter logs to the container context on error
 			return m, nil
 		}
 		m.logger.Info("container action completed", "action", msg.action, "containerID", msg.id)
@@ -635,12 +636,7 @@ func (m Model) startContainer(id string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		var err error
-		if m.manager.IsComposeContainer(id) {
-			err = m.manager.StartWithCompose(ctx, id)
-		} else {
-			err = m.manager.Start(ctx, id)
-		}
+		err := m.manager.StartWithCompose(ctx, id)
 		return containerActionMsg{action: "start", id: id, err: err}
 	}
 }
@@ -651,12 +647,7 @@ func (m Model) stopContainer(id string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		var err error
-		if m.manager.IsComposeContainer(id) {
-			err = m.manager.StopWithCompose(ctx, id)
-		} else {
-			err = m.manager.Stop(ctx, id)
-		}
+		err := m.manager.StopWithCompose(ctx, id)
 		return containerActionMsg{action: "stop", id: id, err: err}
 	}
 }
@@ -667,12 +658,7 @@ func (m Model) destroyContainer(id string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		var err error
-		if m.manager.IsComposeContainer(id) {
-			err = m.manager.DestroyWithCompose(ctx, id)
-		} else {
-			err = m.manager.Destroy(ctx, id)
-		}
+		err := m.manager.DestroyWithCompose(ctx, id)
 		return containerActionMsg{action: "destroy", id: id, err: err}
 	}
 }
@@ -705,7 +691,8 @@ func (m Model) handleFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyEnter:
-		if !m.validateForm() {
+		if errMsg := m.validateForm(); errMsg != "" {
+			m.formError = errMsg
 			return m, nil
 		}
 		// Submit the form - keep it open with progress

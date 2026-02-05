@@ -28,20 +28,21 @@ func NewChannelSink(bufferSize int) *ChannelSink {
 // Write implements io.Writer. It parses the JSON log entry from Zap and
 // sends a LogEntry to the channel. Non-blocking: drops oldest if full.
 func (s *ChannelSink) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		return 0, fmt.Errorf("write to closed channel sink")
-	}
-	s.mu.Unlock()
-
+	// Parse outside the lock — parseEntry is a pure function with no shared state
 	entry, err := s.parseEntry(p)
 	if err != nil {
 		// If we can't parse, still return success to not block logging
 		return len(p), nil
 	}
 
-	// Non-blocking send with overflow handling
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return 0, fmt.Errorf("write to closed channel sink")
+	}
+
+	// Non-blocking send with overflow handling — protected by mutex
 	select {
 	case s.entries <- entry:
 	default:

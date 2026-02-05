@@ -136,6 +136,10 @@ const (
 // DefaultRemoteUser is the default user for devcontainer exec commands.
 const DefaultRemoteUser = "vscode"
 
+// HashTruncLen is the number of hex characters used for truncated SHA256 hashes.
+// Used for project hashes in container names, sidecar refs, and directory paths.
+const HashTruncLen = 12
+
 // IsolationInfo holds runtime isolation details queried from the container.
 // This information is retrieved from Docker/Podman inspect and associated sidecar data.
 type IsolationInfo struct {

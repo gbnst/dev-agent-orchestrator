@@ -1,6 +1,6 @@
 # TUI Domain
 
-Last verified: 2026-02-02
+Last verified: 2026-02-05
 
 ## Purpose
 Provides terminal UI for orchestrating development containers. Tree-based navigation showing containers with nested sessions, optional detail panel, and live log panel for debugging operations.
@@ -24,6 +24,7 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 - Panel header styling: Uses underline to indicate focus (not background color)
 - Action menu: Shows copyable commands for container operations (t key on running containers)
 - Container creation progress: Real-time step-by-step feedback in creation form via OnProgress callback
+- All container lifecycle commands (start/stop/destroy) dispatch directly to compose methods (no IsComposeContainer branching)
 
 ## Invariants
 - NewModel requires non-nil LogManager
@@ -42,6 +43,7 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 - `actions.go` - Action command generators for container action menu (Functional Core)
 - `layout.go` - Layout/Region computation from terminal dimensions
 - `styles.go` - Catppuccin-based styling, PanelHeaderFocusedStyle/PanelHeaderUnfocusedStyle (underline-based)
+- `form.go` - Form rendering, input handling, validateForm() (Functional Core: pure, returns error string)
 - `delegates.go` - List item rendering with spinner support
 
 ## Navigation
@@ -61,7 +63,7 @@ Provides terminal UI for orchestrating development containers. Tree-based naviga
 
 ## Gotchas
 - consumeLogEntries() must be called in Init() to start log flow
-- setLogFilterFromContext() called by syncSelectionFromTree(); keeps filter in sync with tree selection
+- setLogFilterFromContext() called by syncSelectionFromTree() and explicitly after setError() in containerActionMsg handler; callers must invoke it explicitly (setError does not call it)
 - rebuildTreeItems() must be called after container list changes
 - Layout.ContentListHeight() accounts for list chrome (subtract 2)
 - Form inputs are trimmed of whitespace before validation

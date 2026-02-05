@@ -1,6 +1,6 @@
 # Logging Domain
 
-Last verified: 2026-02-01
+Last verified: 2026-02-05
 
 ## Purpose
 Provides structured logging with dual output: rotating JSON files for post-mortem analysis and a buffered channel for live TUI consumption. Scoped loggers enable automatic filtering by context.
@@ -24,6 +24,7 @@ Provides structured logging with dual output: rotating JSON files for post-morte
 - ScopedLogger.Info/Debug/Warn/Error are nil-safe (NopLogger pattern)
 - LogEntry.Scope always set (defaults to "app" if missing)
 - Channel sink is non-blocking; full buffer drops oldest entry
+- ChannelSink.Write() holds mutex for closed-check and channel send atomically; JSON parsing happens outside lock
 
 ## Key Files
 - `manager.go` - Manager with Zap Tee core, ScopedLogger, LoggerProvider interface

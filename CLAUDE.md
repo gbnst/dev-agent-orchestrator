@@ -7,7 +7,7 @@ Last verified: 2026-02-05
 - TUI: Bubbletea + Bubbles + Lipgloss
 - Logging: Zap + Lumberjack (file rotation)
 - Container Runtime: Docker or Podman (auto-detected)
-- Orchestration: Docker Compose (preferred) or direct Docker API
+- Orchestration: Docker Compose (all containers created via compose)
 - Devcontainers: @devcontainers/cli
 - Network Isolation: mitmproxy (sidecar container with domain allowlist)
 
@@ -16,6 +16,7 @@ Last verified: 2026-02-05
 - `make run` - Run with ~/.config/devagent/
 - `make dev` - Run with ./config/ (development)
 - `make test` - Run unit tests
+- `make test-race` - Run unit tests with race detector
 - `make test-e2e` - Run E2E tests (requires container runtime)
 - `make lint` - Run linter
 

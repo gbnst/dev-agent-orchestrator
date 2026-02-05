@@ -11,10 +11,10 @@ import (
 	"strings"
 )
 
-// projectHash returns a truncated SHA256 hash of the project path (12 chars).
+// projectHash returns a truncated SHA256 hash of the project path.
 func projectHash(projectPath string) string {
 	hash := sha256.Sum256([]byte(projectPath))
-	return hex.EncodeToString(hash[:])[:12]
+	return hex.EncodeToString(hash[:])[:HashTruncLen]
 }
 
 // GetProxyConfigDir returns the directory for proxy configuration files.

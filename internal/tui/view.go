@@ -687,7 +687,7 @@ func (m Model) renderTree(layout Layout) string {
 	var lines []string
 	for i, item := range m.treeItems {
 		isSelected := i == m.selectedIdx
-		line := m.renderTreeItem(item, isSelected)
+		line := m.renderTreeItem(i, item, isSelected)
 		lines = append(lines, line)
 	}
 
@@ -702,7 +702,7 @@ func (m Model) renderTree(layout Layout) string {
 }
 
 // renderTreeItem renders a single tree item (container, session, or All Containers).
-func (m Model) renderTreeItem(item TreeItem, selected bool) string {
+func (m Model) renderTreeItem(idx int, item TreeItem, selected bool) string {
 	cursor := "  "
 	if selected {
 		cursor = "> "
@@ -715,7 +715,7 @@ func (m Model) renderTreeItem(item TreeItem, selected bool) string {
 	case TreeItemContainer:
 		line = m.renderContainerTreeItem(item, cursor, selected)
 	default:
-		line = m.renderSessionTreeItem(item, cursor, selected)
+		line = m.renderSessionTreeItem(idx, item, cursor)
 	}
 
 	if selected {
@@ -787,7 +787,7 @@ func (m Model) renderContainerTreeItem(item TreeItem, cursor string, selected bo
 }
 
 // renderSessionTreeItem renders a session in the tree (indented under container).
-func (m Model) renderSessionTreeItem(item TreeItem, cursor string, _ bool) string {
+func (m Model) renderSessionTreeItem(idx int, item TreeItem, cursor string) string {
 	// Find the session
 	var sess *container.Session
 	for _, listItem := range m.containerList.Items() {
@@ -808,9 +808,20 @@ func (m Model) renderSessionTreeItem(item TreeItem, cursor string, _ bool) strin
 		return cursor + "    └─ (unknown session)"
 	}
 
-	// Tree connector
+	// Determine if this is the last session under its container:
+	// Check if the next tree item is NOT a session for the same container
+	isLast := true
+	if idx+1 < len(m.treeItems) {
+		next := m.treeItems[idx+1]
+		if next.Type == TreeItemSession && next.ContainerID == item.ContainerID {
+			isLast = false
+		}
+	}
+
 	connector := "├─"
-	// TODO: Could track if this is the last session to use "└─"
+	if isLast {
+		connector = "└─"
+	}
 
 	// Attached indicator
 	attachedIndicator := ""

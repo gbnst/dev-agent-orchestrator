@@ -86,17 +86,15 @@ func (m *Model) openForm() {
 }
 
 // validateForm validates form inputs before submission.
-func (m *Model) validateForm() bool {
+// Returns an error message string, or empty string if valid.
+func (m Model) validateForm() string {
 	if len(m.formProjectPath) == 0 {
-		m.formError = "Project path is required"
-		return false
+		return "Project path is required"
 	}
 	if len(m.templates) == 0 {
-		m.formError = "No templates available"
-		return false
+		return "No templates available"
 	}
-	m.formError = ""
-	return true
+	return ""
 }
 
 // formTitlePulseMsg triggers the title pulse animation.

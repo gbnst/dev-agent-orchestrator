@@ -10,10 +10,10 @@ services:
     networks:
       - isolated
     environment:
-      - http_proxy=http://devagent-{{.ProjectHash}}-proxy:8080
-      - https_proxy=http://devagent-{{.ProjectHash}}-proxy:8080
-      - HTTP_PROXY=http://devagent-{{.ProjectHash}}-proxy:8080
-      - HTTPS_PROXY=http://devagent-{{.ProjectHash}}-proxy:8080
+      - http_proxy=http://devagent-{{.ProjectHash}}-proxy:{{.ProxyPort}}
+      - https_proxy=http://devagent-{{.ProjectHash}}-proxy:{{.ProxyPort}}
+      - HTTP_PROXY=http://devagent-{{.ProjectHash}}-proxy:{{.ProxyPort}}
+      - HTTPS_PROXY=http://devagent-{{.ProjectHash}}-proxy:{{.ProxyPort}}
       - no_proxy=localhost,127.0.0.1
       - NO_PROXY=localhost,127.0.0.1
       - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
@@ -54,7 +54,7 @@ services:
       - isolated
     volumes:
       - proxy-certs:/home/mitmproxy/.mitmproxy
-    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/home/mitmproxy/filter.py"]
+    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "{{.ProxyPort}}", "-s", "/home/mitmproxy/filter.py"]
     labels:
       devagent.managed: "true"
       devagent.sidecar_of: "{{.ProjectHash}}"

@@ -3,6 +3,6 @@
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
   "workspaceFolder": "{{.WorkspaceFolder}}",
-  "remoteUser": "vscode",
+  "remoteUser": "{{.RemoteUser}}",
   "postCreateCommand": "go mod download || true && {{.CertInstallCommand}}"
 }

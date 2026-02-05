@@ -6,11 +6,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"devagent/internal/config"
 	"devagent/internal/logging"
@@ -36,6 +35,7 @@ type RuntimeInterface interface {
 
 // Manager orchestrates container lifecycle operations.
 type Manager struct {
+	mu               sync.RWMutex // protects containers and sidecars maps
 	cfg              *config.Config
 	runtime          RuntimeInterface
 	runtimeName      string // "docker" or "podman" - used for attach commands
@@ -47,36 +47,6 @@ type Manager struct {
 	sidecars         map[string]*Sidecar // Maps sidecar container ID to Sidecar
 	logger           *logging.ScopedLogger
 	logManager       interface{ For(string) *logging.ScopedLogger } // for per-container loggers
-}
-
-// NewManager creates a new Manager with the given config and templates.
-func NewManager(cfg *config.Config, templates []config.Template) *Manager {
-	runtimeName := cfg.DetectedRuntime()
-	runtimePath := cfg.DetectedRuntimePath()
-	runtime := NewRuntime(runtimeName)
-	generator := NewDevcontainerGenerator(cfg, templates)
-	composeGenerator := NewComposeGenerator(templates)
-
-	// Use explicit runtime for devcontainer CLI if configured
-	var devCLI *DevcontainerCLI
-	if cfg.Runtime != "" {
-		devCLI = NewDevcontainerCLIWithRuntime(cfg.Runtime)
-	} else {
-		devCLI = NewDevcontainerCLI()
-	}
-
-	return &Manager{
-		cfg:              cfg,
-		runtime:          runtime,
-		runtimeName:      runtimeName,
-		runtimePath:      runtimePath,
-		generator:        generator,
-		composeGenerator: composeGenerator,
-		devCLI:           devCLI,
-		containers:       make(map[string]*Container),
-		sidecars:         make(map[string]*Sidecar),
-		logger:           logging.NopLogger(),
-	}
 }
 
 // NewManagerWithRuntime creates a Manager with a mock runtime for testing.
@@ -181,6 +151,9 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		return err
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	// Rebuild containers map (exclude sidecars)
 	m.containers = make(map[string]*Container)
 	for i := range containers {
@@ -200,6 +173,9 @@ func (m *Manager) Refresh(ctx context.Context) error {
 
 // List returns all known containers.
 func (m *Manager) List() []*Container {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	result := make([]*Container, 0, len(m.containers))
 	for _, c := range m.containers {
 		result = append(result, c)
@@ -214,6 +190,14 @@ func (m *Manager) containerLogger(name string) *logging.ScopedLogger {
 		return m.logger
 	}
 	return m.logManager.For("container." + name)
+}
+
+// reportProgress logs a progress message and notifies the OnProgress callback if set.
+func (m *Manager) reportProgress(logger *logging.ScopedLogger, callback ProgressCallback, step, status, msg string) {
+	logger.Info(msg, "step", step, "status", status)
+	if callback != nil {
+		callback(ProgressStep{Step: step, Status: status, Message: msg})
+	}
 }
 
 // refreshSidecars populates the sidecars map from container labels.
@@ -249,8 +233,11 @@ func (m *Manager) refreshSidecars(ctx context.Context, allContainers []Container
 // GetSidecarsForProject returns all sidecars associated with a project path.
 // Uses the project path hash (same hash used when creating sidecars).
 func (m *Manager) GetSidecarsForProject(projectPath string) []*Sidecar {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	hash := sha256.Sum256([]byte(projectPath))
-	hashStr := hex.EncodeToString(hash[:])[:12]
+	hashStr := hex.EncodeToString(hash[:])[:HashTruncLen]
 
 	var result []*Sidecar
 	for _, s := range m.sidecars {
@@ -314,6 +301,9 @@ func (m *Manager) RuntimePath() string {
 
 // Get returns a container by ID.
 func (m *Manager) Get(id string) (*Container, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	c, ok := m.containers[id]
 	return c, ok
 }
@@ -336,10 +326,7 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 	logger := m.containerLogger(containerName)
 
 	reportProgress := func(step, status, msg string) {
-		logger.Info(msg, "step", step, "status", status)
-		if opts.OnProgress != nil {
-			opts.OnProgress(ProgressStep{Step: step, Status: status, Message: msg})
-		}
+		m.reportProgress(logger, opts.OnProgress, step, status, msg)
 	}
 
 	reportProgress("compose", "started", "Generating compose configuration")
@@ -392,7 +379,7 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 
 	displayID := containerID
 	if len(displayID) > 12 {
-		displayID = displayID[:12]
+		displayID = displayID[:12] // Display truncation for container IDs (not project hash)
 	}
 	logger.Info("devcontainer started", "containerID", displayID)
 	reportProgress("container", "completed", "Devcontainer started successfully")
@@ -404,6 +391,9 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 
 	// Find the created container
 	// Container ID from devcontainer up may be truncated, so use prefix match
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	for _, c := range m.containers {
 		if strings.HasPrefix(c.ID, containerID) || strings.HasPrefix(containerID, c.ID) {
 			return c, nil
@@ -420,82 +410,6 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 	return nil, fmt.Errorf("container created but not found in refresh: %s", containerID)
 }
 
-// Start starts a stopped container.
-func (m *Manager) Start(ctx context.Context, id string) error {
-	c, ok := m.containers[id]
-	if !ok {
-		m.logger.Error("failed to start container", "containerID", id, "error", "container not found")
-		return errors.New("container not found: " + id)
-	}
-
-	scopedLogger := m.containerLogger(c.Name).With("containerID", id)
-	scopedLogger.Info("starting container")
-
-	if err := m.runtime.StartContainer(ctx, c.ID); err != nil {
-		scopedLogger.Error("failed to start container", "error", err)
-		return err
-	}
-
-	c.State = StateRunning
-	scopedLogger.Info("container started")
-	return nil
-}
-
-// Stop stops a running container.
-func (m *Manager) Stop(ctx context.Context, id string) error {
-	c, ok := m.containers[id]
-	if !ok {
-		m.logger.Error("failed to stop container", "containerID", id, "error", "container not found")
-		return errors.New("container not found: " + id)
-	}
-
-	scopedLogger := m.containerLogger(c.Name).With("containerID", id)
-	scopedLogger.Info("stopping container")
-
-	if err := m.runtime.StopContainer(ctx, c.ID); err != nil {
-		scopedLogger.Error("failed to stop container", "error", err)
-		return err
-	}
-
-	c.State = StateStopped
-	scopedLogger.Info("container stopped")
-	return nil
-}
-
-// Destroy stops (if running) and removes a container.
-func (m *Manager) Destroy(ctx context.Context, id string) error {
-	c, ok := m.containers[id]
-	if !ok {
-		m.logger.Error("failed to destroy container", "containerID", id, "error", "container not found")
-		return errors.New("container not found: " + id)
-	}
-
-	scopedLogger := m.containerLogger(c.Name).With("containerID", id)
-	scopedLogger.Info("destroying container")
-
-	// Stop first if running
-	if c.State == StateRunning {
-		scopedLogger.Debug("stopping running container before removal")
-		if err := m.runtime.StopContainer(ctx, c.ID); err != nil {
-			scopedLogger.Warn("failed to stop container before removal", "error", err)
-		}
-	}
-
-	if err := m.runtime.RemoveContainer(ctx, c.ID); err != nil {
-		scopedLogger.Error("failed to remove container", "error", err)
-		return err
-	}
-
-	// Clean up proxy config directories
-	if projectPath := c.ProjectPath; projectPath != "" {
-		CleanupProxyConfigs(projectPath) //nolint:errcheck
-	}
-
-	delete(m.containers, id)
-	scopedLogger.Info("container destroyed")
-	return nil
-}
-
 // composeProjectName returns the compose project name for a container.
 // Reads from Docker's com.docker.compose.project label (set by devcontainer CLI).
 // Falls back to "devagent-<hash>" if label is missing (shouldn't happen for compose containers).
@@ -509,14 +423,18 @@ func composeProjectName(c *Container) string {
 // StartWithCompose starts a compose-based devcontainer using docker-compose start.
 // This is for containers created with CreateWithCompose().
 func (m *Manager) StartWithCompose(ctx context.Context, containerID string) error {
+	m.mu.Lock()
 	c, ok := m.containers[containerID]
 	if !ok {
+		m.mu.Unlock()
 		return fmt.Errorf("container not found: %s", containerID)
 	}
 
 	if c.ProjectPath == "" {
+		m.mu.Unlock()
 		return fmt.Errorf("container has no project path: %s", containerID)
 	}
+	m.mu.Unlock()
 
 	logger := m.containerLogger(c.Name)
 	logger.Info("starting compose container")
@@ -528,21 +446,28 @@ func (m *Manager) StartWithCompose(ctx context.Context, containerID string) erro
 		return fmt.Errorf("failed to start compose: %w", err)
 	}
 
+	m.mu.Lock()
 	c.State = StateRunning
+	m.mu.Unlock()
+
 	logger.Info("compose container started")
 	return nil
 }
 
 // StopWithCompose stops a compose-based devcontainer using docker-compose stop.
 func (m *Manager) StopWithCompose(ctx context.Context, containerID string) error {
+	m.mu.Lock()
 	c, ok := m.containers[containerID]
 	if !ok {
+		m.mu.Unlock()
 		return fmt.Errorf("container not found: %s", containerID)
 	}
 
 	if c.ProjectPath == "" {
+		m.mu.Unlock()
 		return fmt.Errorf("container has no project path: %s", containerID)
 	}
+	m.mu.Unlock()
 
 	logger := m.containerLogger(c.Name)
 	logger.Info("stopping compose container")
@@ -554,7 +479,10 @@ func (m *Manager) StopWithCompose(ctx context.Context, containerID string) error
 		return fmt.Errorf("failed to stop compose: %w", err)
 	}
 
+	m.mu.Lock()
 	c.State = StateStopped
+	m.mu.Unlock()
+
 	logger.Info("compose container stopped")
 	return nil
 }
@@ -562,14 +490,18 @@ func (m *Manager) StopWithCompose(ctx context.Context, containerID string) error
 // DestroyWithCompose destroys a compose-based devcontainer using docker-compose down.
 // This removes both app and proxy containers, networks, and volumes.
 func (m *Manager) DestroyWithCompose(ctx context.Context, containerID string) error {
+	m.mu.Lock()
 	c, ok := m.containers[containerID]
 	if !ok {
+		m.mu.Unlock()
 		return fmt.Errorf("container not found: %s", containerID)
 	}
 
 	if c.ProjectPath == "" {
+		m.mu.Unlock()
 		return fmt.Errorf("container has no project path: %s", containerID)
 	}
+	m.mu.Unlock()
 
 	logger := m.containerLogger(c.Name)
 	logger.Info("destroying compose container")
@@ -589,27 +521,19 @@ func (m *Manager) DestroyWithCompose(ctx context.Context, containerID string) er
 	}
 
 	// Remove from containers map
+	m.mu.Lock()
 	delete(m.containers, containerID)
+	m.mu.Unlock()
 
 	logger.Info("compose container destroyed")
 	return nil
 }
 
-// IsComposeContainer checks if a container was created with compose orchestration.
-// Returns true if the project has a docker-compose.yml file in .devcontainer/.
-func (m *Manager) IsComposeContainer(containerID string) bool {
-	c, ok := m.containers[containerID]
-	if !ok || c.ProjectPath == "" {
-		return false
-	}
-
-	composePath := filepath.Join(c.ProjectPath, ".devcontainer", "docker-compose.yml")
-	_, err := os.Stat(composePath)
-	return err == nil
-}
-
 // getContainerUser returns the remote user for a container, defaulting to DefaultRemoteUser.
 func (m *Manager) getContainerUser(containerID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if c, ok := m.containers[containerID]; ok && c.RemoteUser != "" {
 		return c.RemoteUser
 	}
@@ -618,6 +542,9 @@ func (m *Manager) getContainerUser(containerID string) string {
 
 // getContainerName returns the name of a container by ID, or empty string if not found.
 func (m *Manager) getContainerName(containerID string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	if c, ok := m.containers[containerID]; ok {
 		return c.Name
 	}

@@ -15,14 +15,8 @@ import (
 
 // mockRuntime implements a testable Runtime interface
 type mockRuntime struct {
-	containers   []Container
-	listErr      error
-	startCalled  string
-	stopCalled   string
-	removeCalled string
-	startErr     error
-	stopErr      error
-	removeErr    error
+	containers []Container
+	listErr    error
 
 	// Compose operations
 	composeUpCalled    string // projectDir
@@ -47,18 +41,15 @@ func (m *mockRuntime) ListContainers(ctx context.Context) ([]Container, error) {
 }
 
 func (m *mockRuntime) StartContainer(ctx context.Context, id string) error {
-	m.startCalled = id
-	return m.startErr
+	return nil
 }
 
 func (m *mockRuntime) StopContainer(ctx context.Context, id string) error {
-	m.stopCalled = id
-	return m.stopErr
+	return nil
 }
 
 func (m *mockRuntime) RemoveContainer(ctx context.Context, id string) error {
-	m.removeCalled = id
-	return m.removeErr
+	return nil
 }
 
 func (m *mockRuntime) Exec(ctx context.Context, id string, cmd []string) (string, error) {
@@ -169,104 +160,6 @@ func TestGet_NotFound(t *testing.T) {
 	}
 }
 
-func TestStart_CallsRuntime(t *testing.T) {
-	mock := &mockRuntime{
-		containers: []Container{
-			{ID: "abc123", Name: "container-1", State: StateStopped},
-		},
-	}
-	mgr := NewManagerWithRuntime(mock)
-	ctx := context.Background()
-	_ = mgr.Refresh(ctx)
-
-	err := mgr.Start(ctx, "abc123")
-	if err != nil {
-		t.Fatalf("Start failed: %v", err)
-	}
-	if mock.startCalled != "abc123" {
-		t.Errorf("Expected StartContainer called with abc123, got %q", mock.startCalled)
-	}
-}
-
-func TestStart_NotFound(t *testing.T) {
-	mock := &mockRuntime{containers: []Container{}}
-	mgr := NewManagerWithRuntime(mock)
-	ctx := context.Background()
-	_ = mgr.Refresh(ctx)
-
-	err := mgr.Start(ctx, "unknown")
-	if err == nil {
-		t.Error("Expected error for unknown container")
-	}
-}
-
-func TestStop_CallsRuntime(t *testing.T) {
-	mock := &mockRuntime{
-		containers: []Container{
-			{ID: "abc123", Name: "container-1", State: StateRunning},
-		},
-	}
-	mgr := NewManagerWithRuntime(mock)
-	ctx := context.Background()
-	_ = mgr.Refresh(ctx)
-
-	err := mgr.Stop(ctx, "abc123")
-	if err != nil {
-		t.Fatalf("Stop failed: %v", err)
-	}
-	if mock.stopCalled != "abc123" {
-		t.Errorf("Expected StopContainer called with abc123, got %q", mock.stopCalled)
-	}
-}
-
-func TestDestroy_StopsFirst(t *testing.T) {
-	mock := &mockRuntime{
-		containers: []Container{
-			{ID: "abc123", Name: "container-1", State: StateRunning},
-		},
-	}
-	mgr := NewManagerWithRuntime(mock)
-	ctx := context.Background()
-	_ = mgr.Refresh(ctx)
-
-	err := mgr.Destroy(ctx, "abc123")
-	if err != nil {
-		t.Fatalf("Destroy failed: %v", err)
-	}
-
-	// Should have called stop first (for running container)
-	if mock.stopCalled != "abc123" {
-		t.Error("Expected stop to be called first for running container")
-	}
-	if mock.removeCalled != "abc123" {
-		t.Error("Expected remove to be called")
-	}
-}
-
-func TestDestroy_SkipsStopForStopped(t *testing.T) {
-	mock := &mockRuntime{
-		containers: []Container{
-			{ID: "abc123", Name: "container-1", State: StateStopped},
-		},
-	}
-	mgr := NewManagerWithRuntime(mock)
-	ctx := context.Background()
-	_ = mgr.Refresh(ctx)
-
-	err := mgr.Destroy(ctx, "abc123")
-	if err != nil {
-		t.Fatalf("Destroy failed: %v", err)
-	}
-
-	// Should NOT have called stop for already stopped container
-	if mock.stopCalled != "" {
-		t.Error("Should not call stop for already stopped container")
-	}
-	if mock.removeCalled != "abc123" {
-		t.Error("Expected remove to be called")
-	}
-}
-
 func TestRefresh_Error(t *testing.T) {
 	mock := &mockRuntime{
 		listErr: errors.New("docker not running"),
@@ -277,23 +170,6 @@ func TestRefresh_Error(t *testing.T) {
 	err := mgr.Refresh(ctx)
 	if err == nil {
 		t.Error("Expected error from Refresh")
-	}
-}
-
-func TestStart_RuntimeError(t *testing.T) {
-	mock := &mockRuntime{
-		containers: []Container{
-			{ID: "abc123", Name: "container-1", State: StateStopped},
-		},
-		startErr: errors.New("failed to start"),
-	}
-	mgr := NewManagerWithRuntime(mock)
-	ctx := context.Background()
-	_ = mgr.Refresh(ctx)
-
-	err := mgr.Start(ctx, "abc123")
-	if err == nil {
-		t.Error("Expected error from Start")
 	}
 }
 
@@ -396,7 +272,7 @@ func TestManager_RefreshSidecars(t *testing.T) {
 // Helper function to calculate hash like manager does
 func calculateHash(projectPath string) string {
 	hash := sha256.Sum256([]byte(projectPath))
-	return hex.EncodeToString(hash[:])[:12]
+	return hex.EncodeToString(hash[:])[:HashTruncLen]
 }
 
 func TestComposeGenerator_GeneratesAndWritesFiles(t *testing.T) {
@@ -698,53 +574,59 @@ func TestStartWithCompose_NotFound(t *testing.T) {
 	}
 }
 
-func TestIsComposeContainer_WithComposeFile(t *testing.T) {
-	projectDir := t.TempDir()
+func TestManager_ConcurrentRefreshAndGet(t *testing.T) {
+	mock := &mockRuntime{
+		containers: []Container{
+			{ID: "abc123", Name: "container-1", State: StateRunning},
+		},
+	}
+	mgr := NewManagerWithRuntime(mock)
+	ctx := context.Background()
+	_ = mgr.Refresh(ctx)
 
-	// Create .devcontainer/docker-compose.yml
-	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
-		t.Fatalf("Failed to create devcontainer dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml"), []byte("services: {}"), 0644); err != nil {
-		t.Fatalf("Failed to write docker-compose.yml: %v", err)
+	done := make(chan struct{})
+
+	// Goroutine 1: refresh in a loop
+	go func() {
+		defer close(done)
+		for i := 0; i < 100; i++ {
+			_ = mgr.Refresh(ctx)
+		}
+	}()
+
+	// Goroutine 2 (main): Get in a loop
+	for i := 0; i < 100; i++ {
+		_, _ = mgr.Get("abc123")
 	}
 
-	mgr := NewManagerWithRuntime(&mockRuntime{})
-	mgr.containers["test-id"] = &Container{
-		ID:          "test-id",
-		ProjectPath: projectDir,
-	}
-
-	if !mgr.IsComposeContainer("test-id") {
-		t.Error("Expected IsComposeContainer to return true when docker-compose.yml exists")
-	}
+	<-done
 }
 
-func TestIsComposeContainer_WithoutComposeFile(t *testing.T) {
-	projectDir := t.TempDir()
+func TestManager_ConcurrentRefreshAndList(t *testing.T) {
+	mock := &mockRuntime{
+		containers: []Container{
+			{ID: "abc123", Name: "container-1", State: StateRunning},
+			{ID: "def456", Name: "container-2", State: StateStopped},
+		},
+	}
+	mgr := NewManagerWithRuntime(mock)
+	ctx := context.Background()
+	_ = mgr.Refresh(ctx)
 
-	// Create .devcontainer/ without docker-compose.yml
-	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
-		t.Fatalf("Failed to create devcontainer dir: %v", err)
+	done := make(chan struct{})
+
+	// Goroutine 1: refresh in a loop
+	go func() {
+		defer close(done)
+		for i := 0; i < 100; i++ {
+			_ = mgr.Refresh(ctx)
+		}
+	}()
+
+	// Goroutine 2 (main): List in a loop
+	for i := 0; i < 100; i++ {
+		_ = mgr.List()
 	}
 
-	mgr := NewManagerWithRuntime(&mockRuntime{})
-	mgr.containers["test-id"] = &Container{
-		ID:          "test-id",
-		ProjectPath: projectDir,
-	}
-
-	if mgr.IsComposeContainer("test-id") {
-		t.Error("Expected IsComposeContainer to return false when docker-compose.yml doesn't exist")
-	}
-}
-
-func TestIsComposeContainer_ContainerNotFound(t *testing.T) {
-	mgr := NewManagerWithRuntime(&mockRuntime{})
-
-	if mgr.IsComposeContainer("nonexistent") {
-		t.Error("Expected IsComposeContainer to return false for nonexistent container")
-	}
+	<-done
 }
