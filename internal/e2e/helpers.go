@@ -54,13 +54,46 @@ func TestConfig(runtime string) *config.Config {
 	}
 }
 
-// TestTemplates returns minimal templates for E2E testing.
+// TestTemplates returns templates for E2E testing by loading from the project's
+// config directory. If templates cannot be loaded, it falls back to a minimal
+// default template for backward compatibility.
 func TestTemplates() []config.Template {
+	// Try to load templates from the project's config directory
+	projectRoot := findProjectRoot()
+	if projectRoot != "" {
+		templatesPath := filepath.Join(projectRoot, "config", "templates")
+		templates, err := config.LoadTemplatesFrom(templatesPath)
+		if err == nil && len(templates) > 0 {
+			return templates
+		}
+	}
+
+	// Fallback: return minimal default template
 	return []config.Template{
 		{
-			Name:  "default",
-			Image: "mcr.microsoft.com/devcontainers/base:ubuntu",
+			Name: "default",
 		},
+	}
+}
+
+// findProjectRoot returns the project root directory by looking for go.mod.
+// Returns empty string if not found (safe for fallback use).
+func findProjectRoot() string {
+	// Start from current directory and walk up
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "" // reached filesystem root
+		}
+		dir = parent
 	}
 }
 

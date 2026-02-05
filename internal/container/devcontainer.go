@@ -38,13 +38,55 @@ func getContainerClaudeDir(projectPath string) string {
 	return filepath.Join(getDataDir(), "claude-configs", hashStr)
 }
 
-// ensureClaudeDir creates the claude config directory for a container if it doesn't exist.
+// ensureClaudeDir creates the host-side claude config directory for a container.
 func ensureClaudeDir(projectPath string) (string, error) {
 	dir := getContainerClaudeDir(projectPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create claude config directory: %w", err)
 	}
 	return dir, nil
+}
+
+// copyClaudeTemplateFiles copies template claude files to the container's claude config dir.
+// Files from <templatePath>/home/vscode/.claude/ are copied to claudeDir.
+// Existing files are not overwritten, preserving user modifications.
+func copyClaudeTemplateFiles(templatePath, claudeDir string) error {
+	srcDir := filepath.Join(templatePath, "home", "vscode", ".claude")
+
+	info, err := os.Stat(srcDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return nil
+	}
+
+	return filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+
+		destPath := filepath.Join(claudeDir, relPath)
+
+		if d.IsDir() {
+			return os.MkdirAll(destPath, 0755)
+		}
+
+		// Skip existing files to preserve user modifications
+		if _, err := os.Stat(destPath); err == nil {
+			return nil
+		}
+
+		return copyFile(path, destPath)
+	})
 }
 
 // getClaudeConfigDir returns the XDG-compliant Claude config directory.
@@ -108,54 +150,6 @@ func ensureClaudeToken() (tokenPath string, token string) {
 	return tokenPath, token
 }
 
-// copyClaudeTemplateFiles copies files from template's home/vscode/.claude/ to the claude config dir.
-// Only copies files that don't already exist (won't overwrite user changes).
-func copyClaudeTemplateFiles(templatePath, claudeDir string) error {
-	// Look for home/vscode/.claude/ in the template directory
-	srcDir := filepath.Join(templatePath, "home", "vscode", ".claude")
-
-	info, err := os.Stat(srcDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// No template files to copy, that's fine
-			return nil
-		}
-		return err
-	}
-	if !info.IsDir() {
-		return nil
-	}
-
-	// Walk the source directory and copy files
-	return filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Get relative path from srcDir
-		relPath, err := filepath.Rel(srcDir, path)
-		if err != nil {
-			return err
-		}
-
-		destPath := filepath.Join(claudeDir, relPath)
-
-		if d.IsDir() {
-			// Create directory if it doesn't exist
-			return os.MkdirAll(destPath, 0755)
-		}
-
-		// Only copy files that don't already exist (preserve user modifications)
-		if _, err := os.Stat(destPath); err == nil {
-			// File exists, skip
-			return nil
-		}
-
-		// Copy the file
-		return copyFile(path, destPath)
-	})
-}
-
 // ReadWorkspaceFolder reads the workspaceFolder from a project's devcontainer.json.
 // Returns the workspace folder path, or a default of "/workspaces" if not specified or on error.
 func ReadWorkspaceFolder(projectPath string) string {
@@ -195,54 +189,12 @@ func NewDevcontainerGenerator(cfg *config.Config, templates []config.Template) *
 	}
 }
 
-// buildIsolationRunArgs generates runtime arguments from isolation config
-func buildIsolationRunArgs(iso *config.IsolationConfig) []string {
-	if iso == nil {
-		return nil
-	}
-
-	var args []string
-
-	// Add capability drops
-	if iso.Caps != nil {
-		for _, cap := range iso.Caps.Drop {
-			args = append(args, "--cap-drop", cap)
-		}
-	}
-
-	// Add resource limits
-	if iso.Resources != nil {
-		if iso.Resources.Memory != "" {
-			args = append(args, "--memory", iso.Resources.Memory)
-		}
-		if iso.Resources.CPUs != "" {
-			args = append(args, "--cpus", iso.Resources.CPUs)
-		}
-		if iso.Resources.PidsLimit > 0 {
-			args = append(args, "--pids-limit", fmt.Sprintf("%d", iso.Resources.PidsLimit))
-		}
-	}
-
-	return args
-}
-
-// chainPostCreateCommand appends a command to an existing postCreateCommand.
-// If the existing command is empty, returns just the new command.
-// Commands are joined with " && " to run sequentially.
-func chainPostCreateCommand(existing, additional string) string {
-	if existing == "" {
-		return additional
-	}
-	if additional == "" {
-		return existing
-	}
-	return existing + " && " + additional
-}
-
 // GenerateResult holds the generated devcontainer config and template metadata.
 type GenerateResult struct {
-	Config       *DevcontainerJSON
-	TemplatePath string // Path to template directory for copying additional files
+	Config               *DevcontainerJSON
+	TemplatePath         string // Path to template directory for copying additional files
+	CopyDockerfile       string // Dockerfile to copy (relative to TemplatePath), independent of Config.Build
+	DevcontainerTemplate string // Processed devcontainer.json.tmpl content (template-driven mode)
 }
 
 // GetTemplate retrieves a template by name.
@@ -256,7 +208,8 @@ func (g *DevcontainerGenerator) GetTemplate(templateName string) *config.Templat
 	return nil
 }
 
-// Generate creates a DevcontainerJSON from the given options.
+// Generate creates devcontainer.json from template files for compose-based orchestration.
+// Templates must provide devcontainer.json.tmpl and docker-compose.yml.tmpl.
 func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, error) {
 	// Find template
 	var tmpl *config.Template
@@ -270,173 +223,51 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 		return nil, fmt.Errorf("template not found: %s", opts.Template)
 	}
 
-	dc := &DevcontainerJSON{
-		Name:              opts.Name,
-		Image:             tmpl.Image,
-		PostCreateCommand: tmpl.PostCreateCommand,
-		ContainerEnv:      make(map[string]string),
-		RunArgs:           []string{},
+	// All templates have a Dockerfile in their template directory.
+	// It is copied to .devcontainer/ separately because devcontainer CLI
+	// ignores dockerComposeFile when build is present in devcontainer.json.
+	copyDockerfile := "Dockerfile"
+
+	// Ensure claude config dir exists and seed with template files
+	claudeDir, err := ensureClaudeDir(opts.ProjectPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := copyClaudeTemplateFiles(tmpl.Path, claudeDir); err != nil {
+		return nil, fmt.Errorf("failed to copy claude template files: %w", err)
 	}
 
-	// Copy build config from template
-	if tmpl.Build != nil {
-		dc.Build = &BuildConfig{
-			Dockerfile: tmpl.Build.Dockerfile,
-			Context:    tmpl.Build.Context,
-		}
+	return g.generateFromTemplate(tmpl, opts, copyDockerfile)
+}
+
+// generateFromTemplate processes devcontainer.json.tmpl and returns the result.
+func (g *DevcontainerGenerator) generateFromTemplate(tmpl *config.Template, opts CreateOptions, copyDockerfile string) (*GenerateResult, error) {
+	// Build template data (same data used for docker-compose.yml.tmpl)
+	hash := projectHash(opts.ProjectPath)
+	projectName := filepath.Base(opts.ProjectPath)
+
+	data := TemplateData{
+		ProjectHash:        hash,
+		ProjectPath:        opts.ProjectPath,
+		ProjectName:        projectName,
+		WorkspaceFolder:    fmt.Sprintf("/workspaces/%s", projectName),
+		ClaudeConfigDir:    getContainerClaudeDir(opts.ProjectPath),
+		TemplateName:       tmpl.Name,
+		ContainerName:      opts.Name,
+		CertInstallCommand: certInstallCommand,
 	}
 
-	// Copy features from template (shallow copy of map values is sufficient)
-	if tmpl.Features != nil {
-		dc.Features = make(map[string]map[string]interface{})
-		for k, v := range tmpl.Features {
-			dc.Features[k] = v
-		}
-	}
-
-	// Copy customizations from template
-	if tmpl.Customizations != nil {
-		dc.Customizations = tmpl.Customizations
-	}
-
-	// Inject credentials
-	for _, credName := range tmpl.InjectCredentials {
-		if value, ok := g.cfg.GetCredentialValue(credName); ok {
-			dc.ContainerEnv[credName] = value
-		}
-	}
-
-	// Inject agent OTEL env
-	agentName := opts.Agent
-	if agentName == "" {
-		agentName = tmpl.DefaultAgent
-	}
-	if agentName != "" {
-		if agent, ok := g.cfg.Agents[agentName]; ok {
-			for k, v := range agent.OTELEnv {
-				dc.ContainerEnv[k] = v
-			}
-		}
-	}
-
-	// Set IS_DEMO to skip onboarding prompts
-	dc.ContainerEnv["IS_DEMO"] = "1"
-
-	// Add proxy environment variables if network isolation is enabled
-	if opts.Proxy != nil {
-		proxyURL := fmt.Sprintf("http://%s:%s", opts.Proxy.ProxyHost, opts.Proxy.ProxyPort)
-
-		// Standard proxy variables (lowercase and uppercase for compatibility)
-		dc.ContainerEnv["http_proxy"] = proxyURL
-		dc.ContainerEnv["https_proxy"] = proxyURL
-		dc.ContainerEnv["HTTP_PROXY"] = proxyURL
-		dc.ContainerEnv["HTTPS_PROXY"] = proxyURL
-
-		// Bypass proxy for localhost
-		dc.ContainerEnv["no_proxy"] = "localhost,127.0.0.1"
-		dc.ContainerEnv["NO_PROXY"] = "localhost,127.0.0.1"
-
-		// Certificate bundle paths for various runtimes
-		// These point to the system trust store that includes our CA cert
-		dc.ContainerEnv["REQUESTS_CA_BUNDLE"] = "/etc/ssl/certs/ca-certificates.crt"
-		dc.ContainerEnv["NODE_EXTRA_CA_CERTS"] = "/etc/ssl/certs/ca-certificates.crt"
-		dc.ContainerEnv["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt"
-	}
-
-	// Add devagent labels
-	dc.RunArgs = append(dc.RunArgs,
-		"--label", LabelManagedBy+"=true",
-	)
-	if opts.ProjectPath != "" {
-		dc.RunArgs = append(dc.RunArgs,
-			"--label", LabelProjectPath+"="+opts.ProjectPath,
-		)
-	}
-	dc.RunArgs = append(dc.RunArgs,
-		"--label", LabelTemplate+"="+opts.Template,
-	)
-	if agentName != "" {
-		dc.RunArgs = append(dc.RunArgs,
-			"--label", LabelAgent+"="+agentName,
-		)
-	}
-
-	// Add remote user label (default to vscode per devcontainer spec)
-	remoteUser := tmpl.RemoteUser
-	if remoteUser == "" {
-		remoteUser = DefaultRemoteUser
-	}
-	dc.RunArgs = append(dc.RunArgs,
-		"--label", LabelRemoteUser+"="+remoteUser,
-	)
-
-	// Set Docker container name via runArgs
-	if opts.Name != "" {
-		dc.RunArgs = append(dc.RunArgs, "--name", opts.Name)
-	}
-
-	// Add network attachment if network isolation is enabled
-	if opts.Proxy != nil && opts.Proxy.NetworkName != "" {
-		dc.RunArgs = append(dc.RunArgs, "--network", opts.Proxy.NetworkName)
-	}
-
-	// Get effective isolation (merges template config with defaults)
-	// This ensures templates without explicit isolation config get default isolation applied
-	effectiveIsolation := tmpl.GetEffectiveIsolation()
-
-	// Add isolation runtime arguments
-	if effectiveIsolation != nil {
-		dc.RunArgs = append(dc.RunArgs, buildIsolationRunArgs(effectiveIsolation)...)
-
-		// Add capAdd to devcontainer.json native field
-		if effectiveIsolation.Caps != nil && len(effectiveIsolation.Caps.Add) > 0 {
-			dc.CapAdd = effectiveIsolation.Caps.Add
-		}
-	}
-
-	// Add mount for Claude config directory
-	// This maps a per-container directory on host to /home/vscode/.claude in container
-	if opts.ProjectPath != "" {
-		claudeDir, err := ensureClaudeDir(opts.ProjectPath)
-		if err != nil {
-			return nil, err
-		}
-
-		// Copy template files to claude config dir (only if they don't already exist)
-		if tmpl.Path != "" {
-			if err := copyClaudeTemplateFiles(tmpl.Path, claudeDir); err != nil {
-				return nil, fmt.Errorf("failed to copy claude template files: %w", err)
-			}
-		}
-
-		// Format: source=<host-path>,target=<container-path>,type=bind
-		mount := fmt.Sprintf("source=%s,target=/home/%s/.claude,type=bind", claudeDir, remoteUser)
-		dc.Mounts = append(dc.Mounts, mount)
-	}
-
-	// Add mount for Claude OAuth token (if available)
-	// Token is provisioned via 'claude setup-token' if not already present
-	if tokenPath, _ := ensureClaudeToken(); tokenPath != "" {
-		tokenMount := fmt.Sprintf("source=%s,target=/run/secrets/claude-token,type=bind,readonly", tokenPath)
-		dc.Mounts = append(dc.Mounts, tokenMount)
-	}
-
-	// Add proxy certificate mount if network isolation is enabled
-	if opts.Proxy != nil && opts.Proxy.CertDir != "" {
-		// Mount the CA cert to a location where postCreateCommand can access it
-		certMount := fmt.Sprintf("source=%s,target=/tmp/mitmproxy-certs,type=bind,readonly",
-			opts.Proxy.CertDir)
-		dc.Mounts = append(dc.Mounts, certMount)
-
-		// Chain cert installation to postCreateCommand
-		// Copy cert with .crt extension and update trust store
-		certInstallCmd := "sudo cp /tmp/mitmproxy-certs/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca-cert.crt && sudo update-ca-certificates"
-		dc.PostCreateCommand = chainPostCreateCommand(dc.PostCreateCommand, certInstallCmd)
+	// Process the template
+	content, err := ProcessDevcontainerTemplate(tmpl.Path, data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process devcontainer.json.tmpl: %w", err)
 	}
 
 	return &GenerateResult{
-		Config:       dc,
-		TemplatePath: tmpl.Path,
+		Config:               nil, // No struct when using template
+		TemplatePath:         tmpl.Path,
+		CopyDockerfile:       copyDockerfile,
+		DevcontainerTemplate: content, // New field for template output
 	}, nil
 }
 
@@ -448,10 +279,19 @@ func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *Gener
 		return err
 	}
 
-	// If template uses a Dockerfile, copy it
-	if result.Config.Build != nil && result.Config.Build.Dockerfile != "" && result.TemplatePath != "" {
-		srcDockerfile := filepath.Join(result.TemplatePath, result.Config.Build.Dockerfile)
-		dstDockerfile := filepath.Join(devcontainerDir, result.Config.Build.Dockerfile)
+	// Copy Dockerfile if specified
+	// CopyDockerfile takes precedence (used for compose mode where Build shouldn't be serialized)
+	// Falls back to Config.Build.Dockerfile for backward compatibility (non-compose mode)
+	var dockerfileToCopy string
+	if result.CopyDockerfile != "" {
+		dockerfileToCopy = result.CopyDockerfile
+	} else if result.Config != nil && result.Config.Build != nil && result.Config.Build.Dockerfile != "" {
+		dockerfileToCopy = result.Config.Build.Dockerfile
+	}
+
+	if dockerfileToCopy != "" && result.TemplatePath != "" {
+		srcDockerfile := filepath.Join(result.TemplatePath, dockerfileToCopy)
+		dstDockerfile := filepath.Join(devcontainerDir, dockerfileToCopy)
 		if err := copyFile(srcDockerfile, dstDockerfile); err != nil {
 			return fmt.Errorf("failed to copy Dockerfile: %w", err)
 		}
@@ -468,13 +308,67 @@ func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *Gener
 		}
 	}
 
+	jsonPath := filepath.Join(devcontainerDir, "devcontainer.json")
+
+	// Use template-driven output if available, otherwise use JSON struct
+	if result.DevcontainerTemplate != "" {
+		return os.WriteFile(jsonPath, []byte(result.DevcontainerTemplate), 0644)
+	}
+
+	// Fallback to struct-based JSON generation
 	data, err := json.MarshalIndent(result.Config, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	jsonPath := filepath.Join(devcontainerDir, "devcontainer.json")
 	return os.WriteFile(jsonPath, data, 0644)
+}
+
+// WriteComposeFiles writes docker-compose.yml, Dockerfile.proxy, and filter.py
+// to the project's .devcontainer directory alongside the devcontainer.json.
+func (g *DevcontainerGenerator) WriteComposeFiles(projectPath string, composeResult *ComposeResult) error {
+	devcontainerDir := filepath.Join(projectPath, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		return fmt.Errorf("failed to create .devcontainer directory: %w", err)
+	}
+
+	// Write docker-compose.yml
+	composePath := filepath.Join(devcontainerDir, "docker-compose.yml")
+	if err := os.WriteFile(composePath, []byte(composeResult.ComposeYAML), 0644); err != nil {
+		return fmt.Errorf("failed to write docker-compose.yml: %w", err)
+	}
+
+	// Write Dockerfile.proxy
+	dockerfileProxyPath := filepath.Join(devcontainerDir, "Dockerfile.proxy")
+	if err := os.WriteFile(dockerfileProxyPath, []byte(composeResult.DockerfileProxy), 0644); err != nil {
+		return fmt.Errorf("failed to write Dockerfile.proxy: %w", err)
+	}
+
+	// Write filter.py
+	filterPath := filepath.Join(devcontainerDir, "filter.py")
+	if err := os.WriteFile(filterPath, []byte(composeResult.FilterScript), 0644); err != nil {
+		return fmt.Errorf("failed to write filter.py: %w", err)
+	}
+
+	return nil
+}
+
+// WriteAll writes all generated files to the project's .devcontainer directory.
+// This includes devcontainer.json and optionally compose files if composeResult is provided.
+func (g *DevcontainerGenerator) WriteAll(projectPath string, devcontainerResult *GenerateResult, composeResult *ComposeResult) error {
+	// Write devcontainer.json and template files
+	if err := g.WriteToProject(projectPath, devcontainerResult); err != nil {
+		return fmt.Errorf("failed to write devcontainer files: %w", err)
+	}
+
+	// Write compose files if provided
+	if composeResult != nil {
+		if err := g.WriteComposeFiles(projectPath, composeResult); err != nil {
+			return fmt.Errorf("failed to write compose files: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // copyFile copies a file from src to dst.

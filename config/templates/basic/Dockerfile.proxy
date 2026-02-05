@@ -1,0 +1,7 @@
+FROM mitmproxy/mitmproxy:latest
+
+# Copy filter script into container
+COPY filter.py /home/mitmproxy/filter.py
+
+# Expose proxy port
+EXPOSE 8080

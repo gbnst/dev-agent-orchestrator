@@ -80,6 +80,8 @@ type DevcontainerJSON struct {
 	Name              string                            `json:"name"`
 	Image             string                            `json:"image,omitempty"`
 	Build             *BuildConfig                      `json:"build,omitempty"`
+	DockerComposeFile string                            `json:"dockerComposeFile,omitempty"`
+	Service           string                            `json:"service,omitempty"`
 	Features          map[string]map[string]interface{} `json:"features,omitempty"`
 	Customizations    map[string]interface{}            `json:"customizations,omitempty"`
 	PostCreateCommand string                            `json:"postCreateCommand,omitempty"`
@@ -89,28 +91,7 @@ type DevcontainerJSON struct {
 	CapAdd            []string                          `json:"capAdd,omitempty"`
 	SecurityOpt       []string                          `json:"securityOpt,omitempty"`
 	WorkspaceFolder   string                            `json:"workspaceFolder,omitempty"`
-}
-
-// RunContainerOptions configures a container to run via RuntimeInterface.RunContainer
-type RunContainerOptions struct {
-	Image      string            // Container image to run
-	Name       string            // Container name
-	Network    string            // Network to attach to
-	Volumes    []string          // Volume mounts (source:dest[:mode])
-	Env        map[string]string // Environment variables
-	Labels     map[string]string // Container labels
-	Command    []string          // Command to run (optional)
-	AutoRemove bool              // Remove container when it exits (--rm)
-	Detach     bool              // Run in background (-d)
-}
-
-// ProxyConfig holds configuration for network isolation proxy.
-// Used by Generate() when isolation with network allowlist is enabled.
-type ProxyConfig struct {
-	CertDir     string // Host directory containing mitmproxy CA cert
-	ProxyHost   string // Hostname of the proxy container
-	ProxyPort   string // Port the proxy listens on
-	NetworkName string // Docker network name
+	RemoteUser        string                            `json:"remoteUser,omitempty"`
 }
 
 // ProgressStep represents a step during container creation.
@@ -129,7 +110,6 @@ type CreateOptions struct {
 	Template    string
 	Name        string
 	Agent       string
-	Proxy       *ProxyConfig     // Optional proxy configuration for network isolation
 	OnProgress  ProgressCallback // Optional callback for progress updates
 }
 
@@ -146,6 +126,11 @@ const (
 const (
 	LabelSidecarOf   = "devagent.sidecar_of"   // Project path hash this sidecar belongs to
 	LabelSidecarType = "devagent.sidecar_type" // Type of sidecar (e.g., "proxy")
+)
+
+// Docker Compose label constants
+const (
+	LabelComposeProject = "com.docker.compose.project" // Set by devcontainer CLI / docker compose
 )
 
 // DefaultRemoteUser is the default user for devcontainer exec commands.

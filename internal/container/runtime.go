@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
-	"sort"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -114,85 +114,6 @@ func (r *Runtime) ExecAs(ctx context.Context, id string, user string, cmd []stri
 	args := []string{"exec", "-u", user, id}
 	args = append(args, cmd...)
 	return r.exec(ctx, r.executable, args...)
-}
-
-// CreateNetwork creates a Docker/Podman network and returns its ID
-func (r *Runtime) CreateNetwork(ctx context.Context, name string) (string, error) {
-	output, err := r.exec(ctx, r.executable, "network", "create", name)
-	if err != nil {
-		return "", fmt.Errorf("failed to create network %s: %w", name, err)
-	}
-	// Output is the network ID with a trailing newline
-	return strings.TrimSpace(output), nil
-}
-
-// RemoveNetwork removes a Docker/Podman network
-func (r *Runtime) RemoveNetwork(ctx context.Context, name string) error {
-	_, err := r.exec(ctx, r.executable, "network", "rm", "-f", name)
-	if err != nil {
-		return fmt.Errorf("failed to remove network %s: %w", name, err)
-	}
-	return nil
-}
-
-// RunContainer runs a container with the given options and returns its ID
-func (r *Runtime) RunContainer(ctx context.Context, opts RunContainerOptions) (string, error) {
-	args := []string{"run"}
-
-	if opts.Detach {
-		args = append(args, "-d")
-	}
-
-	if opts.AutoRemove {
-		args = append(args, "--rm")
-	}
-
-	if opts.Name != "" {
-		args = append(args, "--name", opts.Name)
-	}
-
-	if opts.Network != "" {
-		args = append(args, "--network", opts.Network)
-	}
-
-	// Add labels (sorted for deterministic output)
-	labelKeys := make([]string, 0, len(opts.Labels))
-	for key := range opts.Labels {
-		labelKeys = append(labelKeys, key)
-	}
-	sort.Strings(labelKeys)
-	for _, key := range labelKeys {
-		args = append(args, "--label", key+"="+opts.Labels[key])
-	}
-
-	// Add environment variables (sorted for deterministic output)
-	envKeys := make([]string, 0, len(opts.Env))
-	for key := range opts.Env {
-		envKeys = append(envKeys, key)
-	}
-	sort.Strings(envKeys)
-	for _, key := range envKeys {
-		args = append(args, "-e", key+"="+opts.Env[key])
-	}
-
-	// Add volume mounts
-	for _, vol := range opts.Volumes {
-		args = append(args, "-v", vol)
-	}
-
-	// Image must come before command
-	args = append(args, opts.Image)
-
-	// Add command if specified
-	args = append(args, opts.Command...)
-
-	output, err := r.exec(ctx, r.executable, args...)
-	if err != nil {
-		return "", fmt.Errorf("failed to run container: %w", err)
-	}
-
-	// Output is the container ID with a trailing newline
-	return strings.TrimSpace(output), nil
 }
 
 // containerJSON represents the JSON output from docker/podman ps --format json.
@@ -439,4 +360,60 @@ func formatBytes(bytes int64) string {
 		return fmt.Sprintf("%.1fm", float64(bytes)/float64(mb))
 	}
 	return fmt.Sprintf("%d", bytes)
+}
+
+// composeCommand returns the compose command for this runtime.
+// For docker: uses "docker compose" (v2 subcommand)
+// For podman: uses "podman-compose" standalone binary
+func (r *Runtime) composeCommand() (string, []string) {
+	if r.executable == "podman" {
+		return "podman-compose", nil
+	}
+	// Docker uses compose as subcommand
+	return r.executable, []string{"compose"}
+}
+
+// ComposeUp runs docker-compose/podman-compose up -d in the project directory.
+// The compose file is expected at {projectDir}/.devcontainer/docker-compose.yml
+func (r *Runtime) ComposeUp(ctx context.Context, projectDir string, projectName string) error {
+	composeFile := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
+
+	cmd, baseArgs := r.composeCommand()
+	args := append(baseArgs, "-f", composeFile, "-p", projectName, "up", "-d")
+
+	_, err := r.exec(ctx, cmd, args...)
+	return err
+}
+
+// ComposeStart runs docker-compose/podman-compose start.
+func (r *Runtime) ComposeStart(ctx context.Context, projectDir string, projectName string) error {
+	composeFile := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
+
+	cmd, baseArgs := r.composeCommand()
+	args := append(baseArgs, "-f", composeFile, "-p", projectName, "start")
+
+	_, err := r.exec(ctx, cmd, args...)
+	return err
+}
+
+// ComposeStop runs docker-compose/podman-compose stop.
+func (r *Runtime) ComposeStop(ctx context.Context, projectDir string, projectName string) error {
+	composeFile := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
+
+	cmd, baseArgs := r.composeCommand()
+	args := append(baseArgs, "-f", composeFile, "-p", projectName, "stop")
+
+	_, err := r.exec(ctx, cmd, args...)
+	return err
+}
+
+// ComposeDown runs docker-compose/podman-compose down to stop and remove containers/networks.
+func (r *Runtime) ComposeDown(ctx context.Context, projectDir string, projectName string) error {
+	composeFile := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
+
+	cmd, baseArgs := r.composeCommand()
+	args := append(baseArgs, "-f", composeFile, "-p", projectName, "down")
+
+	_, err := r.exec(ctx, cmd, args...)
+	return err
 }

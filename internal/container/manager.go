@@ -8,8 +8,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
-	"time"
 
 	"devagent/internal/config"
 	"devagent/internal/logging"
@@ -26,24 +27,26 @@ type RuntimeInterface interface {
 	InspectContainer(ctx context.Context, id string) (ContainerState, error)
 	GetIsolationInfo(ctx context.Context, id string) (*IsolationInfo, error)
 
-	// Network operations
-	CreateNetwork(ctx context.Context, name string) (string, error)
-	RemoveNetwork(ctx context.Context, name string) error
-	RunContainer(ctx context.Context, opts RunContainerOptions) (string, error)
+	// Compose lifecycle operations
+	ComposeUp(ctx context.Context, projectDir string, projectName string) error
+	ComposeStart(ctx context.Context, projectDir string, projectName string) error
+	ComposeStop(ctx context.Context, projectDir string, projectName string) error
+	ComposeDown(ctx context.Context, projectDir string, projectName string) error
 }
 
 // Manager orchestrates container lifecycle operations.
 type Manager struct {
-	cfg         *config.Config
-	runtime     RuntimeInterface
-	runtimeName string // "docker" or "podman" - used for attach commands
-	runtimePath string // full path to binary - bypasses shell aliases
-	generator   *DevcontainerGenerator
-	devCLI      *DevcontainerCLI
-	containers  map[string]*Container
-	sidecars    map[string]*Sidecar // Maps sidecar container ID to Sidecar
-	logger      *logging.ScopedLogger
-	logManager  interface{ For(string) *logging.ScopedLogger } // for per-container loggers
+	cfg              *config.Config
+	runtime          RuntimeInterface
+	runtimeName      string // "docker" or "podman" - used for attach commands
+	runtimePath      string // full path to binary - bypasses shell aliases
+	generator        *DevcontainerGenerator
+	composeGenerator *ComposeGenerator // for compose-based orchestration
+	devCLI           *DevcontainerCLI
+	containers       map[string]*Container
+	sidecars         map[string]*Sidecar // Maps sidecar container ID to Sidecar
+	logger           *logging.ScopedLogger
+	logManager       interface{ For(string) *logging.ScopedLogger } // for per-container loggers
 }
 
 // NewManager creates a new Manager with the given config and templates.
@@ -52,6 +55,7 @@ func NewManager(cfg *config.Config, templates []config.Template) *Manager {
 	runtimePath := cfg.DetectedRuntimePath()
 	runtime := NewRuntime(runtimeName)
 	generator := NewDevcontainerGenerator(cfg, templates)
+	composeGenerator := NewComposeGenerator(templates)
 
 	// Use explicit runtime for devcontainer CLI if configured
 	var devCLI *DevcontainerCLI
@@ -62,15 +66,16 @@ func NewManager(cfg *config.Config, templates []config.Template) *Manager {
 	}
 
 	return &Manager{
-		cfg:         cfg,
-		runtime:     runtime,
-		runtimeName: runtimeName,
-		runtimePath: runtimePath,
-		generator:   generator,
-		devCLI:      devCLI,
-		containers:  make(map[string]*Container),
-		sidecars:    make(map[string]*Sidecar),
-		logger:      logging.NopLogger(),
+		cfg:              cfg,
+		runtime:          runtime,
+		runtimeName:      runtimeName,
+		runtimePath:      runtimePath,
+		generator:        generator,
+		composeGenerator: composeGenerator,
+		devCLI:           devCLI,
+		containers:       make(map[string]*Container),
+		sidecars:         make(map[string]*Sidecar),
+		logger:           logging.NopLogger(),
 	}
 }
 
@@ -96,6 +101,26 @@ func NewManagerWithDeps(runtime RuntimeInterface, generator *DevcontainerGenerat
 	}
 }
 
+// NewManagerWithAllDeps creates a Manager with all dependencies including composeGenerator for testing.
+// This is used by tests that need to verify compose-based operations.
+func NewManagerWithAllDeps(cfg *config.Config, templates []config.Template, runtime RuntimeInterface, devCLI *DevcontainerCLI) *Manager {
+	generator := NewDevcontainerGenerator(cfg, templates)
+	composeGenerator := NewComposeGenerator(templates)
+
+	return &Manager{
+		cfg:              cfg,
+		runtime:          runtime,
+		runtimeName:      cfg.DetectedRuntime(),
+		runtimePath:      cfg.DetectedRuntimePath(),
+		generator:        generator,
+		composeGenerator: composeGenerator,
+		devCLI:           devCLI,
+		containers:       make(map[string]*Container),
+		sidecars:         make(map[string]*Sidecar),
+		logger:           logging.NopLogger(),
+	}
+}
+
 // NewManagerWithRuntimeAndLogger creates a Manager with a mock runtime and logger for testing.
 // Accepts any type with a For(scope string) -> *ScopedLogger method.
 func NewManagerWithRuntimeAndLogger(runtime RuntimeInterface, logManager interface{ For(string) *logging.ScopedLogger }) *Manager {
@@ -118,6 +143,7 @@ func NewManagerWithConfigAndLogger(cfg *config.Config, templates []config.Templa
 	runtimePath := cfg.DetectedRuntimePath()
 	runtime := NewRuntime(runtimeName)
 	generator := NewDevcontainerGenerator(cfg, templates)
+	composeGenerator := NewComposeGenerator(templates)
 
 	// Use explicit runtime for devcontainer CLI if configured
 	var devCLI *DevcontainerCLI
@@ -131,16 +157,17 @@ func NewManagerWithConfigAndLogger(cfg *config.Config, templates []config.Templa
 	logger.Debug("container manager initialized")
 
 	return &Manager{
-		cfg:         cfg,
-		runtimeName: runtimeName,
-		runtimePath: runtimePath,
-		runtime:     runtime,
-		generator:   generator,
-		devCLI:      devCLI,
-		containers:  make(map[string]*Container),
-		sidecars:    make(map[string]*Sidecar),
-		logger:      logger,
-		logManager:  logManager,
+		cfg:              cfg,
+		runtimeName:      runtimeName,
+		runtimePath:      runtimePath,
+		runtime:          runtime,
+		generator:        generator,
+		composeGenerator: composeGenerator,
+		devCLI:           devCLI,
+		containers:       make(map[string]*Container),
+		sidecars:         make(map[string]*Sidecar),
+		logger:           logger,
+		logManager:       logManager,
 	}
 }
 
@@ -267,240 +294,6 @@ func (m *Manager) GetContainerIsolationInfo(ctx context.Context, c *Container) (
 	return info, nil
 }
 
-// createProxySidecar creates a mitmproxy sidecar for network isolation.
-// Returns the sidecar and the project hash (used as ParentRef).
-func (m *Manager) createProxySidecar(ctx context.Context, projectPath string, networkConfig *config.NetworkConfig) (*Sidecar, string, error) {
-	// Generate unique names based on project path hash
-	hash := sha256.Sum256([]byte(projectPath))
-	hashStr := hex.EncodeToString(hash[:])[:12]
-	networkName := fmt.Sprintf("devagent-%s-net", hashStr)
-	proxyName := fmt.Sprintf("devagent-%s-proxy", hashStr)
-
-	m.logger.Info("creating proxy sidecar",
-		"projectHash", hashStr,
-		"network", networkName,
-		"proxyName", proxyName,
-	)
-
-	// Create the isolated network
-	_, err := m.runtime.CreateNetwork(ctx, networkName)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to create network: %w", err)
-	}
-
-	// Get proxy config directory for certs and filter script
-	certDir, err := GetProxyCertDir(projectPath)
-	if err != nil {
-		m.runtime.RemoveNetwork(ctx, networkName) //nolint:errcheck
-		return nil, "", fmt.Errorf("failed to get cert directory: %w", err)
-	}
-
-	// Get filter script path
-	configDir, err := GetProxyConfigDir(projectPath)
-	if err != nil {
-		m.runtime.RemoveNetwork(ctx, networkName) //nolint:errcheck
-		return nil, "", fmt.Errorf("failed to get config directory: %w", err)
-	}
-
-	// Write the filter script
-	allowlist := networkConfig.Allowlist
-	if len(networkConfig.AllowlistExtend) > 0 {
-		// Merge with default allowlist
-		allowlist = append(config.DefaultIsolation.Network.Allowlist, networkConfig.AllowlistExtend...)
-	}
-	if _, err := WriteFilterScript(projectPath, allowlist, networkConfig.BlockGitHubPRMerge); err != nil {
-		m.runtime.RemoveNetwork(ctx, networkName) //nolint:errcheck
-		return nil, "", fmt.Errorf("failed to write filter script: %w", err)
-	}
-
-	// Build mitmproxy command with --ignore-hosts for passthrough domains
-	mitmCmd := []string{"mitmdump", "-s", "/data/filter.py"}
-	if len(networkConfig.Passthrough) > 0 {
-		pattern := GenerateIgnoreHostsPattern(networkConfig.Passthrough)
-		mitmCmd = append(mitmCmd, "--ignore-hosts", pattern)
-	}
-
-	// Start the mitmproxy container
-	sidecarID, err := m.runtime.RunContainer(ctx, RunContainerOptions{
-		Image:      "mitmproxy/mitmproxy:latest",
-		Name:       proxyName,
-		Network:    networkName,
-		Detach:     true,
-		AutoRemove: false, // We manage lifecycle explicitly
-		Labels: map[string]string{
-			LabelManagedBy:   "true",
-			LabelSidecarOf:   hashStr, // Use project hash as parent reference
-			LabelSidecarType: "proxy",
-		},
-		Volumes: []string{
-			certDir + ":/home/mitmproxy/.mitmproxy",
-			configDir + ":/data:ro",
-		},
-		Command: mitmCmd,
-	})
-	if err != nil {
-		m.runtime.RemoveNetwork(ctx, networkName) //nolint:errcheck
-		return nil, "", fmt.Errorf("failed to start proxy container: %w", err)
-	}
-
-	// Wait for proxy to be ready (health check)
-	if err := m.waitForProxyReady(ctx, sidecarID, 30*time.Second); err != nil {
-		m.cleanupFailedSidecar(ctx, sidecarID, networkName)
-		return nil, "", fmt.Errorf("proxy failed to become ready: %w", err)
-	}
-
-	sidecar := &Sidecar{
-		ID:          sidecarID,
-		Type:        "proxy",
-		ParentRef:   hashStr,
-		NetworkName: networkName,
-		State:       StateRunning,
-	}
-
-	m.sidecars[sidecarID] = sidecar
-	return sidecar, hashStr, nil
-}
-
-// waitForProxyReady waits for the mitmproxy container to be running.
-func (m *Manager) waitForProxyReady(ctx context.Context, containerID string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-
-	for time.Now().Before(deadline) {
-		state, err := m.runtime.InspectContainer(ctx, containerID)
-		if err == nil && state == StateRunning {
-			return nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(500 * time.Millisecond):
-			// Continue waiting
-		}
-	}
-
-	return fmt.Errorf("timeout waiting for proxy to be ready after %v", timeout)
-}
-
-// cleanupFailedSidecar cleans up a sidecar that failed during creation.
-// It stops the container, waits for it to be removed, then removes the network.
-func (m *Manager) cleanupFailedSidecar(ctx context.Context, containerID, networkName string) {
-	m.logger.Info("cleaning up failed sidecar", "containerID", containerID, "network", networkName)
-
-	// Stop the container
-	if err := m.runtime.StopContainer(ctx, containerID); err != nil {
-		m.logger.Warn("failed to stop sidecar during cleanup", "error", err)
-	}
-
-	// Remove the container and wait for it to be gone
-	if err := m.runtime.RemoveContainer(ctx, containerID); err != nil {
-		m.logger.Warn("failed to remove sidecar during cleanup", "error", err)
-	}
-
-	// Wait for container to be fully removed before removing network
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		_, err := m.runtime.InspectContainer(ctx, containerID)
-		if err != nil {
-			// Container is gone, safe to remove network
-			break
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
-
-	// Remove the network
-	if networkName != "" {
-		if err := m.runtime.RemoveNetwork(ctx, networkName); err != nil {
-			m.logger.Warn("failed to remove network during cleanup", "error", err)
-		}
-	}
-}
-
-// destroySidecar stops and removes a sidecar container and its network.
-func (m *Manager) destroySidecar(ctx context.Context, sidecar *Sidecar) error {
-	m.logger.Info("destroying sidecar",
-		"sidecarID", sidecar.ID,
-		"type", sidecar.Type,
-		"network", sidecar.NetworkName,
-	)
-
-	// Stop the sidecar container
-	if err := m.runtime.StopContainer(ctx, sidecar.ID); err != nil {
-		m.logger.Warn("failed to stop sidecar", "error", err)
-		// Continue with removal anyway
-	}
-
-	// Remove the sidecar container
-	if err := m.runtime.RemoveContainer(ctx, sidecar.ID); err != nil {
-		m.logger.Warn("failed to remove sidecar", "error", err)
-		// Continue with network cleanup anyway
-	}
-
-	// Remove the network
-	if sidecar.NetworkName != "" {
-		if err := m.runtime.RemoveNetwork(ctx, sidecar.NetworkName); err != nil {
-			m.logger.Warn("failed to remove network", "error", err)
-		}
-	}
-
-	delete(m.sidecars, sidecar.ID)
-	return nil
-}
-
-// destroySidecarsForProject removes all sidecars associated with a project.
-func (m *Manager) destroySidecarsForProject(ctx context.Context, projectPath string) error {
-	sidecars := m.GetSidecarsForProject(projectPath)
-	for _, sidecar := range sidecars {
-		if err := m.destroySidecar(ctx, sidecar); err != nil {
-			m.logger.Warn("failed to destroy sidecar", "sidecarID", sidecar.ID, "error", err)
-		}
-	}
-	return nil
-}
-
-// startSidecar starts a stopped sidecar container.
-func (m *Manager) startSidecar(ctx context.Context, sidecar *Sidecar) error {
-	if err := m.runtime.StartContainer(ctx, sidecar.ID); err != nil {
-		return fmt.Errorf("failed to start sidecar: %w", err)
-	}
-	sidecar.State = StateRunning
-	return nil
-}
-
-// stopSidecar stops a running sidecar container.
-func (m *Manager) stopSidecar(ctx context.Context, sidecar *Sidecar) error {
-	if err := m.runtime.StopContainer(ctx, sidecar.ID); err != nil {
-		return fmt.Errorf("failed to stop sidecar: %w", err)
-	}
-	sidecar.State = StateStopped
-	return nil
-}
-
-// startSidecarsForProject starts all sidecars for a project.
-func (m *Manager) startSidecarsForProject(ctx context.Context, projectPath string) error {
-	sidecars := m.GetSidecarsForProject(projectPath)
-	for _, sidecar := range sidecars {
-		if sidecar.State != StateRunning {
-			if err := m.startSidecar(ctx, sidecar); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// stopSidecarsForProject stops all sidecars for a project.
-func (m *Manager) stopSidecarsForProject(ctx context.Context, projectPath string) error {
-	sidecars := m.GetSidecarsForProject(projectPath)
-	for _, sidecar := range sidecars {
-		if sidecar.State == StateRunning {
-			if err := m.stopSidecar(ctx, sidecar); err != nil {
-				m.logger.Warn("failed to stop sidecar", "sidecarID", sidecar.ID, "error", err)
-			}
-		}
-	}
-	return nil
-}
 
 // RuntimeName returns the container runtime name ("docker" or "podman").
 func (m *Manager) RuntimeName() string {
@@ -525,151 +318,106 @@ func (m *Manager) Get(id string) (*Container, bool) {
 	return c, ok
 }
 
-// getTemplate retrieves a template by name from the generator.
-// Returns nil if template not found.
-func (m *Manager) getTemplate(templateName string) *config.Template {
-	if m.generator == nil {
-		return nil
-	}
-	return m.generator.GetTemplate(templateName)
-}
-
-// reportProgress calls the progress callback if set.
-func reportProgress(opts CreateOptions, step ProgressStep) {
-	if opts.OnProgress != nil {
-		opts.OnProgress(step)
-	}
-}
-
-// Create generates a devcontainer.json and starts a new container.
-func (m *Manager) Create(ctx context.Context, opts CreateOptions) (*Container, error) {
-	scopedLogger := m.containerLogger(opts.Name).With("projectPath", opts.ProjectPath, "template", opts.Template)
-	scopedLogger.Info("creating container")
-
-	if m.generator == nil {
-		scopedLogger.Error("generator not configured", "error", "generator is nil")
-		reportProgress(opts, ProgressStep{Step: "config", Status: "failed", Message: "Generator not configured"})
-		return nil, errors.New("generator not configured")
-	}
-
-	// Get template to check for isolation config
-	tmpl := m.getTemplate(opts.Template)
-
-	// Get effective isolation config (merges template with defaults)
-	var effectiveIsolation *config.IsolationConfig
-	if tmpl != nil {
-		effectiveIsolation = tmpl.GetEffectiveIsolation()
-	}
-
-	// Create proxy sidecar if network isolation is configured and has allowlist
-	var sidecar *Sidecar
-	if effectiveIsolation != nil && effectiveIsolation.Network != nil && len(effectiveIsolation.Network.Allowlist) > 0 {
-		// Report network creation started
-		reportProgress(opts, ProgressStep{Step: "network", Status: "started", Message: "Creating network..."})
-
-		// Create sidecar first (before devcontainer)
-		var projectHash string
-		sidecar, projectHash, err := m.createProxySidecar(ctx, opts.ProjectPath, effectiveIsolation.Network)
+// CreateWithCompose creates a new devcontainer using docker-compose orchestration.
+func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*Container, error) {
+	// Ensure ProjectPath is absolute (relative paths break Docker Compose volume mounts —
+	// Compose interprets "foo:/path" as named volume "foo" instead of bind mount "./foo")
+	if opts.ProjectPath != "" {
+		absPath, err := filepath.Abs(opts.ProjectPath)
 		if err != nil {
-			reportProgress(opts, ProgressStep{Step: "network", Status: "failed", Message: "Failed to create network"})
-			return nil, fmt.Errorf("failed to create proxy sidecar: %w", err)
+			return nil, fmt.Errorf("failed to resolve project path: %w", err)
 		}
-
-		reportProgress(opts, ProgressStep{Step: "network", Status: "completed", Message: "Network created"})
-		reportProgress(opts, ProgressStep{Step: "proxy", Status: "completed", Message: "Proxy sidecar started"})
-
-		// Update CreateOptions with proxy config for Generate()
-		certDir, _ := GetProxyCertDir(opts.ProjectPath)
-		opts.Proxy = &ProxyConfig{
-			CertDir:     certDir,
-			ProxyHost:   fmt.Sprintf("devagent-%s-proxy", projectHash),
-			ProxyPort:   "8080",
-			NetworkName: sidecar.NetworkName,
-		}
-		scopedLogger.Debug("sidecar created, updating Generate options with proxy config")
+		opts.ProjectPath = absPath
 	}
 
-	// Report config generation started
-	reportProgress(opts, ProgressStep{Step: "config", Status: "started", Message: "Generating config..."})
+	// Create scoped logger for this operation.
+	// Use the compose container name (devagent-<hash>-app) so the TUI log filter matches.
+	containerName := fmt.Sprintf("devagent-%s-app", projectHash(opts.ProjectPath))
+	logger := m.containerLogger(containerName)
+
+	reportProgress := func(step, status, msg string) {
+		logger.Info(msg, "step", step, "status", status)
+		if opts.OnProgress != nil {
+			opts.OnProgress(ProgressStep{Step: step, Status: status, Message: msg})
+		}
+	}
+
+	reportProgress("compose", "started", "Generating compose configuration")
+
+	// Ensure proxy cert directory exists
+	certDir, err := GetProxyCertDir(opts.ProjectPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create proxy cert directory: %w", err)
+	}
+	logger.Debug("proxy cert directory ready", "path", certDir)
+
+	// Generate compose files
+	composeOpts := ComposeOptions{
+		ProjectPath: opts.ProjectPath,
+		Template:    opts.Template,
+		Name:        opts.Name,
+	}
+
+	composeResult, err := m.composeGenerator.Generate(composeOpts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate compose config: %w", err)
+	}
+
+	reportProgress("compose", "completed", "Compose configuration generated")
+	reportProgress("devcontainer", "started", "Generating devcontainer configuration")
 
 	// Generate devcontainer.json
-	result, err := m.generator.Generate(opts)
+	devcontainerResult, err := m.generator.Generate(opts)
 	if err != nil {
-		scopedLogger.Error("failed to generate devcontainer config", "error", err)
-		reportProgress(opts, ProgressStep{Step: "config", Status: "failed", Message: "Failed to generate config"})
-		if sidecar != nil {
-			// Clean up sidecar on failure
-			m.destroySidecar(ctx, sidecar) //nolint:errcheck
-		}
-		return nil, err
+		return nil, fmt.Errorf("failed to generate devcontainer config: %w", err)
 	}
 
-	// Write to project
-	if err := m.generator.WriteToProject(opts.ProjectPath, result); err != nil {
-		scopedLogger.Error("failed to write devcontainer.json", "error", err)
-		reportProgress(opts, ProgressStep{Step: "config", Status: "failed", Message: "Failed to write config"})
-		if sidecar != nil {
-			// Clean up sidecar on failure
-			m.destroySidecar(ctx, sidecar) //nolint:errcheck
-		}
-		return nil, err
+	reportProgress("devcontainer", "completed", "Devcontainer configuration generated")
+	reportProgress("files", "started", "Writing configuration files")
+
+	// Write all files to project
+	if err := m.generator.WriteAll(opts.ProjectPath, devcontainerResult, composeResult); err != nil {
+		return nil, fmt.Errorf("failed to write configuration files: %w", err)
 	}
 
-	scopedLogger.Debug("devcontainer.json written")
-	reportProgress(opts, ProgressStep{Step: "config", Status: "completed", Message: "Config generated"})
+	reportProgress("files", "completed", "Configuration files written")
+	reportProgress("container", "started", "Starting devcontainer")
 
-	// Report devcontainer startup started
-	reportProgress(opts, ProgressStep{Step: "devcontainer", Status: "started", Message: "Starting devcontainer..."})
-
-	// Start container using devcontainer CLI
+	// Start devcontainer (devcontainer CLI handles compose orchestration)
 	containerID, err := m.devCLI.Up(ctx, opts.ProjectPath)
 	if err != nil {
-		scopedLogger.Error("devcontainer up failed", "error", err)
-		reportProgress(opts, ProgressStep{Step: "devcontainer", Status: "failed", Message: "Failed to start devcontainer"})
-		if sidecar != nil {
-			// Clean up sidecar on failure
-			m.destroySidecar(ctx, sidecar) //nolint:errcheck
-		}
-		return nil, err
+		reportProgress("container", "failed", fmt.Sprintf("Failed to start: %v", err))
+		return nil, fmt.Errorf("failed to start devcontainer: %w", err)
 	}
 
-	scopedLogger.Info("container created successfully", "containerID", containerID)
-	reportProgress(opts, ProgressStep{Step: "devcontainer", Status: "completed", Message: "Container ready"})
+	displayID := containerID
+	if len(displayID) > 12 {
+		displayID = displayID[:12]
+	}
+	logger.Info("devcontainer started", "containerID", displayID)
+	reportProgress("container", "completed", "Devcontainer started successfully")
 
-	// Refresh to get the new container
+	// Refresh container list
 	if err := m.Refresh(ctx); err != nil {
-		if sidecar != nil {
-			// Clean up sidecar on failure
-			m.destroySidecar(ctx, sidecar) //nolint:errcheck
-		}
-		return nil, err
+		logger.Warn("failed to refresh container list", "error", err)
 	}
 
-	// Debug: log all container IDs we have
-	var ids []string
-	for id := range m.containers {
-		ids = append(ids, id)
-	}
-	scopedLogger.Debug("container IDs after refresh", "lookingFor", containerID, "available", ids)
-
-	container, ok := m.containers[containerID]
-	if !ok {
-		// Try to find by prefix match (devcontainer returns full ID, docker ps may return short)
-		for id, c := range m.containers {
-			if strings.HasPrefix(id, containerID) || strings.HasPrefix(containerID, id) {
-				scopedLogger.Debug("found container by prefix match", "returnedID", containerID, "foundID", id)
-				return c, nil
-			}
+	// Find the created container
+	// Container ID from devcontainer up may be truncated, so use prefix match
+	for _, c := range m.containers {
+		if strings.HasPrefix(c.ID, containerID) || strings.HasPrefix(containerID, c.ID) {
+			return c, nil
 		}
-		scopedLogger.Error("container created but not found in refresh", "containerID", containerID)
-		if sidecar != nil {
-			// Clean up sidecar on failure
-			m.destroySidecar(ctx, sidecar) //nolint:errcheck
-		}
-		return nil, errors.New("container created but not found in refresh")
 	}
 
-	return container, nil
+	// If not found by ID, try matching by project path
+	for _, c := range m.containers {
+		if c.ProjectPath == opts.ProjectPath {
+			return c, nil
+		}
+	}
+
+	return nil, fmt.Errorf("container created but not found in refresh: %s", containerID)
 }
 
 // Start starts a stopped container.
@@ -682,14 +430,6 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 
 	scopedLogger := m.containerLogger(c.Name).With("containerID", id)
 	scopedLogger.Info("starting container")
-
-	// Start sidecars first (using project path from container labels)
-	if projectPath := c.ProjectPath; projectPath != "" {
-		if err := m.startSidecarsForProject(ctx, projectPath); err != nil {
-			scopedLogger.Error("failed to start sidecars", "error", err)
-			return fmt.Errorf("failed to start sidecars: %w", err)
-		}
-	}
 
 	if err := m.runtime.StartContainer(ctx, c.ID); err != nil {
 		scopedLogger.Error("failed to start container", "error", err)
@@ -719,12 +459,6 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 
 	c.State = StateStopped
 	scopedLogger.Info("container stopped")
-
-	// Stop sidecars after container (using project path from container)
-	if projectPath := c.ProjectPath; projectPath != "" {
-		m.stopSidecarsForProject(ctx, projectPath) //nolint:errcheck
-	}
-
 	return nil
 }
 
@@ -752,16 +486,126 @@ func (m *Manager) Destroy(ctx context.Context, id string) error {
 		return err
 	}
 
-	// Destroy sidecars and clean up proxy config directories
+	// Clean up proxy config directories
 	if projectPath := c.ProjectPath; projectPath != "" {
-		m.destroySidecarsForProject(ctx, projectPath) //nolint:errcheck
-		// Clean up proxy config directories
 		CleanupProxyConfigs(projectPath) //nolint:errcheck
 	}
 
 	delete(m.containers, id)
 	scopedLogger.Info("container destroyed")
 	return nil
+}
+
+// composeProjectName returns the compose project name for a container.
+// Reads from Docker's com.docker.compose.project label (set by devcontainer CLI).
+// Falls back to "devagent-<hash>" if label is missing (shouldn't happen for compose containers).
+func composeProjectName(c *Container) string {
+	if name := c.Labels[LabelComposeProject]; name != "" {
+		return name
+	}
+	return "devagent-" + projectHash(c.ProjectPath)
+}
+
+// StartWithCompose starts a compose-based devcontainer using docker-compose start.
+// This is for containers created with CreateWithCompose().
+func (m *Manager) StartWithCompose(ctx context.Context, containerID string) error {
+	c, ok := m.containers[containerID]
+	if !ok {
+		return fmt.Errorf("container not found: %s", containerID)
+	}
+
+	if c.ProjectPath == "" {
+		return fmt.Errorf("container has no project path: %s", containerID)
+	}
+
+	logger := m.containerLogger(c.Name)
+	logger.Info("starting compose container")
+
+	projectName := composeProjectName(c)
+
+	if err := m.runtime.ComposeStart(ctx, c.ProjectPath, projectName); err != nil {
+		logger.Error("failed to start compose container", "error", err)
+		return fmt.Errorf("failed to start compose: %w", err)
+	}
+
+	c.State = StateRunning
+	logger.Info("compose container started")
+	return nil
+}
+
+// StopWithCompose stops a compose-based devcontainer using docker-compose stop.
+func (m *Manager) StopWithCompose(ctx context.Context, containerID string) error {
+	c, ok := m.containers[containerID]
+	if !ok {
+		return fmt.Errorf("container not found: %s", containerID)
+	}
+
+	if c.ProjectPath == "" {
+		return fmt.Errorf("container has no project path: %s", containerID)
+	}
+
+	logger := m.containerLogger(c.Name)
+	logger.Info("stopping compose container")
+
+	projectName := composeProjectName(c)
+
+	if err := m.runtime.ComposeStop(ctx, c.ProjectPath, projectName); err != nil {
+		logger.Error("failed to stop compose container", "error", err)
+		return fmt.Errorf("failed to stop compose: %w", err)
+	}
+
+	c.State = StateStopped
+	logger.Info("compose container stopped")
+	return nil
+}
+
+// DestroyWithCompose destroys a compose-based devcontainer using docker-compose down.
+// This removes both app and proxy containers, networks, and volumes.
+func (m *Manager) DestroyWithCompose(ctx context.Context, containerID string) error {
+	c, ok := m.containers[containerID]
+	if !ok {
+		return fmt.Errorf("container not found: %s", containerID)
+	}
+
+	if c.ProjectPath == "" {
+		return fmt.Errorf("container has no project path: %s", containerID)
+	}
+
+	logger := m.containerLogger(c.Name)
+	logger.Info("destroying compose container")
+
+	projectName := composeProjectName(c)
+
+	// docker-compose down removes containers and networks
+	if err := m.runtime.ComposeDown(ctx, c.ProjectPath, projectName); err != nil {
+		logger.Error("failed to destroy compose container", "error", err)
+		return fmt.Errorf("failed to destroy compose: %w", err)
+	}
+
+	// Clean up proxy config directories (same as legacy destroy)
+	if err := CleanupProxyConfigs(c.ProjectPath); err != nil {
+		logger.Warn("failed to cleanup proxy configs", "error", err)
+		// Continue - this is non-fatal
+	}
+
+	// Remove from containers map
+	delete(m.containers, containerID)
+
+	logger.Info("compose container destroyed")
+	return nil
+}
+
+// IsComposeContainer checks if a container was created with compose orchestration.
+// Returns true if the project has a docker-compose.yml file in .devcontainer/.
+func (m *Manager) IsComposeContainer(containerID string) bool {
+	c, ok := m.containers[containerID]
+	if !ok || c.ProjectPath == "" {
+		return false
+	}
+
+	composePath := filepath.Join(c.ProjectPath, ".devcontainer", "docker-compose.yml")
+	_, err := os.Stat(composePath)
+	return err == nil
 }
 
 // getContainerUser returns the remote user for a container, defaulting to DefaultRemoteUser.

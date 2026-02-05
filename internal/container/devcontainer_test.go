@@ -32,211 +32,6 @@ func TestGenerate_TemplateNotFound(t *testing.T) {
 	}
 }
 
-func TestGenerate_BasicTemplate(t *testing.T) {
-	cfg := &config.Config{}
-	templates := []config.Template{
-		{
-			Name:  "python",
-			Image: "mcr.microsoft.com/devcontainers/python:3.11",
-		},
-	}
-	g := NewDevcontainerGenerator(cfg, templates)
-
-	result, err := g.Generate(CreateOptions{
-		Template:    "python",
-		ProjectPath: "/home/user/project",
-		Name:        "my-container",
-	})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	if result.Config.Image != "mcr.microsoft.com/devcontainers/python:3.11" {
-		t.Errorf("Image: got %q", result.Config.Image)
-	}
-	if result.Config.Name != "my-container" {
-		t.Errorf("Name: got %q, want %q", result.Config.Name, "my-container")
-	}
-}
-
-func TestGenerate_InjectsCredentials(t *testing.T) {
-	cfg := &config.Config{
-		Credentials: map[string]string{
-			"OPENAI_API_KEY": "TEST_OPENAI_KEY",
-		},
-	}
-	templates := []config.Template{
-		{
-			Name:              "default",
-			Image:             "ubuntu:22.04",
-			InjectCredentials: []string{"OPENAI_API_KEY"},
-		},
-	}
-
-	// Set the env var
-	t.Setenv("TEST_OPENAI_KEY", "sk-secret-key")
-
-	g := NewDevcontainerGenerator(cfg, templates)
-	result, err := g.Generate(CreateOptions{Template: "default"})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	if result.Config.ContainerEnv["OPENAI_API_KEY"] != "sk-secret-key" {
-		t.Errorf("ContainerEnv[OPENAI_API_KEY]: got %q, want %q", result.Config.ContainerEnv["OPENAI_API_KEY"], "sk-secret-key")
-	}
-}
-
-func TestGenerate_SkipsMissingCredentials(t *testing.T) {
-	cfg := &config.Config{
-		Credentials: map[string]string{
-			"MISSING_KEY": "UNSET_ENV_VAR_12345",
-		},
-	}
-	templates := []config.Template{
-		{
-			Name:              "default",
-			Image:             "ubuntu:22.04",
-			InjectCredentials: []string{"MISSING_KEY"},
-		},
-	}
-
-	g := NewDevcontainerGenerator(cfg, templates)
-	result, err := g.Generate(CreateOptions{Template: "default"})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	// Should not include credentials that aren't set
-	if _, ok := result.Config.ContainerEnv["MISSING_KEY"]; ok {
-		t.Error("Should not include missing credentials")
-	}
-}
-
-func TestGenerate_InjectsAgentOTELEnv(t *testing.T) {
-	cfg := &config.Config{
-		Agents: map[string]config.AgentConfig{
-			"claude-code": {
-				DisplayName: "Claude Code",
-				OTELEnv: map[string]string{
-					"OTEL_SERVICE_NAME": "claude-code",
-					"OTEL_ENDPOINT":     "http://host.docker.internal:4317",
-				},
-			},
-		},
-	}
-	templates := []config.Template{
-		{
-			Name:         "default",
-			Image:        "ubuntu:22.04",
-			DefaultAgent: "claude-code",
-		},
-	}
-
-	g := NewDevcontainerGenerator(cfg, templates)
-	result, err := g.Generate(CreateOptions{Template: "default"})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	if result.Config.ContainerEnv["OTEL_SERVICE_NAME"] != "claude-code" {
-		t.Errorf("ContainerEnv[OTEL_SERVICE_NAME]: got %q", result.Config.ContainerEnv["OTEL_SERVICE_NAME"])
-	}
-	if result.Config.ContainerEnv["OTEL_ENDPOINT"] != "http://host.docker.internal:4317" {
-		t.Errorf("ContainerEnv[OTEL_ENDPOINT]: got %q", result.Config.ContainerEnv["OTEL_ENDPOINT"])
-	}
-}
-
-func TestGenerate_AddsDevagentLabels(t *testing.T) {
-	cfg := &config.Config{}
-	templates := []config.Template{
-		{
-			Name:  "default",
-			Image: "ubuntu:22.04",
-		},
-	}
-
-	g := NewDevcontainerGenerator(cfg, templates)
-	result, err := g.Generate(CreateOptions{
-		Template:    "default",
-		ProjectPath: "/home/user/project",
-		Agent:       "claude-code",
-	})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	// Check RunArgs contains label flags
-	hasManaged := false
-	hasProjectPath := false
-	hasTemplate := false
-	hasAgent := false
-
-	for i, arg := range result.Config.RunArgs {
-		if arg == "--label" && i+1 < len(result.Config.RunArgs) {
-			label := result.Config.RunArgs[i+1]
-			switch {
-			case label == "devagent.managed=true":
-				hasManaged = true
-			case label == "devagent.project_path=/home/user/project":
-				hasProjectPath = true
-			case label == "devagent.template=default":
-				hasTemplate = true
-			case label == "devagent.agent=claude-code":
-				hasAgent = true
-			}
-		}
-	}
-
-	if !hasManaged {
-		t.Error("Missing devagent.managed label")
-	}
-	if !hasProjectPath {
-		t.Error("Missing devagent.project_path label")
-	}
-	if !hasTemplate {
-		t.Error("Missing devagent.template label")
-	}
-	if !hasAgent {
-		t.Error("Missing devagent.agent label")
-	}
-}
-
-func TestGenerate_CopiesFeatures(t *testing.T) {
-	cfg := &config.Config{}
-	templates := []config.Template{
-		{
-			Name:  "default",
-			Image: "ubuntu:22.04",
-			Features: map[string]map[string]interface{}{
-				"ghcr.io/devcontainers/features/python:1": {
-					"version": "3.11",
-				},
-			},
-			PostCreateCommand: "pip install -r requirements.txt",
-		},
-	}
-
-	g := NewDevcontainerGenerator(cfg, templates)
-	result, err := g.Generate(CreateOptions{Template: "default"})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	if result.Config.Features == nil {
-		t.Fatal("Features should not be nil")
-	}
-	feature, ok := result.Config.Features["ghcr.io/devcontainers/features/python:1"]
-	if !ok {
-		t.Error("Expected python feature")
-	}
-	if feature["version"] != "3.11" {
-		t.Errorf("Feature version: got %v", feature["version"])
-	}
-	if result.Config.PostCreateCommand != "pip install -r requirements.txt" {
-		t.Errorf("PostCreateCommand: got %q", result.Config.PostCreateCommand)
-	}
-}
 
 func TestWriteToProject_CreatesDirectory(t *testing.T) {
 	tempDir := t.TempDir()
@@ -421,803 +216,11 @@ func TestDevcontainerCLI_Up_WithoutDockerPath(t *testing.T) {
 	}
 }
 
-func TestGenerate_AddsDockerNameToRunArgs(t *testing.T) {
-	cfg := &config.Config{}
-	templates := []config.Template{
-		{
-			Name:  "default",
-			Image: "ubuntu:22.04",
-		},
-	}
-
-	g := NewDevcontainerGenerator(cfg, templates)
-	result, err := g.Generate(CreateOptions{
-		Template: "default",
-		Name:     "my-container",
-	})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	// Check RunArgs contains --name my-container
-	hasName := false
-	for i, arg := range result.Config.RunArgs {
-		if arg == "--name" && i+1 < len(result.Config.RunArgs) && result.Config.RunArgs[i+1] == "my-container" {
-			hasName = true
-		}
-	}
-	if !hasName {
-		t.Errorf("Expected --name my-container in RunArgs, got: %v", result.Config.RunArgs)
-	}
-}
-
-func TestGenerate_OmitsDockerNameWhenEmpty(t *testing.T) {
-	cfg := &config.Config{}
-	templates := []config.Template{
-		{
-			Name:  "default",
-			Image: "ubuntu:22.04",
-		},
-	}
-
-	g := NewDevcontainerGenerator(cfg, templates)
-	result, err := g.Generate(CreateOptions{
-		Template: "default",
-	})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	// Check RunArgs does NOT contain --name
-	for _, arg := range result.Config.RunArgs {
-		if arg == "--name" {
-			t.Errorf("--name should not be in RunArgs when Name is empty, got: %v", result.Config.RunArgs)
-		}
-	}
-}
 
 func TestNewDevcontainerCLIWithRuntime(t *testing.T) {
 	cli := NewDevcontainerCLIWithRuntime("docker")
 	if cli.dockerPath != "docker" {
 		t.Errorf("dockerPath: got %q, want %q", cli.dockerPath, "docker")
-	}
-}
-
-func TestGenerate_AddsClaudeMount(t *testing.T) {
-	cfg := &config.Config{}
-	templates := []config.Template{
-		{
-			Name:  "default",
-			Image: "ubuntu:22.04",
-		},
-	}
-
-	g := NewDevcontainerGenerator(cfg, templates)
-	result, err := g.Generate(CreateOptions{
-		Template:    "default",
-		ProjectPath: "/home/user/myproject",
-	})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	// Should have at least one mount for .claude directory
-	if len(result.Config.Mounts) < 1 {
-		t.Fatalf("Expected at least 1 mount, got %d", len(result.Config.Mounts))
-	}
-
-	// Find the .claude mount
-	var claudeMount string
-	for _, mount := range result.Config.Mounts {
-		if strings.Contains(mount, "target=/home/vscode/.claude") {
-			claudeMount = mount
-			break
-		}
-	}
-	if claudeMount == "" {
-		t.Fatalf("Expected .claude mount not found in: %v", result.Config.Mounts)
-	}
-	// Mount should be a bind type
-	if !strings.Contains(claudeMount, "type=bind") {
-		t.Errorf("Mount should be type=bind, got: %s", claudeMount)
-	}
-	// Source should be in devagent data directory
-	if !strings.Contains(claudeMount, "source=") {
-		t.Errorf("Mount should have source, got: %s", claudeMount)
-	}
-}
-
-func TestGenerate_ClaudeMountUsesRemoteUser(t *testing.T) {
-	cfg := &config.Config{}
-	templates := []config.Template{
-		{
-			Name:       "default",
-			Image:      "ubuntu:22.04",
-			RemoteUser: "developer",
-		},
-	}
-
-	g := NewDevcontainerGenerator(cfg, templates)
-	result, err := g.Generate(CreateOptions{
-		Template:    "default",
-		ProjectPath: "/home/user/myproject",
-	})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	// Find the .claude mount with custom remoteUser
-	var claudeMount string
-	for _, mount := range result.Config.Mounts {
-		if strings.Contains(mount, "target=/home/developer/.claude") {
-			claudeMount = mount
-			break
-		}
-	}
-	if claudeMount == "" {
-		t.Fatalf("Expected .claude mount for developer user not found in: %v", result.Config.Mounts)
-	}
-}
-
-func TestGenerate_NoClaudeMountWithoutProjectPath(t *testing.T) {
-	cfg := &config.Config{}
-	templates := []config.Template{
-		{
-			Name:  "default",
-			Image: "ubuntu:22.04",
-		},
-	}
-
-	g := NewDevcontainerGenerator(cfg, templates)
-	result, err := g.Generate(CreateOptions{
-		Template: "default",
-		// No ProjectPath
-	})
-	if err != nil {
-		t.Fatalf("Generate failed: %v", err)
-	}
-
-	// Should have no .claude mount when no project path (may have token mount)
-	for _, mount := range result.Config.Mounts {
-		if strings.Contains(mount, "target=/home/vscode/.claude") {
-			t.Errorf("Should not have .claude mount without project path, got: %s", mount)
-		}
-	}
-}
-
-func TestBuildIsolationRunArgs(t *testing.T) {
-	tests := []struct {
-		name string
-		iso  *config.IsolationConfig
-		want []string
-	}{
-		{
-			name: "nil config returns nil",
-			iso:  nil,
-			want: nil,
-		},
-		{
-			name: "empty config returns nil",
-			iso:  &config.IsolationConfig{},
-			want: nil,
-		},
-		{
-			name: "capability drops",
-			iso: &config.IsolationConfig{
-				Caps: &config.CapConfig{
-					Drop: []string{"NET_RAW", "SYS_ADMIN"},
-				},
-			},
-			want: []string{"--cap-drop", "NET_RAW", "--cap-drop", "SYS_ADMIN"},
-		},
-		{
-			name: "memory limit",
-			iso: &config.IsolationConfig{
-				Resources: &config.ResourceConfig{
-					Memory: "2g",
-				},
-			},
-			want: []string{"--memory", "2g"},
-		},
-		{
-			name: "cpu limit",
-			iso: &config.IsolationConfig{
-				Resources: &config.ResourceConfig{
-					CPUs: "1.5",
-				},
-			},
-			want: []string{"--cpus", "1.5"},
-		},
-		{
-			name: "pids limit",
-			iso: &config.IsolationConfig{
-				Resources: &config.ResourceConfig{
-					PidsLimit: 256,
-				},
-			},
-			want: []string{"--pids-limit", "256"},
-		},
-		{
-			name: "full isolation config",
-			iso: &config.IsolationConfig{
-				Caps: &config.CapConfig{
-					Drop: []string{"NET_RAW"},
-				},
-				Resources: &config.ResourceConfig{
-					Memory:    "4g",
-					CPUs:      "2",
-					PidsLimit: 512,
-				},
-			},
-			want: []string{
-				"--cap-drop", "NET_RAW",
-				"--memory", "4g",
-				"--cpus", "2",
-				"--pids-limit", "512",
-			},
-		},
-		{
-			name: "zero pids limit omitted",
-			iso: &config.IsolationConfig{
-				Resources: &config.ResourceConfig{
-					Memory:    "2g",
-					PidsLimit: 0,
-				},
-			},
-			want: []string{"--memory", "2g"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := buildIsolationRunArgs(tt.iso)
-			if len(got) != len(tt.want) {
-				t.Errorf("buildIsolationRunArgs() len = %d, want %d\ngot: %v\nwant: %v",
-					len(got), len(tt.want), got, tt.want)
-				return
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("buildIsolationRunArgs()[%d] = %q, want %q", i, got[i], tt.want[i])
-				}
-			}
-		})
-	}
-}
-
-func TestGenerate_AddsIsolationRunArgs(t *testing.T) {
-	enabled := true
-	templates := []config.Template{
-		{
-			Name:  "isolated-template",
-			Image: "ubuntu:22.04",
-			Isolation: &config.IsolationConfig{
-				Enabled: &enabled,
-				Caps: &config.CapConfig{
-					Drop: []string{"NET_RAW", "SYS_ADMIN"},
-					Add:  []string{"NET_BIND_SERVICE"},
-				},
-				Resources: &config.ResourceConfig{
-					Memory:    "4g",
-					CPUs:      "2",
-					PidsLimit: 512,
-				},
-			},
-		},
-	}
-
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
-	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template: "isolated-template",
-		Name:     "test-container",
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
-
-	// Verify isolation runArgs are present
-	runArgs := result.Config.RunArgs
-	wantArgs := map[string]string{
-		"--cap-drop":   "NET_RAW",
-		"--memory":     "4g",
-		"--cpus":       "2",
-		"--pids-limit": "512",
-	}
-
-	for flag, expectedValue := range wantArgs {
-		found := false
-		for i, arg := range runArgs {
-			if arg == flag && i+1 < len(runArgs) {
-				if flag == "--cap-drop" {
-					// --cap-drop can appear multiple times, check if any matches
-					if runArgs[i+1] == expectedValue || runArgs[i+1] == "SYS_ADMIN" {
-						found = true
-						break
-					}
-				} else if runArgs[i+1] == expectedValue {
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			t.Errorf("runArgs missing %s %s, got: %v", flag, expectedValue, runArgs)
-		}
-	}
-
-	// Verify capAdd native field
-	if len(result.Config.CapAdd) != 1 {
-		t.Errorf("CapAdd len = %d, want 1", len(result.Config.CapAdd))
-	} else if result.Config.CapAdd[0] != "NET_BIND_SERVICE" {
-		t.Errorf("CapAdd[0] = %q, want %q", result.Config.CapAdd[0], "NET_BIND_SERVICE")
-	}
-}
-
-func TestGenerate_NoIsolationRunArgsWhenNil(t *testing.T) {
-	// UPDATED: Phase 8 now applies default isolation even when template.Isolation is nil
-	// This test is now superseded by TestGenerate_TemplateWithoutIsolationGetsDefaults
-	// Keeping this test but changing behavior to verify defaults are applied
-	enabled := false
-	templates := []config.Template{
-		{
-			Name:      "basic-template",
-			Image:     "ubuntu:22.04",
-			Isolation: &config.IsolationConfig{Enabled: &enabled}, // Explicitly disable isolation
-		},
-	}
-
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
-	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template: "basic-template",
-		Name:     "test-container",
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
-
-	// Verify no isolation-specific runArgs when isolation is explicitly disabled
-	for _, arg := range result.Config.RunArgs {
-		if arg == "--cap-drop" || arg == "--memory" || arg == "--cpus" || arg == "--pids-limit" {
-			t.Errorf("runArgs should not contain isolation args when Isolation is disabled, got: %v", result.Config.RunArgs)
-			break
-		}
-	}
-
-	// Verify CapAdd is empty
-	if len(result.Config.CapAdd) != 0 {
-		t.Errorf("CapAdd should be empty, got: %v", result.Config.CapAdd)
-	}
-}
-
-func TestChainPostCreateCommand(t *testing.T) {
-	tests := []struct {
-		name       string
-		existing   string
-		additional string
-		want       string
-	}{
-		{
-			name:       "both empty",
-			existing:   "",
-			additional: "",
-			want:       "",
-		},
-		{
-			name:       "existing only",
-			existing:   "pip install -r requirements.txt",
-			additional: "",
-			want:       "pip install -r requirements.txt",
-		},
-		{
-			name:       "additional only",
-			existing:   "",
-			additional: "update-ca-certificates",
-			want:       "update-ca-certificates",
-		},
-		{
-			name:       "both present",
-			existing:   "pip install -r requirements.txt",
-			additional: "update-ca-certificates",
-			want:       "pip install -r requirements.txt && update-ca-certificates",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := chainPostCreateCommand(tt.existing, tt.additional)
-			if got != tt.want {
-				t.Errorf("chainPostCreateCommand() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestGenerate_AddsCertMountWithProxy(t *testing.T) {
-	// Redirect data directory to temp for this test to avoid polluting real user data
-	tmpDir := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", tmpDir)
-
-	templates := []config.Template{
-		{
-			Name:  "test-template",
-			Image: "ubuntu:22.04",
-		},
-	}
-
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
-	certDir := t.TempDir()
-
-	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template:    "test-template",
-		Name:        "test-container",
-		ProjectPath: "/test/project",
-		Proxy: &ProxyConfig{
-			CertDir:     certDir,
-			ProxyHost:   "proxy",
-			ProxyPort:   "8080",
-			NetworkName: "test-network",
-		},
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
-
-	// Verify cert mount was added
-	foundCertMount := false
-	for _, mount := range result.Config.Mounts {
-		if strings.Contains(mount, "mitmproxy-certs") && strings.Contains(mount, certDir) {
-			foundCertMount = true
-			break
-		}
-	}
-	if !foundCertMount {
-		t.Errorf("cert mount not found in Mounts: %v", result.Config.Mounts)
-	}
-
-	// Verify postCreateCommand includes cert installation
-	if !strings.Contains(result.Config.PostCreateCommand, "update-ca-certificates") {
-		t.Errorf("postCreateCommand should include update-ca-certificates, got: %s",
-			result.Config.PostCreateCommand)
-	}
-}
-
-func TestGenerate_AddsProxyEnvironment(t *testing.T) {
-	templates := []config.Template{
-		{
-			Name:  "test-template",
-			Image: "ubuntu:22.04",
-		},
-	}
-
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
-	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template:    "test-template",
-		Name:        "test-container",
-		ProjectPath: "/test/project",
-		Proxy: &ProxyConfig{
-			CertDir:     "/tmp/certs",
-			ProxyHost:   "proxy",
-			ProxyPort:   "8080",
-			NetworkName: "test-network",
-		},
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
-
-	// Check proxy environment variables
-	wantEnv := map[string]string{
-		"http_proxy":         "http://proxy:8080",
-		"https_proxy":        "http://proxy:8080",
-		"HTTP_PROXY":         "http://proxy:8080",
-		"HTTPS_PROXY":        "http://proxy:8080",
-		"no_proxy":           "localhost,127.0.0.1",
-		"NO_PROXY":           "localhost,127.0.0.1",
-		"REQUESTS_CA_BUNDLE": "/etc/ssl/certs/ca-certificates.crt",
-		"NODE_EXTRA_CA_CERTS": "/etc/ssl/certs/ca-certificates.crt",
-		"SSL_CERT_FILE":      "/etc/ssl/certs/ca-certificates.crt",
-	}
-
-	for key, want := range wantEnv {
-		got, ok := result.Config.ContainerEnv[key]
-		if !ok {
-			t.Errorf("ContainerEnv missing %q", key)
-			continue
-		}
-		if got != want {
-			t.Errorf("ContainerEnv[%q] = %q, want %q", key, got, want)
-		}
-	}
-}
-
-func TestGenerate_NoProxyEnvWithoutProxyConfig(t *testing.T) {
-	templates := []config.Template{
-		{
-			Name:  "test-template",
-			Image: "ubuntu:22.04",
-		},
-	}
-
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
-	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template:    "test-template",
-		Name:        "test-container",
-		ProjectPath: "/test/project",
-		Proxy:       nil, // No proxy config
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
-
-	// Proxy environment variables should not be set
-	proxyKeys := []string{"http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"}
-	for _, key := range proxyKeys {
-		if _, ok := result.Config.ContainerEnv[key]; ok {
-			t.Errorf("ContainerEnv should not have %q when no proxy config", key)
-		}
-	}
-}
-
-func TestGenerate_AddsNetworkToRunArgs(t *testing.T) {
-	templates := []config.Template{
-		{
-			Name:  "test-template",
-			Image: "ubuntu:22.04",
-		},
-	}
-
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
-	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template:    "test-template",
-		Name:        "test-container",
-		ProjectPath: "/test/project",
-		Proxy: &ProxyConfig{
-			CertDir:     "/tmp/certs",
-			ProxyHost:   "proxy",
-			ProxyPort:   "8080",
-			NetworkName: "devagent-abc123-net",
-		},
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
-
-	// Check network is in runArgs
-	foundNetwork := false
-	for i, arg := range result.Config.RunArgs {
-		if arg == "--network" && i+1 < len(result.Config.RunArgs) {
-			if result.Config.RunArgs[i+1] == "devagent-abc123-net" {
-				foundNetwork = true
-				break
-			}
-		}
-	}
-
-	if !foundNetwork {
-		t.Errorf("runArgs should contain --network devagent-abc123-net, got: %v", result.Config.RunArgs)
-	}
-}
-
-func TestGenerate_NoNetworkWithoutProxyConfig(t *testing.T) {
-	templates := []config.Template{
-		{
-			Name:  "test-template",
-			Image: "ubuntu:22.04",
-		},
-	}
-
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
-	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template:    "test-template",
-		Name:        "test-container",
-		ProjectPath: "/test/project",
-		Proxy:       nil,
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
-
-	// No --network flag should be present
-	for _, arg := range result.Config.RunArgs {
-		if arg == "--network" {
-			t.Errorf("runArgs should not contain --network when no proxy config")
-		}
-	}
-}
-
-func TestGenerate_TemplateWithoutIsolationGetsDefaults(t *testing.T) {
-	// Template with no isolation config should get DefaultIsolation applied
-	templates := []config.Template{
-		{
-			Name:      "no-isolation-template",
-			Image:     "ubuntu:22.04",
-			Isolation: nil, // No isolation specified
-		},
-	}
-
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
-	// Verify GetEffectiveIsolation returns defaults
-	effective := templates[0].GetEffectiveIsolation()
-	if effective == nil {
-		t.Fatal("GetEffectiveIsolation() should return defaults, not nil")
-	}
-
-	// Verify it has default capabilities
-	if effective.Caps == nil || len(effective.Caps.Drop) == 0 {
-		t.Error("effective isolation should have default cap drops")
-	}
-
-	// Verify it has default resources
-	if effective.Resources == nil || effective.Resources.Memory == "" {
-		t.Error("effective isolation should have default resource limits")
-	}
-
-	// Verify it has default network allowlist
-	if effective.Network == nil || len(effective.Network.Allowlist) == 0 {
-		t.Error("effective isolation should have default allowlist")
-	}
-
-	// CRITICAL: Verify Generate() actually applies effective isolation to devcontainer.json
-	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template:    "no-isolation-template",
-		Name:        "test-container",
-		ProjectPath: "/test/project",
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
-
-	// Verify runArgs contain isolation flags from defaults
-	runArgs := result.Config.RunArgs
-
-	// Check for default capability drops
-	hasCapDrop := false
-	for _, arg := range runArgs {
-		if arg == "--cap-drop" {
-			hasCapDrop = true
-			break
-		}
-	}
-	if !hasCapDrop {
-		t.Errorf("Generate() should apply default cap drops, runArgs: %v", runArgs)
-	}
-
-	// Check for default memory limit
-	hasMemory := false
-	for i, arg := range runArgs {
-		if arg == "--memory" && i+1 < len(runArgs) {
-			hasMemory = true
-			break
-		}
-	}
-	if !hasMemory {
-		t.Errorf("Generate() should apply default memory limit, runArgs: %v", runArgs)
-	}
-}
-
-func TestGenerate_TemplateWithDisabledIsolation(t *testing.T) {
-	enabled := false
-	templates := []config.Template{
-		{
-			Name:  "disabled-isolation-template",
-			Image: "ubuntu:22.04",
-			Isolation: &config.IsolationConfig{
-				Enabled: &enabled,
-			},
-		},
-	}
-
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
-	// Verify GetEffectiveIsolation returns nil
-	effective := templates[0].GetEffectiveIsolation()
-	if effective != nil {
-		t.Errorf("GetEffectiveIsolation() should return nil when disabled, got %+v", effective)
-	}
-
-	// Verify IsIsolationEnabled returns false
-	if templates[0].IsIsolationEnabled() {
-		t.Error("IsIsolationEnabled() should return false")
-	}
-
-	// CRITICAL: Verify Generate() does NOT apply isolation when disabled
-	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template:    "disabled-isolation-template",
-		Name:        "test-container",
-		ProjectPath: "/test/project",
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
-
-	// Verify runArgs do NOT contain isolation flags
-	runArgs := result.Config.RunArgs
-	for _, arg := range runArgs {
-		if arg == "--cap-drop" || arg == "--memory" || arg == "--cpus" || arg == "--pids-limit" {
-			t.Errorf("Generate() should not apply isolation when disabled, found %s in runArgs: %v", arg, runArgs)
-			break
-		}
-	}
-}
-
-func TestGenerate_TemplateWithAllowlistExtend(t *testing.T) {
-	templates := []config.Template{
-		{
-			Name:  "extended-allowlist-template",
-			Image: "ubuntu:22.04",
-			Isolation: &config.IsolationConfig{
-				Network: &config.NetworkConfig{
-					AllowlistExtend: []string{"custom.example.com", "internal.corp.net"},
-				},
-			},
-		},
-	}
-
-	effective := templates[0].GetEffectiveIsolation()
-	if effective == nil || effective.Network == nil {
-		t.Fatal("effective isolation should not be nil")
-	}
-
-	// Should have default domains plus extended domains
-	allowlist := effective.Network.Allowlist
-
-	// Check for default domain
-	hasDefault := false
-	for _, domain := range allowlist {
-		if domain == "github.com" || domain == "api.anthropic.com" {
-			hasDefault = true
-			break
-		}
-	}
-	if !hasDefault {
-		t.Error("allowlist should include default domains")
-	}
-
-	// Check for extended domain
-	hasExtended := false
-	for _, domain := range allowlist {
-		if domain == "custom.example.com" {
-			hasExtended = true
-			break
-		}
-	}
-	if !hasExtended {
-		t.Error("allowlist should include extended domain custom.example.com")
 	}
 }
 
@@ -1354,96 +357,305 @@ func TestEnsureClaudeToken_TokenWithWhitespace(t *testing.T) {
 	}
 }
 
-func TestGenerate_AddsClaudeTokenMount(t *testing.T) {
-	// Create temp directory with token
+
+func TestGenerate_TemplateMode_UsesTemplateFiles(t *testing.T) {
+	// Generate() now requires actual template files on disk.
+	// Set up a minimal template directory with devcontainer.json.tmpl.
 	tmpDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
-	t.Setenv("XDG_DATA_HOME", tmpDir) // For claude config dir
-
-	// Create claude dir and token file
-	claudeDir := filepath.Join(tmpDir, "claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		t.Fatalf("Failed to create claude dir: %v", err)
+	tmplContent := `{
+  "name": "test-{{.ProjectName}}",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "{{.WorkspaceFolder}}",
+  "remoteUser": "vscode",
+  "postCreateCommand": "{{.CertInstallCommand}}"
+}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "devcontainer.json.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write template: %v", err)
 	}
-	tokenPath := filepath.Join(claudeDir, ".devagent-claude-token")
-	if err := os.WriteFile(tokenPath, []byte("test-token"), 0600); err != nil {
-		t.Fatalf("Failed to write token: %v", err)
-	}
 
+	cfg := &config.Config{}
 	templates := []config.Template{
 		{
-			Name:  "test-template",
-			Image: "ubuntu:22.04",
+			Name: "basic",
+			Path: tmpDir,
 		},
 	}
 
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
 	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template:    "test-template",
+
+	opts := CreateOptions{
+		ProjectPath: "/home/user/myproject",
+		Template:    "basic",
 		Name:        "test-container",
-		ProjectPath: "/test/project",
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
 	}
 
-	// Verify token mount was added
-	foundTokenMount := false
-	for _, mount := range result.Config.Mounts {
-		if strings.Contains(mount, "/run/secrets/claude-token") && strings.Contains(mount, "readonly") {
-			foundTokenMount = true
-			break
-		}
+	result, err := gen.Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
 	}
-	if !foundTokenMount {
-		t.Errorf("token mount not found in Mounts: %v", result.Config.Mounts)
+
+	// Config should be nil when using templates
+	if result.Config != nil {
+		t.Error("Config should be nil when using template mode")
+	}
+
+	// DevcontainerTemplate should contain processed template output
+	if result.DevcontainerTemplate == "" {
+		t.Fatal("DevcontainerTemplate should not be empty")
+	}
+
+	if !strings.Contains(result.DevcontainerTemplate, `"name": "test-myproject"`) {
+		t.Errorf("Template should substitute ProjectName, got: %s", result.DevcontainerTemplate)
+	}
+	if !strings.Contains(result.DevcontainerTemplate, `"workspaceFolder": "/workspaces/myproject"`) {
+		t.Errorf("Template should substitute WorkspaceFolder, got: %s", result.DevcontainerTemplate)
+	}
+	if !strings.Contains(result.DevcontainerTemplate, "update-ca-certificates") {
+		t.Error("CertInstallCommand should include cert installation")
 	}
 }
 
-func TestGenerate_NoClaudeTokenEnvInContainerEnv(t *testing.T) {
-	// Verify CLAUDE_CODE_OAUTH_TOKEN is NOT in containerEnv anymore
-	// (it's now injected via shell profile from mounted file)
+func TestGenerate_TemplateMode_SetsCopyDockerfile(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
-	t.Setenv("XDG_DATA_HOME", tmpDir)
-
-	// Create claude dir and token file
-	claudeDir := filepath.Join(tmpDir, "claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		t.Fatalf("Failed to create claude dir: %v", err)
+	tmplContent := `{"name": "test", "dockerComposeFile": "docker-compose.yml", "service": "app", "postCreateCommand": "{{.CertInstallCommand}}"}`
+	if err := os.WriteFile(filepath.Join(tmpDir, "devcontainer.json.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write template: %v", err)
 	}
-	tokenPath := filepath.Join(claudeDir, ".devagent-claude-token")
-	if err := os.WriteFile(tokenPath, []byte("test-token"), 0600); err != nil {
-		t.Fatalf("Failed to write token: %v", err)
+	// Also create a Dockerfile so copy would work
+	if err := os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte("FROM ubuntu"), 0644); err != nil {
+		t.Fatalf("Failed to write Dockerfile: %v", err)
 	}
 
+	cfg := &config.Config{}
 	templates := []config.Template{
 		{
-			Name:  "test-template",
-			Image: "ubuntu:22.04",
+			Name: "with-dockerfile",
+			Path: tmpDir,
 		},
 	}
 
-	cfg := &config.Config{
-		Runtime: "docker",
-	}
-
 	gen := NewDevcontainerGenerator(cfg, templates)
-	result, err := gen.Generate(CreateOptions{
-		Template:    "test-template",
+
+	opts := CreateOptions{
+		ProjectPath: "/home/user/myproject",
+		Template:    "with-dockerfile",
 		Name:        "test-container",
-		ProjectPath: "/test/project",
-	})
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
 	}
 
-	// Verify CLAUDE_CODE_OAUTH_TOKEN is NOT in containerEnv
-	if _, ok := result.Config.ContainerEnv["CLAUDE_CODE_OAUTH_TOKEN"]; ok {
-		t.Error("CLAUDE_CODE_OAUTH_TOKEN should not be in containerEnv (now uses mounted file)")
+	result, err := gen.Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// CopyDockerfile should be set to track which Dockerfile to copy
+	if result.CopyDockerfile != "Dockerfile" {
+		t.Errorf("Expected CopyDockerfile='Dockerfile', got %q", result.CopyDockerfile)
+	}
+
+	// TemplatePath should be set for WriteToProject to find the source
+	if result.TemplatePath != tmpDir {
+		t.Errorf("Expected TemplatePath=%q, got %q", tmpDir, result.TemplatePath)
+	}
+}
+
+func TestWriteComposeFiles_CreatesAllFiles(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &config.Config{}
+	gen := NewDevcontainerGenerator(cfg, nil)
+
+	composeResult := &ComposeResult{
+		ComposeYAML: `services:
+  app:
+    image: ubuntu
+  proxy:
+    image: mitmproxy/mitmproxy
+`,
+		DockerfileProxy: `FROM mitmproxy/mitmproxy:latest
+COPY filter.py /home/mitmproxy/filter.py
+`,
+		FilterScript: `ALLOWED_DOMAINS = ["example.com"]
+addons = []
+`,
+	}
+
+	err := gen.WriteComposeFiles(projectDir, composeResult)
+	if err != nil {
+		t.Fatalf("WriteComposeFiles failed: %v", err)
+	}
+
+	// Verify docker-compose.yml
+	composePath := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
+	if _, err := os.Stat(composePath); os.IsNotExist(err) {
+		t.Error("docker-compose.yml was not created")
+	}
+	composeContent, _ := os.ReadFile(composePath)
+	if !strings.Contains(string(composeContent), "services:") {
+		t.Error("docker-compose.yml content is incorrect")
+	}
+
+	// Verify Dockerfile.proxy
+	dockerfilePath := filepath.Join(projectDir, ".devcontainer", "Dockerfile.proxy")
+	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
+		t.Error("Dockerfile.proxy was not created")
+	}
+	dockerfileContent, _ := os.ReadFile(dockerfilePath)
+	if !strings.Contains(string(dockerfileContent), "mitmproxy") {
+		t.Error("Dockerfile.proxy content is incorrect")
+	}
+
+	// Verify filter.py
+	filterPath := filepath.Join(projectDir, ".devcontainer", "filter.py")
+	if _, err := os.Stat(filterPath); os.IsNotExist(err) {
+		t.Error("filter.py was not created")
+	}
+	filterContent, _ := os.ReadFile(filterPath)
+	if !strings.Contains(string(filterContent), "ALLOWED_DOMAINS") {
+		t.Error("filter.py content is incorrect")
+	}
+}
+
+func TestWriteComposeFiles_CreatesDevcontainerDir(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &config.Config{}
+	gen := NewDevcontainerGenerator(cfg, nil)
+
+	composeResult := &ComposeResult{
+		ComposeYAML:     "services: {}",
+		DockerfileProxy: "FROM scratch",
+		FilterScript:    "# empty",
+	}
+
+	err := gen.WriteComposeFiles(projectDir, composeResult)
+	if err != nil {
+		t.Fatalf("WriteComposeFiles failed: %v", err)
+	}
+
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	info, err := os.Stat(devcontainerDir)
+	if os.IsNotExist(err) {
+		t.Error(".devcontainer directory was not created")
+	}
+	if !info.IsDir() {
+		t.Error(".devcontainer is not a directory")
+	}
+}
+
+func TestWriteAll_WritesDevcontainerAndComposeFiles(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &config.Config{}
+	templates := []config.Template{
+		{Name: "basic"},
+	}
+	gen := NewDevcontainerGenerator(cfg, templates)
+
+	devcontainerResult := &GenerateResult{
+		Config: &DevcontainerJSON{
+			Name:              "test",
+			DockerComposeFile: "docker-compose.yml",
+			Service:           "app",
+			WorkspaceFolder:   "/workspaces/test",
+		},
+	}
+
+	composeResult := &ComposeResult{
+		ComposeYAML:     "services:\n  app:\n    image: ubuntu",
+		DockerfileProxy: "FROM mitmproxy/mitmproxy",
+		FilterScript:    "ALLOWED_DOMAINS = []",
+	}
+
+	err := gen.WriteAll(projectDir, devcontainerResult, composeResult)
+	if err != nil {
+		t.Fatalf("WriteAll failed: %v", err)
+	}
+
+	// Verify devcontainer.json
+	devcontainerPath := filepath.Join(projectDir, ".devcontainer", "devcontainer.json")
+	if _, err := os.Stat(devcontainerPath); os.IsNotExist(err) {
+		t.Error("devcontainer.json was not created")
+	}
+
+	// Verify compose files
+	composePath := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
+	if _, err := os.Stat(composePath); os.IsNotExist(err) {
+		t.Error("docker-compose.yml was not created")
+	}
+
+	dockerfilePath := filepath.Join(projectDir, ".devcontainer", "Dockerfile.proxy")
+	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
+		t.Error("Dockerfile.proxy was not created")
+	}
+
+	filterPath := filepath.Join(projectDir, ".devcontainer", "filter.py")
+	if _, err := os.Stat(filterPath); os.IsNotExist(err) {
+		t.Error("filter.py was not created")
+	}
+}
+
+func TestWriteAll_WithoutComposeResult(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &config.Config{}
+	gen := NewDevcontainerGenerator(cfg, nil)
+
+	devcontainerResult := &GenerateResult{
+		Config: &DevcontainerJSON{
+			Name:  "test",
+			Image: "ubuntu",
+		},
+	}
+
+	// composeResult is nil - should only write devcontainer.json
+	err := gen.WriteAll(projectDir, devcontainerResult, nil)
+	if err != nil {
+		t.Fatalf("WriteAll failed: %v", err)
+	}
+
+	// Verify devcontainer.json exists
+	devcontainerPath := filepath.Join(projectDir, ".devcontainer", "devcontainer.json")
+	if _, err := os.Stat(devcontainerPath); os.IsNotExist(err) {
+		t.Error("devcontainer.json was not created")
+	}
+
+	// Verify compose files do NOT exist
+	composePath := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
+	if _, err := os.Stat(composePath); !os.IsNotExist(err) {
+		t.Error("docker-compose.yml should not be created when composeResult is nil")
+	}
+}
+
+func TestWriteComposeFiles_FileContentsMatch(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &config.Config{}
+	gen := NewDevcontainerGenerator(cfg, nil)
+
+	expectedCompose := "services:\n  app:\n    build: .\n"
+	expectedDockerfile := "FROM mitmproxy/mitmproxy:10.0\nUSER mitmproxy\n"
+	expectedFilter := "ALLOWED_DOMAINS = [\"api.anthropic.com\"]\n"
+
+	composeResult := &ComposeResult{
+		ComposeYAML:     expectedCompose,
+		DockerfileProxy: expectedDockerfile,
+		FilterScript:    expectedFilter,
+	}
+
+	err := gen.WriteComposeFiles(projectDir, composeResult)
+	if err != nil {
+		t.Fatalf("WriteComposeFiles failed: %v", err)
+	}
+
+	// Verify exact content match
+	composeContent, _ := os.ReadFile(filepath.Join(projectDir, ".devcontainer", "docker-compose.yml"))
+	if string(composeContent) != expectedCompose {
+		t.Errorf("docker-compose.yml content mismatch:\ngot: %q\nwant: %q", composeContent, expectedCompose)
+	}
+
+	dockerfileContent, _ := os.ReadFile(filepath.Join(projectDir, ".devcontainer", "Dockerfile.proxy"))
+	if string(dockerfileContent) != expectedDockerfile {
+		t.Errorf("Dockerfile.proxy content mismatch:\ngot: %q\nwant: %q", dockerfileContent, expectedDockerfile)
+	}
+
+	filterContent, _ := os.ReadFile(filepath.Join(projectDir, ".devcontainer", "filter.py"))
+	if string(filterContent) != expectedFilter {
+		t.Errorf("filter.py content mismatch:\ngot: %q\nwant: %q", filterContent, expectedFilter)
 	}
 }
