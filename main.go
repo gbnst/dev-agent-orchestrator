@@ -20,6 +20,16 @@ import (
 
 func main() {
 	configDir := flag.String("config-dir", "", "config directory (default: ~/.config/devagent)")
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: devagent [options] [command]\n\n")
+		fmt.Fprintf(os.Stderr, "Commands:\n")
+		fmt.Fprintf(os.Stderr, "  list    Output JSON data about all managed containers\n")
+		fmt.Fprintf(os.Stderr, "  (none)  Launch interactive TUI\n\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+	}
+
 	flag.Parse()
 
 	args := flag.Args()
