@@ -1,12 +1,12 @@
 # Container Domain
 
-Last verified: 2026-02-05
+Last verified: 2026-02-06
 
 ## Purpose
 Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker Compose, and tmux session management within containers. Manages per-container Claude Code configuration including auth token injection and persistent settings. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking.
 
 ## Contracts
-- **Exposes**: `Manager`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `ProcessDevcontainerTemplate`, `HashTruncLen`
+- **Exposes**: `Manager`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `ProcessDevcontainerTemplate`, `HashTruncLen`, `MountInfo`
 - **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Claude config directories persist across container recreations. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via postCreateCommand. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network.
 - **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation. For compose mode: docker-compose or podman-compose available.
 
@@ -43,11 +43,11 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 
 ## Key Files
 - `manager.go` - Manager struct, compose-based lifecycle operations (CreateWithCompose, StartWithCompose, StopWithCompose, DestroyWithCompose), session management, sidecar lifecycle, GetContainerIsolationInfo()
-- `runtime.go` - RuntimeInterface impl for Docker/Podman CLI, ExecAs for user-specific commands, CreateNetwork, RemoveNetwork, RunContainer, InspectContainer(), GetIsolationInfo(), ComposeUp/Start/Stop/Down
+- `runtime.go` - RuntimeInterface impl for Docker/Podman CLI, ExecAs for user-specific commands, CreateNetwork, RemoveNetwork, RunContainer, InspectContainer(), GetIsolationInfo(), GetMounts(), ComposeUp/Start/Stop/Down
 - `compose.go` - ComposeGenerator with processFilterTemplate() and processComposeTemplate(), TemplateData (ProjectHash, ProjectPath, ProjectName, WorkspaceFolder, ClaudeConfigDir, TemplateName, ContainerName, CertInstallCommand, ProxyImage, ProxyPort, RemoteUser), ComposeResult, ComposeOptions; processes docker-compose.yml.tmpl and filter.py.tmpl for compose-based orchestration
 - `devcontainer.go` - DevcontainerGenerator, GenerateResult, DevcontainerCLI, ProcessDevcontainerTemplate; Claude config management, proxy env injection, CA cert mount; WriteComposeFiles(), WriteAll()
 - `proxy.go` - Mitmproxy utility functions: proxy config/cert directory management (GetProxyConfigDir, GetProxyCertDir, GetProxyCACertPath, ProxyCertExists), allowlist parsing from filter script (ReadAllowlistFromFilterScript, parseAllowlistFromScript), CleanupProxyConfigs
-- `types.go` - Container, Session, Sidecar, CreateOptions (UseCompose flag), IsolationInfo, DevcontainerJSON (DockerComposeFile, Service, RemoteUser fields), BuildConfig, ProgressStep, ProgressCallback, HashTruncLen, state constants, label constants
+- `types.go` - Container, Session, Sidecar, CreateOptions (UseCompose flag), IsolationInfo, MountInfo (with JSON tags for external tool output), DevcontainerJSON (DockerComposeFile, Service, RemoteUser fields), BuildConfig, ProgressStep, ProgressCallback, HashTruncLen, state constants, label constants
 
 ## Gotchas
 - Container IDs may be truncated; Create() does prefix matching on refresh

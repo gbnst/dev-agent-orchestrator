@@ -417,3 +417,40 @@ func (r *Runtime) ComposeDown(ctx context.Context, projectDir string, projectNam
 	_, err := r.exec(ctx, cmd, args...)
 	return err
 }
+
+// mountJSON represents a mount from docker inspect output.
+type mountJSON struct {
+	Type        string `json:"Type"`
+	Source      string `json:"Source"`
+	Name        string `json:"Name"`        // For volumes
+	Destination string `json:"Destination"`
+	RW          bool   `json:"RW"`
+}
+
+// GetMounts returns all mounts for a container.
+func (r *Runtime) GetMounts(ctx context.Context, id string) ([]MountInfo, error) {
+	output, err := r.exec(ctx, r.executable, "inspect", "--format", "{{json .Mounts}}", id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect mounts: %w", err)
+	}
+
+	var mounts []mountJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &mounts); err != nil {
+		return nil, fmt.Errorf("failed to parse mounts: %w", err)
+	}
+
+	result := make([]MountInfo, len(mounts))
+	for i, m := range mounts {
+		source := m.Source
+		if m.Type == "volume" && m.Name != "" {
+			source = m.Name // Use volume name instead of internal path
+		}
+		result[i] = MountInfo{
+			Type:        m.Type,
+			Source:      source,
+			Destination: m.Destination,
+			ReadOnly:    !m.RW,
+		}
+	}
+	return result, nil
+}

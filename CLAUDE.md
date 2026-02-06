@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-02-05
+Last verified: 2026-02-06
 
 ## Tech Stack
 - Language: Go 1.21+
@@ -19,6 +19,7 @@ Last verified: 2026-02-05
 - `make test-race` - Run unit tests with race detector
 - `make test-e2e` - Run E2E tests (requires container runtime)
 - `make lint` - Run linter
+- `devagent list` - Output JSON data about all managed containers (for external tool integration)
 
 ## Project Structure
 - `internal/logging/` - Structured logging with dual sinks (file + TUI channel)

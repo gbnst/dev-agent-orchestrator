@@ -168,3 +168,11 @@ func (c *Container) IsRunning() bool {
 func (c *Container) IsStopped() bool {
 	return c.State == StateStopped
 }
+
+// MountInfo represents a bind mount or volume mount on a container.
+type MountInfo struct {
+	Type        string `json:"type"`        // "bind" or "volume"
+	Source      string `json:"source"`      // Host path or volume name
+	Destination string `json:"destination"` // Container path
+	ReadOnly    bool   `json:"read_only"`
+}

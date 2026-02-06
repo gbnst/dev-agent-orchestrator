@@ -2,14 +2,18 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/config"
+	"devagent/internal/container"
 	"devagent/internal/logging"
 	"devagent/internal/tui"
 )
@@ -18,25 +22,94 @@ func main() {
 	configDir := flag.String("config-dir", "", "config directory (default: ~/.config/devagent)")
 	flag.Parse()
 
-	var cfg config.Config
-	var err error
-
-	if *configDir != "" {
-		cfg, err = config.LoadFromDir(*configDir)
-	} else {
-		cfg, err = config.Load()
+	args := flag.Args()
+	if len(args) > 0 {
+		switch args[0] {
+		case "list":
+			runListCommand(*configDir)
+			return
+		}
 	}
+
+	runTUI(*configDir)
+}
+
+// ContainerInfo represents container data for JSON output.
+type ContainerInfo struct {
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	ProjectPath string                 `json:"project_path"`
+	Template    string                 `json:"template"`
+	State       string                 `json:"state"`
+	CreatedAt   time.Time              `json:"created_at"`
+	Mounts      []container.MountInfo  `json:"mounts"`
+}
+
+// runListCommand outputs JSON data about all managed containers.
+func runListCommand(configDir string) {
+	ctx := context.Background()
+
+	cfg, err := loadConfig(configDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := cfg.ValidateRuntime(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	runtime := container.NewRuntime(cfg.DetectedRuntime())
+
+	containers, err := runtime.ListContainers(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
+	}
+
+	output := make([]ContainerInfo, 0, len(containers))
+	for _, c := range containers {
+		mounts, _ := runtime.GetMounts(ctx, c.ID)
+		output = append(output, ContainerInfo{
+			ID:          c.ID,
+			Name:        c.Name,
+			ProjectPath: c.ProjectPath,
+			Template:    c.Template,
+			State:       string(c.State),
+			CreatedAt:   c.CreatedAt,
+			Mounts:      mounts,
+		})
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(output); err != nil {
+		fmt.Fprintf(os.Stderr, "error encoding JSON: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// loadConfig loads the configuration from the specified directory or default location.
+func loadConfig(configDir string) (config.Config, error) {
+	if configDir != "" {
+		return config.LoadFromDir(configDir)
+	}
+	return config.Load()
+}
+
+// runTUI launches the interactive TUI.
+func runTUI(configDir string) {
+	cfg, err := loadConfig(configDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
 	}
 
-	// Validate runtime configuration
 	if err := cfg.ValidateRuntime(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Initialize logging
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
