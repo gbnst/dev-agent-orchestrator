@@ -237,8 +237,8 @@ func (m *Manager) Cleanup(scopePrefix string) {
 
 // Close syncs and closes all resources.
 func (m *Manager) Close() error {
-	m.Sync()
-	m.channelSink.Close()
+	_ = m.Sync()
+	_ = m.channelSink.Close()
 	return m.fileWriter.Close()
 }
 

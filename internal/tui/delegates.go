@@ -135,7 +135,7 @@ func (d containerDelegate) Render(w io.Writer, m list.Model, index int, item lis
 	title := titleStyle.Render(ci.container.Name)
 	desc := descStyle.Render(ci.Description())
 
-	fmt.Fprintf(w, "%s%s %s\n%s%s", indicator, stateIndicator, title, "    ", desc)
+	_, _ = fmt.Fprintf(w, "%s%s %s\n%s%s", indicator, stateIndicator, title, "    ", desc)
 }
 
 // toListItems converts containers to list items.

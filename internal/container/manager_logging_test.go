@@ -9,7 +9,7 @@ import (
 
 func TestManager_LogsInitialization(t *testing.T) {
 	lm := logging.NewTestLogManager(100)
-	defer lm.Close()
+	defer func() { _ = lm.Close() }()
 
 	mockRuntime := &mockRuntime{
 		containers: []Container{
@@ -32,7 +32,7 @@ func TestManager_LogsInitialization(t *testing.T) {
 
 func TestManager_LogsRefresh(t *testing.T) {
 	lm := logging.NewTestLogManager(100)
-	defer lm.Close()
+	defer func() { _ = lm.Close() }()
 
 	mockRuntime := &mockRuntime{
 		containers: []Container{

@@ -10,7 +10,7 @@ import (
 
 func TestChannelSink_Write(t *testing.T) {
 	sink := NewChannelSink(10)
-	defer sink.Close()
+	defer func() { _ = sink.Close() }()
 
 	// Write a log entry as JSON (simulating what Zap sends)
 	entry := map[string]any{
@@ -51,7 +51,7 @@ func TestChannelSink_Write(t *testing.T) {
 func TestChannelSink_NonBlocking(t *testing.T) {
 	// Create sink with buffer size 2
 	sink := NewChannelSink(2)
-	defer sink.Close()
+	defer func() { _ = sink.Close() }()
 
 	entry := map[string]any{"level": "info", "msg": "test", "logger": "app"}
 	data, _ := json.Marshal(entry)
@@ -88,7 +88,7 @@ done:
 
 func TestChannelSink_Sync(t *testing.T) {
 	sink := NewChannelSink(10)
-	defer sink.Close()
+	defer func() { _ = sink.Close() }()
 
 	// Sync should not error
 	if err := sink.Sync(); err != nil {
@@ -98,7 +98,7 @@ func TestChannelSink_Sync(t *testing.T) {
 
 func TestChannelSink_Close(t *testing.T) {
 	sink := NewChannelSink(10)
-	sink.Close()
+	_ = sink.Close()
 
 	// Write after close should not panic
 	_, err := sink.Write([]byte(`{"msg":"test"}`))
@@ -124,7 +124,7 @@ func TestChannelSink_ConcurrentWriteClose(t *testing.T) {
 	}()
 
 	// Close after a brief moment to maximize overlap
-	sink.Close()
+	_ = sink.Close()
 
 	// Wait for writer to finish — must not panic
 	<-done

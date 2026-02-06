@@ -35,7 +35,7 @@ func TestNewTestLogManager(t *testing.T) {
 	if lm == nil {
 		t.Fatal("NewTestLogManager() returned nil")
 	}
-	defer lm.Close()
+	defer func() { _ = lm.Close() }()
 
 	// Get logger and write
 	logger := lm.For("test")
@@ -57,7 +57,7 @@ func TestNewTestLogManager(t *testing.T) {
 
 func TestNewTestLogManager_Channel(t *testing.T) {
 	lm := NewTestLogManager(5)
-	defer lm.Close()
+	defer func() { _ = lm.Close() }()
 
 	ch := lm.Channel()
 	if ch == nil {

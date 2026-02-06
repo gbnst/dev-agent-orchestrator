@@ -25,12 +25,10 @@ func TestNewManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
-	// Verify log file was created
-	if _, err := os.Stat(logFile); os.IsNotExist(err) {
-		// File may not exist until first write, that's OK
-	}
+	// File may not exist until first write, that's OK
+	_, _ = os.Stat(logFile)
 
 	// Verify entries channel is available
 	if mgr.Entries() == nil {
@@ -54,7 +52,7 @@ func TestManager_For(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Get named logger
 	logger := mgr.For("container.abc123")
@@ -92,14 +90,14 @@ func TestManager_LoggingToChannel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Log a message
 	logger := mgr.For("test.component")
 	logger.Info("test message", "key", "value")
 
 	// Sync to ensure write completes
-	mgr.Sync()
+	_ = mgr.Sync()
 
 	// Check channel received entry (non-blocking since Sync already completed)
 	select {
@@ -137,7 +135,7 @@ func TestManager_LoggingToFile(t *testing.T) {
 	logger.Info("file test message")
 
 	// Close to flush
-	mgr.Close()
+	_ = mgr.Close()
 
 	// Check file contains entry
 	data, err := os.ReadFile(logFile)
@@ -170,7 +168,7 @@ func TestManager_Cleanup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	// Create some loggers
 	mgr.For("container.abc")
@@ -204,18 +202,18 @@ func TestManager_FileRotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager() error = %v", err)
 	}
-	defer mgr.Close()
+	defer func() { _ = mgr.Close() }()
 
 	logger := mgr.For("rotation.test")
 
 	// Write enough data to potentially trigger rotation
 	// This is more of a smoke test - actual rotation happens at file level
 	bigMessage := string(make([]byte, 1000))
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		logger.Info(bigMessage, "iteration", i)
 	}
 
-	mgr.Sync()
+	_ = mgr.Sync()
 
 	// Verify file exists
 	if _, err := os.Stat(logFile); os.IsNotExist(err) {

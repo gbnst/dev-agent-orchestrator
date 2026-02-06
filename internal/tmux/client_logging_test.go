@@ -9,7 +9,7 @@ import (
 
 func TestClient_LogsOperations(t *testing.T) {
 	lm := logging.NewTestLogManager(100)
-	defer lm.Close()
+	defer func() { _ = lm.Close() }()
 
 	mockExec := func(ctx context.Context, containerID string, cmd []string) (string, error) {
 		return "session1: 1 windows (created Mon Jan 20 10:00:00 2025)\nsession2: 2 windows (created Mon Jan 20 09:00:00 2025) (attached)\n", nil

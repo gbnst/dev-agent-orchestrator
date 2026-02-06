@@ -36,58 +36,122 @@ func main() {
 
 // ContainerInfo represents container data for JSON output.
 type ContainerInfo struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	ProjectPath string                 `json:"project_path"`
-	Template    string                 `json:"template"`
-	State       string                 `json:"state"`
-	CreatedAt   time.Time              `json:"created_at"`
-	Mounts      []container.MountInfo  `json:"mounts"`
+	ID        string                `json:"id"`
+	Name      string                `json:"name"`
+	State     string                `json:"state"`
+	CreatedAt time.Time             `json:"created_at"`
+	Mounts    []container.MountInfo `json:"mounts,omitempty"`
 }
 
-// runListCommand outputs JSON data about all managed containers.
+// SidecarInfo represents a sidecar container in JSON output.
+type SidecarInfo struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+// ProjectInfo represents a project with its devcontainer and optional sidecar.
+type ProjectInfo struct {
+	ProjectPath  string       `json:"project_path"`
+	Template     string       `json:"template"`
+	Devcontainer ContainerInfo `json:"devcontainer"`
+	ProxySidecar *SidecarInfo `json:"proxy_sidecar,omitempty"`
+}
+
+// runListCommand outputs JSON data about all managed containers grouped by project.
 func runListCommand(configDir string) {
 	ctx := context.Background()
 
 	cfg, err := loadConfig(configDir)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
 	if err := cfg.ValidateRuntime(); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	runtime := container.NewRuntime(cfg.DetectedRuntime())
+	rt := container.NewRuntime(cfg.DetectedRuntime())
 
-	containers, err := runtime.ListContainers(ctx)
+	containers, err := rt.ListContainers(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	output := make([]ContainerInfo, 0, len(containers))
+	// Separate devcontainers from sidecars
+	// Sidecars have LabelSidecarOf label, devcontainers don't
+	devcontainers := make([]container.Container, 0)
+	sidecars := make(map[string]container.Container) // keyed by project hash (LabelSidecarOf value)
+
 	for _, c := range containers {
-		mounts, _ := runtime.GetMounts(ctx, c.ID)
-		output = append(output, ContainerInfo{
-			ID:          c.ID,
-			Name:        c.Name,
+		if parentRef, ok := c.Labels[container.LabelSidecarOf]; ok {
+			sidecars[parentRef] = c
+		} else {
+			devcontainers = append(devcontainers, c)
+		}
+	}
+
+	// Build project-grouped output
+	output := make([]ProjectInfo, 0, len(devcontainers))
+	for _, c := range devcontainers {
+		mounts, _ := rt.GetMounts(ctx, c.ID)
+
+		project := ProjectInfo{
 			ProjectPath: c.ProjectPath,
 			Template:    c.Template,
-			State:       string(c.State),
-			CreatedAt:   c.CreatedAt,
-			Mounts:      mounts,
-		})
+			Devcontainer: ContainerInfo{
+				ID:        c.ID,
+				Name:      c.Name,
+				State:     string(c.State),
+				CreatedAt: c.CreatedAt,
+				Mounts:    mounts,
+			},
+		}
+
+		// Find matching sidecar by project hash
+		// Container names follow pattern: devagent-{hash}-app
+		// Extract hash from name if possible
+		projectHash := extractProjectHash(c.Name)
+		if projectHash != "" {
+			if sidecar, ok := sidecars[projectHash]; ok {
+				project.ProxySidecar = &SidecarInfo{
+					ID:    sidecar.ID,
+					Name:  sidecar.Name,
+					State: string(sidecar.State),
+				}
+			}
+		}
+
+		output = append(output, project)
 	}
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(output); err != nil {
-		fmt.Fprintf(os.Stderr, "error encoding JSON: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "error encoding JSON: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// extractProjectHash extracts the project hash from a container name.
+// Container names follow the pattern: devagent-{hash}-app or similar.
+func extractProjectHash(name string) string {
+	const prefix = "devagent-"
+	if len(name) < len(prefix)+container.HashTruncLen+1 {
+		return ""
+	}
+	if name[:len(prefix)] != prefix {
+		return ""
+	}
+	// Extract the hash portion (12 chars after prefix)
+	rest := name[len(prefix):]
+	if len(rest) < container.HashTruncLen {
+		return ""
+	}
+	return rest[:container.HashTruncLen]
 }
 
 // loadConfig loads the configuration from the specified directory or default location.

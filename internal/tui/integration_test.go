@@ -27,7 +27,7 @@ func TestIntegration_LogPanelToggle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create LogManager: %v", err)
 	}
-	defer lm.Close()
+	defer func() { _ = lm.Close() }()
 
 	model := NewModelWithTemplates(cfg, []config.Template{}, lm)
 
@@ -79,7 +79,7 @@ func TestIntegration_TreeNavigation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create LogManager: %v", err)
 	}
-	defer lm.Close()
+	defer func() { _ = lm.Close() }()
 
 	model := NewModelWithTemplates(cfg, []config.Template{}, lm)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -127,7 +127,7 @@ func TestIntegration_LogsAppearInPanel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create LogManager: %v", err)
 	}
-	defer lm.Close()
+	defer func() { _ = lm.Close() }()
 
 	model := NewModelWithTemplates(cfg, []config.Template{}, lm)
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -142,7 +142,7 @@ func TestIntegration_LogsAppearInPanel(t *testing.T) {
 	// This simulates what the Init() -> consumeLogEntries() command does
 	entries := make([]logging.LogEntry, 0)
 consumeLoop:
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		select {
 		case entry, ok := <-lm.Entries():
 			if !ok {

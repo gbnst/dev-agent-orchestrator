@@ -26,7 +26,7 @@ func TestModel_LogsInitialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create LogManager: %v", err)
 	}
-	defer lm.Close()
+	defer func() { _ = lm.Close() }()
 
 	model := NewModel(cfg, lm)
 
@@ -35,7 +35,8 @@ func TestModel_LogsInitialization(t *testing.T) {
 	foundTUI := false
 	foundContainer := false
 
-	for i := 0; i < 2; i++ {
+drainLoop:
+	for range 2 {
 		select {
 		case entry := <-lm.Entries():
 			if entry.Scope == "tui" {
@@ -45,7 +46,7 @@ func TestModel_LogsInitialization(t *testing.T) {
 				foundContainer = true
 			}
 		default:
-			break
+			break drainLoop
 		}
 	}
 
