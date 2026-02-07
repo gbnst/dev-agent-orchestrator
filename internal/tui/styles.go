@@ -155,6 +155,28 @@ func (s *Styles) TreeItemSelectedStyle() lipgloss.Style {
 		Bold(true)
 }
 
+// SectionHeaderStyle returns a style for section headers in detail panels.
+func (s *Styles) SectionHeaderStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(s.flavor.Mauve().Hex)).
+		MarginBottom(1)
+}
+
+// LabelStyle returns a style for labels in key-value displays.
+func (s *Styles) LabelStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(s.flavor.Subtext1().Hex))
+}
+
+// SelectedStyle returns a style for the selection indicator (>) in lists.
+func (s *Styles) SelectedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color(s.flavor.Mauve().Hex))
+}
+
 // PanelHeaderFocusedStyle returns the style for a focused panel header.
 func (s *Styles) PanelHeaderFocusedStyle() lipgloss.Style {
 	return lipgloss.NewStyle().

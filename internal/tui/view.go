@@ -7,10 +7,17 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/mattn/go-runewidth"
 
 	"devagent/internal/container"
 	"devagent/internal/logging"
 )
+
+// truncateString truncates a string to fit within maxWidth, accounting for
+// wide characters (e.g., CJK) and ANSI escape sequences.
+func truncateString(s string, maxWidth int) string {
+	return runewidth.Truncate(s, maxWidth, "…")
+}
 
 // View renders the TUI.
 func (m Model) View() string {
@@ -626,6 +633,12 @@ func (m Model) renderLogEntry(entry logging.LogEntry) string {
 
 // renderLogPanel renders the log panel content.
 func (m Model) renderLogPanel(layout Layout) string {
+	// Calculate widths based on whether details panel is open
+	logListWidth := layout.Logs.Width
+	if m.logDetailsOpen && m.logDetailsReady {
+		logListWidth = int(float64(layout.Logs.Width) * 0.4)
+	}
+
 	// Header with focus indicator
 	filterInfo := "all logs"
 	if m.logFilterLabel != "" {
@@ -635,36 +648,67 @@ func (m Model) renderLogPanel(layout Layout) string {
 	if m.panelFocus == FocusLogs {
 		headerStyle = m.styles.PanelHeaderFocusedStyle()
 	}
-	header := headerStyle.Width(layout.Logs.Width).Render(fmt.Sprintf(" Logs (%s)", filterInfo))
 
-	// Build log content
+	// Build log list content
+	logListContent := m.renderLogListContent(logListWidth, layout.Logs.Height-1)
+
+	// Log list panel
+	header := headerStyle.Width(logListWidth).Render(fmt.Sprintf(" Logs (%s)", filterInfo))
+	logListPanel := lipgloss.JoinVertical(lipgloss.Left, header, logListContent)
+
+	if !m.logDetailsOpen || !m.logDetailsReady {
+		return logListPanel
+	}
+
+	// Details panel
+	detailsWidth := layout.Logs.Width - logListWidth
+	detailsHeader := m.styles.PanelHeaderUnfocusedStyle().Width(detailsWidth).Render(" Details")
+	detailsContent := m.logDetailsViewport.View()
+	detailsPanel := lipgloss.JoinVertical(lipgloss.Left, detailsHeader, detailsContent)
+
+	// Join horizontally
+	return lipgloss.JoinHorizontal(lipgloss.Top, logListPanel, detailsPanel)
+}
+
+// renderLogListContent renders the log entries with selection indicator.
+func (m Model) renderLogListContent(width, height int) string {
 	entries := m.filteredLogEntries()
+	if len(entries) == 0 {
+		return m.styles.InfoStyle().Render("No log entries")
+	}
+
 	var lines []string
-	for _, entry := range entries {
-		lines = append(lines, m.renderLogEntry(entry))
+	for i, entry := range entries {
+		line := m.renderLogEntry(entry)
+		// Add selection indicator if log panel has focus
+		if m.panelFocus == FocusLogs && i == m.selectedLogIndex {
+			line = m.styles.SelectedStyle().Render("> ") + line
+		} else {
+			line = "  " + line
+		}
+		// Truncate to fit width
+		line = truncateString(line, width)
+		lines = append(lines, line)
 	}
 
-	if len(lines) == 0 {
-		lines = []string{m.styles.InfoStyle().Render("No log entries")}
+	// Calculate visible range based on selectedLogIndex and height
+	visibleStart := 0
+	visibleEnd := len(lines)
+
+	if height > 0 && len(lines) > height {
+		// Ensure selected item is visible by scrolling
+		if m.selectedLogIndex >= height {
+			visibleStart = m.selectedLogIndex - height + 1
+		}
+		visibleEnd = visibleStart + height
+		if visibleEnd > len(lines) {
+			visibleEnd = len(lines)
+			visibleStart = visibleEnd - height
+		}
 	}
 
-	content := strings.Join(lines, "\n")
-
-	// Use viewport if ready, otherwise render directly
-	if m.logReady {
-		return lipgloss.JoinVertical(lipgloss.Left,
-			header,
-			m.logViewport.View(),
-		)
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		lipgloss.NewStyle().
-			Width(layout.Logs.Width).
-			Height(layout.Logs.Height-1).
-			Render(content),
-	)
+	visibleLines := lines[visibleStart:visibleEnd]
+	return strings.Join(visibleLines, "\n")
 }
 
 // renderTree renders the tree view with containers and their sessions.
@@ -1075,4 +1119,102 @@ func (m Model) renderSessionDetailContent() string {
 	lines = append(lines, fmt.Sprintf("  %s", m.AttachCommand()))
 
 	return strings.Join(lines, "\n")
+}
+
+// renderLogEntryDetails renders the full details of a log entry.
+// For proxy requests, shows full request/response details.
+// For regular logs, shows the Fields map as key-value pairs.
+func (m Model) renderLogEntryDetails(entry logging.LogEntry) string {
+	var sb strings.Builder
+
+	// Header with timestamp and level
+	sb.WriteString(m.styles.SectionHeaderStyle().Render("Log Entry Details"))
+	sb.WriteString("\n\n")
+
+	sb.WriteString(m.styles.LabelStyle().Render("Timestamp: "))
+	sb.WriteString(entry.Timestamp.Format("2006-01-02 15:04:05.000"))
+	sb.WriteString("\n")
+
+	sb.WriteString(m.styles.LabelStyle().Render("Level: "))
+	sb.WriteString(entry.Level)
+	sb.WriteString("\n")
+
+	sb.WriteString(m.styles.LabelStyle().Render("Scope: "))
+	sb.WriteString(entry.Scope)
+	sb.WriteString("\n")
+
+	sb.WriteString(m.styles.LabelStyle().Render("Message: "))
+	sb.WriteString(entry.Message)
+	sb.WriteString("\n\n")
+
+	// Check if this is a proxy request
+	if proxyReq, ok := entry.Fields["_proxyRequest"].(*logging.ProxyRequest); ok {
+		sb.WriteString(m.renderProxyRequestDetails(proxyReq))
+	} else if len(entry.Fields) > 0 {
+		// Regular log entry - show Fields
+		sb.WriteString(m.styles.SectionHeaderStyle().Render("Fields"))
+		sb.WriteString("\n")
+
+		for k, v := range entry.Fields {
+			if strings.HasPrefix(k, "_") {
+				continue // Skip internal fields
+			}
+			sb.WriteString(m.styles.LabelStyle().Render(k + ": "))
+			sb.WriteString(fmt.Sprintf("%v", v))
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
+// renderProxyRequestDetails renders the full details of a proxy request.
+func (m Model) renderProxyRequestDetails(req *logging.ProxyRequest) string {
+	var sb strings.Builder
+
+	sb.WriteString(m.styles.SectionHeaderStyle().Render("Request Details"))
+	sb.WriteString("\n")
+
+	sb.WriteString(m.styles.LabelStyle().Render("Method: "))
+	sb.WriteString(req.Method)
+	sb.WriteString("\n")
+
+	sb.WriteString(m.styles.LabelStyle().Render("URL: "))
+	sb.WriteString(req.URL)
+	sb.WriteString("\n")
+
+	sb.WriteString(m.styles.LabelStyle().Render("Status: "))
+	sb.WriteString(fmt.Sprintf("%d", req.Status))
+	sb.WriteString("\n")
+
+	sb.WriteString(m.styles.LabelStyle().Render("Duration: "))
+	sb.WriteString(fmt.Sprintf("%dms", req.DurationMs))
+	sb.WriteString("\n\n")
+
+	// Request headers
+	if len(req.ReqHeaders) > 0 {
+		sb.WriteString(m.styles.SectionHeaderStyle().Render("Request Headers"))
+		sb.WriteString("\n")
+		for k, v := range req.ReqHeaders {
+			sb.WriteString("  ")
+			sb.WriteString(m.styles.LabelStyle().Render(k + ": "))
+			sb.WriteString(v)
+			sb.WriteString("\n")
+		}
+		sb.WriteString("\n")
+	}
+
+	// Response headers
+	if len(req.ResHeaders) > 0 {
+		sb.WriteString(m.styles.SectionHeaderStyle().Render("Response Headers"))
+		sb.WriteString("\n")
+		for k, v := range req.ResHeaders {
+			sb.WriteString("  ")
+			sb.WriteString(m.styles.LabelStyle().Render(k + ": "))
+			sb.WriteString(v)
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
 }

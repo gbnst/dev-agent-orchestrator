@@ -177,6 +177,12 @@ type Model struct {
 	logManager     *logging.Manager
 	logger         *logging.ScopedLogger
 
+	// Log details panel
+	logDetailsOpen    bool            // whether the log details panel is shown
+	selectedLogIndex  int             // index into filteredLogEntries()
+	logDetailsViewport viewport.Model
+	logDetailsReady   bool            // viewport initialized
+
 	// Quit tracking
 	lastCtrlCTime time.Time // for double ctrl+c detection
 	quitHintCount int // consecutive esc/q presses with nothing to close
@@ -513,6 +519,7 @@ func (m *Model) addLogEntry(entry logging.LogEntry) {
 }
 
 // filteredLogEntries returns entries matching the current filter.
+// When a container is selected, matches both container.<name> and proxy.<name> scopes.
 func (m Model) filteredLogEntries() []logging.LogEntry {
 	if m.logFilter == "" {
 		return m.logEntries
@@ -520,7 +527,9 @@ func (m Model) filteredLogEntries() []logging.LogEntry {
 
 	var filtered []logging.LogEntry
 	for _, entry := range m.logEntries {
-		if entry.MatchesScope(m.logFilter) {
+		// Match both container and proxy scopes for the selected container
+		if entry.MatchesScope("container."+m.logFilter) ||
+			entry.MatchesScope("proxy."+m.logFilter) {
 			filtered = append(filtered, entry)
 		}
 	}
@@ -534,12 +543,19 @@ func (m *Model) setLogFilterFromContext() {
 	if m.selectedContainer == nil {
 		m.logFilter = ""
 		m.logFilterLabel = ""
-		return
+	} else {
+		// Store just the container name - filteredLogEntries will match both prefixes
+		m.logFilter = m.selectedContainer.Name
+		m.logFilterLabel = m.selectedContainer.Name
 	}
 
-	// Filter by container-specific scope
-	m.logFilter = "container." + m.selectedContainer.Name
-	m.logFilterLabel = m.selectedContainer.Name
+	// Reset selectedLogIndex when filter changes
+	entries := m.filteredLogEntries()
+	if len(entries) > 0 {
+		m.selectedLogIndex = len(entries) - 1 // Start at bottom
+	} else {
+		m.selectedLogIndex = 0
+	}
 }
 
 // consumeLogEntries reads entries from the log manager channel.
@@ -773,6 +789,75 @@ func (m *Model) refreshDetailViewport() {
 		m.updateDetailViewportContent()
 		// Reset scroll position when selection changes
 		m.detailViewport.GotoTop()
+	}
+}
+
+// initLogDetailsViewport initializes the log details viewport when the panel is opened.
+func (m *Model) initLogDetailsViewport() {
+	layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
+
+	// Log details uses 60% of the log panel width
+	logDetailsWidth := int(float64(layout.Logs.Width) * 0.6)
+	if logDetailsWidth < 20 {
+		logDetailsWidth = 20
+	}
+	logDetailsHeight := layout.Logs.Height - 2 // Account for header
+	if logDetailsHeight < 1 {
+		logDetailsHeight = 1
+	}
+
+	m.logDetailsViewport = viewport.New(logDetailsWidth, logDetailsHeight)
+	m.logDetailsReady = true
+	m.updateLogDetailsContent()
+}
+
+// updateLogDetailsContent updates the log details viewport with the selected entry.
+func (m *Model) updateLogDetailsContent() {
+	if !m.logDetailsReady {
+		return
+	}
+
+	entries := m.filteredLogEntries()
+	if len(entries) == 0 || m.selectedLogIndex < 0 || m.selectedLogIndex >= len(entries) {
+		m.logDetailsViewport.SetContent(m.styles.InfoStyle().Render("No log entry selected"))
+		return
+	}
+
+	entry := entries[m.selectedLogIndex]
+	content := m.renderLogEntryDetails(entry)
+	m.logDetailsViewport.SetContent(content)
+	m.logDetailsViewport.GotoTop()
+}
+
+// closeLogDetailsPanel closes the log details panel and returns focus to log list.
+func (m *Model) closeLogDetailsPanel() {
+	m.logDetailsOpen = false
+}
+
+// openLogDetailsPanel opens the log details panel for the selected log entry.
+func (m *Model) openLogDetailsPanel() {
+	if !m.logReady {
+		return
+	}
+
+	entries := m.filteredLogEntries()
+	if len(entries) == 0 {
+		return
+	}
+
+	// Clamp selectedLogIndex to valid range
+	if m.selectedLogIndex < 0 {
+		m.selectedLogIndex = 0
+	}
+	if m.selectedLogIndex >= len(entries) {
+		m.selectedLogIndex = len(entries) - 1
+	}
+
+	m.logDetailsOpen = true
+	if !m.logDetailsReady {
+		m.initLogDetailsViewport()
+	} else {
+		m.updateLogDetailsContent()
 	}
 }
 

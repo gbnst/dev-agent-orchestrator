@@ -3,15 +3,15 @@
 Last verified: 2026-02-06
 
 ## Purpose
-Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker Compose, and tmux session management within containers. Manages per-container Claude Code configuration including auth token injection and persistent settings. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking.
+Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker Compose, and tmux session management within containers. Manages per-container Claude Code configuration including auth token injection and persistent settings. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking. Integrates proxy log tailing for real-time HTTP request visibility in TUI.
 
 ## Contracts
 - **Exposes**: `Manager`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `ProcessDevcontainerTemplate`, `HashTruncLen`, `MountInfo`
-- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Claude config directories persist across container recreations. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via postCreateCommand. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network.
-- **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation. For compose mode: docker-compose or podman-compose available.
+- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Claude config directories persist across container recreations. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via postCreateCommand. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on destroy.
+- **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation. For compose mode: docker-compose or podman-compose available. LogManager must implement GetChannelSink() for proxy log integration.
 
 ## Dependencies
-- **Uses**: config.Config, config.Template, logging.Manager (optional), @devcontainers/cli (external), mitmproxy/mitmproxy (external image)
+- **Uses**: config.Config, config.Template, logging.Manager (optional), logging.ProxyLogReader, @devcontainers/cli (external), mitmproxy/mitmproxy (external image)
 - **Used by**: TUI (Model), main.go
 - **Boundary**: Container operations only; no UI concerns
 
@@ -35,11 +35,13 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - containers and sidecars maps protected by sync.RWMutex; all reads use RLock, all writes use Lock
 - containers map updated only via Refresh() or after Create/Destroy
 - sidecars map updated via Refresh() or after sidecar create/destroy
+- proxyLogCancels map protected by same mutex as containers
 - State transitions: created -> running <-> stopped -> (destroyed)
 - Manager methods are nil-safe for logger (NopLogger default)
 - Claude config directories are never deleted (persist user customizations)
 - Sidecar lifecycle: started before main container, stopped after main container
 - Network and proxy configs cleaned up only on Destroy (not Stop)
+- Proxy log reader lifecycle: started after CreateWithCompose, cancelled in DestroyWithCompose
 
 ## Key Files
 - `manager.go` - Manager struct, compose-based lifecycle operations (CreateWithCompose, StartWithCompose, StopWithCompose, DestroyWithCompose), session management, sidecar lifecycle, GetContainerIsolationInfo()
@@ -62,3 +64,5 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Compose mode requires templates to define isolation config (no hardcoded defaults)
 - Podman + dockerComposeFile: Known devcontainer CLI bug #863; see docs/PODMAN.md for workarounds
 - filter.py.tmpl is processed as a Go template via processFilterTemplate() but currently has no Go template placeholders (all config is hardcoded in the template)
+- Proxy log reader requires LogManager with GetChannelSink(); uses type assertion at runtime
+- Proxy log path is hardcoded: .devcontainer/proxy-logs/requests.jsonl

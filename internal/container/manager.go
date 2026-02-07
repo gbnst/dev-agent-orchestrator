@@ -47,6 +47,7 @@ type Manager struct {
 	sidecars         map[string]*Sidecar // Maps sidecar container ID to Sidecar
 	logger           *logging.ScopedLogger
 	logManager       interface{ For(string) *logging.ScopedLogger } // for per-container loggers
+	proxyLogCancels  map[string]context.CancelFunc               // containerID -> cancel func
 }
 
 // NewManagerWithRuntime creates a Manager with a mock runtime for testing.
@@ -138,6 +139,7 @@ func NewManagerWithConfigAndLogger(cfg *config.Config, templates []config.Templa
 		sidecars:         make(map[string]*Sidecar),
 		logger:           logger,
 		logManager:       logManager,
+		proxyLogCancels:  make(map[string]context.CancelFunc),
 	}
 }
 
@@ -152,7 +154,6 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	// Rebuild containers map (exclude sidecars)
 	m.containers = make(map[string]*Container)
@@ -168,6 +169,11 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	m.refreshSidecars(ctx, containers)
 
 	m.logger.Debug("container list refreshed", "count", len(m.containers), "sidecars", len(m.sidecars))
+
+	// Start proxy log readers for containers that don't have one yet
+	m.startMissingProxyLogReaders()
+
+	m.mu.Unlock()
 	return nil
 }
 
@@ -392,22 +398,54 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 	// Find the created container
 	// Container ID from devcontainer up may be truncated, so use prefix match
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
+	var container *Container
 	for _, c := range m.containers {
 		if strings.HasPrefix(c.ID, containerID) || strings.HasPrefix(containerID, c.ID) {
-			return c, nil
+			container = c
+			break
 		}
 	}
 
 	// If not found by ID, try matching by project path
-	for _, c := range m.containers {
-		if c.ProjectPath == opts.ProjectPath {
-			return c, nil
+	if container == nil {
+		for _, c := range m.containers {
+			if c.ProjectPath == opts.ProjectPath {
+				container = c
+				break
+			}
+		}
+	}
+	m.mu.RUnlock()
+
+	if container == nil {
+		return nil, fmt.Errorf("container created but not found in refresh: %s", containerID)
+	}
+
+	// Start proxy log reader for this container
+	if m.logManager != nil {
+		proxyLogPath := filepath.Join(opts.ProjectPath, ".devcontainer", "proxy-logs", "requests.jsonl")
+		reader, err := logging.NewProxyLogReader(proxyLogPath, container.Name, m.logManager.(interface{ GetChannelSink() *logging.ChannelSink }).GetChannelSink())
+		if err != nil {
+			logger.Warn("failed to create proxy log reader", "error", err)
+		} else {
+			ctx, cancel := context.WithCancel(context.Background())
+
+			// Protect proxyLogCancels map access with mutex
+			m.mu.Lock()
+			m.proxyLogCancels[container.ID] = cancel
+			m.mu.Unlock()
+
+			go func() {
+				if err := reader.Start(ctx); err != nil && err != context.Canceled {
+					logger.Warn("proxy log reader stopped", "error", err)
+				}
+			}()
+
+			logger.Info("started proxy log reader", "container", container.Name, "path", proxyLogPath)
 		}
 	}
 
-	return nil, fmt.Errorf("container created but not found in refresh: %s", containerID)
+	return container, nil
 }
 
 // composeProjectName returns the compose project name for a container.
@@ -418,6 +456,50 @@ func composeProjectName(c *Container) string {
 		return name
 	}
 	return "devagent-" + projectHash(c.ProjectPath)
+}
+
+// startMissingProxyLogReaders starts proxy log readers for containers that don't have one.
+// Must be called with m.mu held.
+func (m *Manager) startMissingProxyLogReaders() {
+	if m.logManager == nil {
+		return
+	}
+
+	sink, ok := m.logManager.(interface{ GetChannelSink() *logging.ChannelSink })
+	if !ok {
+		return
+	}
+
+	for _, c := range m.containers {
+		// Skip if already have a reader for this container
+		if _, hasReader := m.proxyLogCancels[c.ID]; hasReader {
+			continue
+		}
+
+		// Skip containers without project path
+		if c.ProjectPath == "" {
+			continue
+		}
+
+		// Start proxy log reader
+		proxyLogPath := filepath.Join(c.ProjectPath, ".devcontainer", "proxy-logs", "requests.jsonl")
+		reader, err := logging.NewProxyLogReader(proxyLogPath, c.Name, sink.GetChannelSink())
+		if err != nil {
+			m.logger.Debug("failed to create proxy log reader", "container", c.Name, "error", err)
+			continue
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		m.proxyLogCancels[c.ID] = cancel
+
+		go func(r *logging.ProxyLogReader, containerName string) {
+			if err := r.Start(ctx); err != nil && err != context.Canceled {
+				m.logger.Debug("proxy log reader stopped", "container", containerName, "error", err)
+			}
+		}(reader, c.Name)
+
+		m.logger.Info("started proxy log reader", "container", c.Name, "path", proxyLogPath)
+	}
 }
 
 // StartWithCompose starts a compose-based devcontainer using docker-compose start.
@@ -500,6 +582,12 @@ func (m *Manager) DestroyWithCompose(ctx context.Context, containerID string) er
 	if c.ProjectPath == "" {
 		m.mu.Unlock()
 		return fmt.Errorf("container has no project path: %s", containerID)
+	}
+
+	// Stop proxy log reader if running (mutex already held)
+	if cancel, ok := m.proxyLogCancels[containerID]; ok {
+		cancel()
+		delete(m.proxyLogCancels, containerID)
 	}
 	m.mu.Unlock()
 

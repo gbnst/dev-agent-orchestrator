@@ -129,3 +129,83 @@ func TestChannelSink_ConcurrentWriteClose(t *testing.T) {
 	// Wait for writer to finish — must not panic
 	<-done
 }
+
+func TestChannelSink_Send(t *testing.T) {
+	sink := NewChannelSink(10)
+	defer func() { _ = sink.Close() }()
+
+	entry := LogEntry{
+		Timestamp: time.Now(),
+		Level:     "INFO",
+		Scope:     "test.scope",
+		Message:   "direct message",
+		Fields:    make(map[string]any),
+	}
+
+	// Send should not block
+	sink.Send(entry)
+
+	// Read from channel
+	select {
+	case got := <-sink.Entries():
+		if got.Message != "direct message" {
+			t.Errorf("Message = %q, want %q", got.Message, "direct message")
+		}
+		if got.Scope != "test.scope" {
+			t.Errorf("Scope = %q, want %q", got.Scope, "test.scope")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for log entry from Send()")
+	}
+}
+
+func TestChannelSink_Send_NonBlocking(t *testing.T) {
+	// Create sink with buffer size 2
+	sink := NewChannelSink(2)
+	defer func() { _ = sink.Close() }()
+
+	entry := LogEntry{
+		Timestamp: time.Now(),
+		Level:     "INFO",
+		Scope:     "test",
+		Message:   "test",
+		Fields:    make(map[string]any),
+	}
+
+	// Send 5 entries (more than buffer)
+	for i := 0; i < 5; i++ {
+		sink.Send(entry)
+	}
+
+	// Should not block - oldest entries dropped
+	count := 0
+	for {
+		select {
+		case <-sink.Entries():
+			count++
+		default:
+			goto done
+		}
+	}
+done:
+	// Should have at most buffer size entries
+	if count > 2 {
+		t.Errorf("got %d entries, expected at most 2", count)
+	}
+}
+
+func TestChannelSink_Send_AfterClose(t *testing.T) {
+	sink := NewChannelSink(10)
+	_ = sink.Close()
+
+	entry := LogEntry{
+		Timestamp: time.Now(),
+		Level:     "INFO",
+		Scope:     "test",
+		Message:   "test",
+		Fields:    make(map[string]any),
+	}
+
+	// Send after close should not panic
+	sink.Send(entry)
+}

@@ -82,6 +82,33 @@ func (s *ChannelSink) Entries() <-chan LogEntry {
 	return s.entries
 }
 
+// Send sends a LogEntry directly to the channel.
+// This is used for external log sources like proxy logs.
+// Non-blocking: drops oldest if channel is full.
+func (s *ChannelSink) Send(entry LogEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return
+	}
+
+	// Non-blocking send with overflow handling
+	select {
+	case s.entries <- entry:
+	default:
+		// Channel full - drop oldest and retry
+		select {
+		case <-s.entries:
+		default:
+		}
+		select {
+		case s.entries <- entry:
+		default:
+		}
+	}
+}
+
 // parseEntry converts JSON log data from Zap into a LogEntry.
 func (s *ChannelSink) parseEntry(data []byte) (LogEntry, error) {
 	var raw map[string]any

@@ -119,19 +119,20 @@ func TestModel_FilteredLogEntries(t *testing.T) {
 
 	m.addLogEntry(logging.LogEntry{Message: "app log", Scope: "app"})
 	m.addLogEntry(logging.LogEntry{Message: "container log", Scope: "container.abc123"})
+	m.addLogEntry(logging.LogEntry{Message: "proxy log", Scope: "proxy.abc123"})
 	m.addLogEntry(logging.LogEntry{Message: "session log", Scope: "session.abc123.dev"})
 
 	// No filter = all entries
 	m.logFilter = ""
-	if len(m.filteredLogEntries()) != 3 {
+	if len(m.filteredLogEntries()) != 4 {
 		t.Errorf("no filter should return all entries, got %d", len(m.filteredLogEntries()))
 	}
 
-	// Container filter matches scope prefix
-	m.logFilter = "container"
+	// Container filter matches both container.* and proxy.* scopes
+	m.logFilter = "abc123"
 	filtered := m.filteredLogEntries()
-	if len(filtered) != 1 {
-		t.Errorf("container filter should return 1 entry, got %d", len(filtered))
+	if len(filtered) != 2 {
+		t.Errorf("filter for 'abc123' should return 2 entries (container+proxy), got %d", len(filtered))
 	}
 }
 
@@ -155,8 +156,8 @@ func TestSetLogFilterFromContext_ContainerSelected(t *testing.T) {
 
 	m.setLogFilterFromContext()
 
-	if m.logFilter != "container.test-container" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test-container")
+	if m.logFilter != "test-container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "test-container")
 	}
 	if m.logFilterLabel != "test-container" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")
@@ -184,8 +185,8 @@ func TestSetLogFilterFromContext_SessionSelected(t *testing.T) {
 	m.setLogFilterFromContext()
 
 	// With per-container scopes, even sessions filter by container name
-	if m.logFilter != "container.test-container" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test-container")
+	if m.logFilter != "test-container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "test-container")
 	}
 	if m.logFilterLabel != "test-container" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")
@@ -203,8 +204,8 @@ func TestSetLogFilterFromContext_ContainerWithoutSessions(t *testing.T) {
 
 	m.setLogFilterFromContext()
 
-	if m.logFilter != "container.test-container" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test-container")
+	if m.logFilter != "test-container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "test-container")
 	}
 	if m.logFilterLabel != "test-container" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")
@@ -220,8 +221,8 @@ func TestSetLogFilterFromContext_ShortContainerID(t *testing.T) {
 
 	m.setLogFilterFromContext()
 
-	if m.logFilter != "container.test-container" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test-container")
+	if m.logFilter != "test-container" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "test-container")
 	}
 	if m.logFilterLabel != "test-container" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test-container")
