@@ -231,20 +231,54 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Handle log viewport navigation when log panel is focused
+		// Handle log panel navigation when log panel is focused
 		if m.panelFocus == FocusLogs && m.logPanelOpen && m.logReady {
-			switch msg.Type {
-			case tea.KeyUp:
-				if m.logViewport.YOffset > 0 {
-					m.logViewport.SetYOffset(m.logViewport.YOffset - 1)
+			// Right/Left arrow for opening/closing details panel
+			if !m.logDetailsOpen {
+				if msg.Type == tea.KeyRight {
+					m.openLogDetailsPanel()
+					return m, nil
 				}
-				m.logAutoScroll = false
-				return m, nil
-			case tea.KeyDown:
-				m.logViewport.SetYOffset(m.logViewport.YOffset + 1)
-				m.logAutoScroll = m.logViewport.AtBottom()
-				return m, nil
-			case tea.KeyEscape:
+			} else {
+				if msg.Type == tea.KeyLeft {
+					m.closeLogDetailsPanel()
+					return m, nil
+				}
+			}
+
+			// Handle up/down navigation when details panel closed (select log)
+			if !m.logDetailsOpen {
+				entries := m.filteredLogEntries()
+				switch msg.Type {
+				case tea.KeyUp:
+					if m.selectedLogIndex > 0 {
+						m.selectedLogIndex--
+						m.logAutoScroll = false
+					}
+					return m, nil
+				case tea.KeyDown:
+					if m.selectedLogIndex < len(entries)-1 {
+						m.selectedLogIndex++
+						m.logAutoScroll = false
+					}
+					return m, nil
+				}
+			}
+
+			// Handle up/down scrolling when details panel is open
+			if m.logDetailsOpen && m.logDetailsReady {
+				switch msg.Type {
+				case tea.KeyUp:
+					m.logDetailsViewport.ScrollUp(1)
+					return m, nil
+				case tea.KeyDown:
+					m.logDetailsViewport.ScrollDown(1)
+					return m, nil
+				}
+			}
+
+			// Escape to return to tree
+			if msg.Type == tea.KeyEscape {
 				m.panelFocus = FocusTree
 				m.quitHintCount = 0
 				return m, nil
@@ -548,6 +582,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.logPanelOpen && m.logReady {
 			m.updateLogViewportContent()
+		}
+		// Update selectedLogIndex if auto-scrolling
+		if m.logAutoScroll {
+			entries := m.filteredLogEntries()
+			if len(entries) > 0 {
+				m.selectedLogIndex = len(entries) - 1
+			}
+		}
+		// Update details content if open
+		if m.logDetailsOpen && m.logDetailsReady {
+			m.updateLogDetailsContent()
 		}
 		// Continue consuming logs (logManager added in Phase 7)
 		if m.logManager != nil {

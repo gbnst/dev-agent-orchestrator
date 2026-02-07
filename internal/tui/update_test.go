@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/container"
+	"devagent/internal/logging"
 )
 
 // Tab switching tests removed - tabs replaced by tree navigation
@@ -225,8 +226,8 @@ func TestLogFilter_SyncsOnTreeNavigation(t *testing.T) {
 	// syncSelectionFromTree now syncs the log filter
 	m.syncSelectionFromTree()
 
-	if m.logFilter != "container.test" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test")
+	if m.logFilter != "test" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "test")
 	}
 	if m.logFilterLabel != "test" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test")
@@ -329,8 +330,8 @@ func TestSetError_SetsLogFilter(t *testing.T) {
 	m.setError("test failed", fmt.Errorf("test error"))
 	m.setLogFilterFromContext() // Must be explicit now
 
-	if m.logFilter != "container.test" {
-		t.Errorf("logFilter = %q, want %q", m.logFilter, "container.test")
+	if m.logFilter != "test" {
+		t.Errorf("logFilter = %q, want %q", m.logFilter, "test")
 	}
 	if m.logFilterLabel != "test" {
 		t.Errorf("logFilterLabel = %q, want %q", m.logFilterLabel, "test")
@@ -451,21 +452,32 @@ func TestEscapeKey_LogsToTree(t *testing.T) {
 	}
 }
 
-func TestUpDown_ScrollsLogsWhenFocused(t *testing.T) {
+func TestUpDown_SelectsLogsWhenDetailsNotOpen(t *testing.T) {
 	m := newTestModel(t)
 	m.panelFocus = FocusLogs
 	m.logPanelOpen = true
 	m.logReady = true
-	m.logViewport.SetContent("line1\nline2\nline3\nline4\nline5")
-	m.logViewport.Height = 2
+	m.logDetailsOpen = false
+	m.selectedLogIndex = 0
 
-	// Press down
+	// Add 3 log entries
+	for i := 0; i < 3; i++ {
+		m.logEntries = append(m.logEntries, logging.LogEntry{
+			Timestamp: time.Now(),
+			Level:     "INFO",
+			Scope:     "container.test",
+			Message:   fmt.Sprintf("entry%d", i),
+			Fields:    make(map[string]any),
+		})
+	}
+
+	// Press down to select next log
 	msg := tea.KeyMsg{Type: tea.KeyDown}
 	updated, _ := m.Update(msg)
 	result := updated.(Model)
 
-	if result.logViewport.YOffset == 0 {
-		t.Error("viewport should scroll down when logs panel is focused")
+	if result.selectedLogIndex != 1 {
+		t.Errorf("selectedLogIndex = %d, want 1 (should navigate logs when details closed)", result.selectedLogIndex)
 	}
 }
 

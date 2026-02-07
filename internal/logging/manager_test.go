@@ -220,3 +220,47 @@ func TestManager_FileRotation(t *testing.T) {
 		t.Error("log file should exist after writing")
 	}
 }
+
+func TestManager_GetChannelSink(t *testing.T) {
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "test.log")
+
+	cfg := Config{
+		FilePath:   logFile,
+		MaxSizeMB:  10,
+		MaxBackups: 5,
+		MaxAgeDays: 7,
+		Level:      "debug",
+	}
+
+	mgr, err := NewManager(cfg)
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	defer func() { _ = mgr.Close() }()
+
+	// GetChannelSink should return non-nil
+	sink := mgr.GetChannelSink()
+	if sink == nil {
+		t.Error("GetChannelSink() returned nil")
+	}
+
+	// Sink should be usable for sending entries
+	entry := LogEntry{
+		Level:   "INFO",
+		Scope:   "test",
+		Message: "test message",
+		Fields:  make(map[string]any),
+	}
+	sink.Send(entry)
+
+	// Entry should be available on Entries() channel
+	select {
+	case got := <-mgr.Entries():
+		if got.Message != "test message" {
+			t.Errorf("Message = %q, want %q", got.Message, "test message")
+		}
+	default:
+		t.Fatal("entry not received on channel")
+	}
+}

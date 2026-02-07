@@ -679,3 +679,101 @@ func TestWriteComposeFiles_FileContentsMatch(t *testing.T) {
 		t.Errorf("filter.py content mismatch:\ngot: %q\nwant: %q", filterContent, expectedFilter)
 	}
 }
+
+func TestWriteComposeFiles_CreatesProxyLogsDirectory(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &config.Config{}
+	gen := NewDevcontainerGenerator(cfg, nil)
+
+	composeResult := &ComposeResult{
+		ComposeYAML:     "services: {}",
+		DockerfileProxy: "FROM scratch",
+		FilterScript:    "# empty",
+	}
+
+	err := gen.WriteComposeFiles(projectDir, composeResult)
+	if err != nil {
+		t.Fatalf("WriteComposeFiles failed: %v", err)
+	}
+
+	// Verify proxy-logs directory was created
+	proxyLogsDir := filepath.Join(projectDir, ".devcontainer", "proxy-logs")
+	info, err := os.Stat(proxyLogsDir)
+	if os.IsNotExist(err) {
+		t.Error("proxy-logs directory was not created")
+	}
+	if err == nil && !info.IsDir() {
+		t.Error("proxy-logs is not a directory")
+	}
+}
+
+func TestWriteComposeFiles_CreatesGitignore(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &config.Config{}
+	gen := NewDevcontainerGenerator(cfg, nil)
+
+	composeResult := &ComposeResult{
+		ComposeYAML:     "services: {}",
+		DockerfileProxy: "FROM scratch",
+		FilterScript:    "# empty",
+	}
+
+	err := gen.WriteComposeFiles(projectDir, composeResult)
+	if err != nil {
+		t.Fatalf("WriteComposeFiles failed: %v", err)
+	}
+
+	// Verify .gitignore was created
+	gitignorePath := filepath.Join(projectDir, ".devcontainer", ".gitignore")
+	content, err := os.ReadFile(gitignorePath)
+	if os.IsNotExist(err) {
+		t.Error(".gitignore was not created")
+	}
+
+	gitignoreContent := string(content)
+	if !strings.Contains(gitignoreContent, "proxy-logs/") {
+		t.Error(".gitignore should contain 'proxy-logs/'")
+	}
+	if !strings.Contains(gitignoreContent, "*.jsonl") {
+		t.Error(".gitignore should contain '*.jsonl'")
+	}
+}
+
+func TestWriteComposeFiles_DoesNotOverwriteExistingGitignore(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := &config.Config{}
+	gen := NewDevcontainerGenerator(cfg, nil)
+
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	// Create existing .gitignore with custom content
+	gitignorePath := filepath.Join(devcontainerDir, ".gitignore")
+	customContent := "# Custom gitignore\noriginal-entry/\n"
+	if err := os.WriteFile(gitignorePath, []byte(customContent), 0644); err != nil {
+		t.Fatalf("Failed to write custom .gitignore: %v", err)
+	}
+
+	composeResult := &ComposeResult{
+		ComposeYAML:     "services: {}",
+		DockerfileProxy: "FROM scratch",
+		FilterScript:    "# empty",
+	}
+
+	err := gen.WriteComposeFiles(projectDir, composeResult)
+	if err != nil {
+		t.Fatalf("WriteComposeFiles failed: %v", err)
+	}
+
+	// Verify .gitignore was NOT overwritten
+	content, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatalf("Failed to read .gitignore: %v", err)
+	}
+
+	if string(content) != customContent {
+		t.Errorf(".gitignore was overwritten:\ngot: %q\nwant: %q", string(content), customContent)
+	}
+}

@@ -217,6 +217,12 @@ func (m *Manager) Entries() <-chan LogEntry {
 	return m.channelSink.Entries()
 }
 
+// GetChannelSink returns the channel sink for external log sources.
+// This allows proxy log readers to send entries directly to the TUI channel.
+func (m *Manager) GetChannelSink() *ChannelSink {
+	return m.channelSink
+}
+
 // Sync flushes all buffered logs.
 func (m *Manager) Sync() error {
 	return m.baseZap.Sync()

@@ -54,6 +54,7 @@ services:
       - isolated
     volumes:
       - proxy-certs:/home/mitmproxy/.mitmproxy
+      - {{.ProjectPath}}/.devcontainer/proxy-logs:/var/log/proxy
     command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "{{.ProxyPort}}", "-s", "/home/mitmproxy/filter.py"]
     labels:
       devagent.managed: "true"

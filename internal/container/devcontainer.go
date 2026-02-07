@@ -258,6 +258,7 @@ func (g *DevcontainerGenerator) generateFromTemplate(tmpl *config.Template, opts
 		ProxyImage:         "mitmproxy/mitmproxy:latest",
 		ProxyPort:          "8080",
 		RemoteUser:         DefaultRemoteUser,
+		ProxyLogPath:       "/var/log/proxy/requests.jsonl",
 	}
 
 	// Process the template
@@ -326,6 +327,24 @@ func (g *DevcontainerGenerator) WriteComposeFiles(projectPath string, composeRes
 	devcontainerDir := filepath.Join(projectPath, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
 		return fmt.Errorf("failed to create .devcontainer directory: %w", err)
+	}
+
+	// Create proxy-logs directory for JSONL request logging
+	proxyLogsDir := filepath.Join(devcontainerDir, "proxy-logs")
+	if err := os.MkdirAll(proxyLogsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create proxy-logs directory: %w", err)
+	}
+
+	// Write .gitignore for runtime data (only if it doesn't exist)
+	gitignorePath := filepath.Join(devcontainerDir, ".gitignore")
+	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
+		gitignoreContent := `# Runtime data - do not commit
+proxy-logs/
+*.jsonl
+`
+		if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
+			return fmt.Errorf("failed to write .gitignore: %w", err)
+		}
 	}
 
 	// Write docker-compose.yml
