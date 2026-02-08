@@ -491,12 +491,6 @@ func TestWriteComposeFiles_CreatesAllFiles(t *testing.T) {
   proxy:
     image: mitmproxy/mitmproxy
 `,
-		DockerfileProxy: `FROM mitmproxy/mitmproxy:latest
-COPY filter.py /home/mitmproxy/filter.py
-`,
-		FilterScript: `ALLOWED_DOMAINS = ["example.com"]
-addons = []
-`,
 	}
 
 	err := gen.WriteComposeFiles(projectDir, composeResult)
@@ -514,24 +508,16 @@ addons = []
 		t.Error("docker-compose.yml content is incorrect")
 	}
 
-	// Verify Dockerfile.proxy
+	// Verify Dockerfile.proxy is NOT created (now copied by WriteToProject from template)
 	dockerfilePath := filepath.Join(projectDir, ".devcontainer", "Dockerfile.proxy")
-	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
-		t.Error("Dockerfile.proxy was not created")
-	}
-	dockerfileContent, _ := os.ReadFile(dockerfilePath)
-	if !strings.Contains(string(dockerfileContent), "mitmproxy") {
-		t.Error("Dockerfile.proxy content is incorrect")
+	if _, err := os.Stat(dockerfilePath); !os.IsNotExist(err) {
+		t.Error("Dockerfile.proxy should not be created by WriteComposeFiles")
 	}
 
-	// Verify filter.py
+	// Verify filter.py is NOT created (now copied by WriteToProject from template)
 	filterPath := filepath.Join(projectDir, ".devcontainer", "filter.py")
-	if _, err := os.Stat(filterPath); os.IsNotExist(err) {
-		t.Error("filter.py was not created")
-	}
-	filterContent, _ := os.ReadFile(filterPath)
-	if !strings.Contains(string(filterContent), "ALLOWED_DOMAINS") {
-		t.Error("filter.py content is incorrect")
+	if _, err := os.Stat(filterPath); !os.IsNotExist(err) {
+		t.Error("filter.py should not be created by WriteComposeFiles")
 	}
 }
 
@@ -541,9 +527,7 @@ func TestWriteComposeFiles_CreatesDevcontainerDir(t *testing.T) {
 	gen := NewDevcontainerGenerator(cfg, nil)
 
 	composeResult := &ComposeResult{
-		ComposeYAML:     "services: {}",
-		DockerfileProxy: "FROM scratch",
-		FilterScript:    "# empty",
+		ComposeYAML: "services: {}",
 	}
 
 	err := gen.WriteComposeFiles(projectDir, composeResult)
@@ -579,9 +563,7 @@ func TestWriteAll_WritesDevcontainerAndComposeFiles(t *testing.T) {
 	}
 
 	composeResult := &ComposeResult{
-		ComposeYAML:     "services:\n  app:\n    image: ubuntu",
-		DockerfileProxy: "FROM mitmproxy/mitmproxy",
-		FilterScript:    "ALLOWED_DOMAINS = []",
+		ComposeYAML: "services:\n  app:\n    image: ubuntu",
 	}
 
 	err := gen.WriteAll(projectDir, devcontainerResult, composeResult)
@@ -599,16 +581,6 @@ func TestWriteAll_WritesDevcontainerAndComposeFiles(t *testing.T) {
 	composePath := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
 	if _, err := os.Stat(composePath); os.IsNotExist(err) {
 		t.Error("docker-compose.yml was not created")
-	}
-
-	dockerfilePath := filepath.Join(projectDir, ".devcontainer", "Dockerfile.proxy")
-	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
-		t.Error("Dockerfile.proxy was not created")
-	}
-
-	filterPath := filepath.Join(projectDir, ".devcontainer", "filter.py")
-	if _, err := os.Stat(filterPath); os.IsNotExist(err) {
-		t.Error("filter.py was not created")
 	}
 }
 
@@ -649,13 +621,9 @@ func TestWriteComposeFiles_FileContentsMatch(t *testing.T) {
 	gen := NewDevcontainerGenerator(cfg, nil)
 
 	expectedCompose := "services:\n  app:\n    build: .\n"
-	expectedDockerfile := "FROM mitmproxy/mitmproxy:10.0\nUSER mitmproxy\n"
-	expectedFilter := "ALLOWED_DOMAINS = [\"api.anthropic.com\"]\n"
 
 	composeResult := &ComposeResult{
-		ComposeYAML:     expectedCompose,
-		DockerfileProxy: expectedDockerfile,
-		FilterScript:    expectedFilter,
+		ComposeYAML: expectedCompose,
 	}
 
 	err := gen.WriteComposeFiles(projectDir, composeResult)
@@ -668,16 +636,6 @@ func TestWriteComposeFiles_FileContentsMatch(t *testing.T) {
 	if string(composeContent) != expectedCompose {
 		t.Errorf("docker-compose.yml content mismatch:\ngot: %q\nwant: %q", composeContent, expectedCompose)
 	}
-
-	dockerfileContent, _ := os.ReadFile(filepath.Join(projectDir, ".devcontainer", "Dockerfile.proxy"))
-	if string(dockerfileContent) != expectedDockerfile {
-		t.Errorf("Dockerfile.proxy content mismatch:\ngot: %q\nwant: %q", dockerfileContent, expectedDockerfile)
-	}
-
-	filterContent, _ := os.ReadFile(filepath.Join(projectDir, ".devcontainer", "filter.py"))
-	if string(filterContent) != expectedFilter {
-		t.Errorf("filter.py content mismatch:\ngot: %q\nwant: %q", filterContent, expectedFilter)
-	}
 }
 
 func TestWriteComposeFiles_CreatesProxyLogsDirectory(t *testing.T) {
@@ -686,9 +644,7 @@ func TestWriteComposeFiles_CreatesProxyLogsDirectory(t *testing.T) {
 	gen := NewDevcontainerGenerator(cfg, nil)
 
 	composeResult := &ComposeResult{
-		ComposeYAML:     "services: {}",
-		DockerfileProxy: "FROM scratch",
-		FilterScript:    "# empty",
+		ComposeYAML: "services: {}",
 	}
 
 	err := gen.WriteComposeFiles(projectDir, composeResult)
@@ -696,26 +652,24 @@ func TestWriteComposeFiles_CreatesProxyLogsDirectory(t *testing.T) {
 		t.Fatalf("WriteComposeFiles failed: %v", err)
 	}
 
-	// Verify proxy-logs directory was created
-	proxyLogsDir := filepath.Join(projectDir, ".devcontainer", "proxy-logs")
+	// Verify proxy/logs directory was created
+	proxyLogsDir := filepath.Join(projectDir, ".devcontainer", "proxy", "logs")
 	info, err := os.Stat(proxyLogsDir)
 	if os.IsNotExist(err) {
-		t.Error("proxy-logs directory was not created")
+		t.Error("proxy/logs directory was not created")
 	}
 	if err == nil && !info.IsDir() {
-		t.Error("proxy-logs is not a directory")
+		t.Error("proxy/logs is not a directory")
 	}
 }
 
-func TestWriteComposeFiles_CreatesGitignore(t *testing.T) {
+func TestWriteComposeFiles_DoesNotCreateGitignore(t *testing.T) {
 	projectDir := t.TempDir()
 	cfg := &config.Config{}
 	gen := NewDevcontainerGenerator(cfg, nil)
 
 	composeResult := &ComposeResult{
-		ComposeYAML:     "services: {}",
-		DockerfileProxy: "FROM scratch",
-		FilterScript:    "# empty",
+		ComposeYAML: "services: {}",
 	}
 
 	err := gen.WriteComposeFiles(projectDir, composeResult)
@@ -723,57 +677,10 @@ func TestWriteComposeFiles_CreatesGitignore(t *testing.T) {
 		t.Fatalf("WriteComposeFiles failed: %v", err)
 	}
 
-	// Verify .gitignore was created
+	// Verify .gitignore is NOT created by WriteComposeFiles (now handled by WriteToProject)
 	gitignorePath := filepath.Join(projectDir, ".devcontainer", ".gitignore")
-	content, err := os.ReadFile(gitignorePath)
-	if os.IsNotExist(err) {
-		t.Error(".gitignore was not created")
-	}
-
-	gitignoreContent := string(content)
-	if !strings.Contains(gitignoreContent, "proxy-logs/") {
-		t.Error(".gitignore should contain 'proxy-logs/'")
-	}
-	if !strings.Contains(gitignoreContent, "*.jsonl") {
-		t.Error(".gitignore should contain '*.jsonl'")
+	if _, err := os.Stat(gitignorePath); !os.IsNotExist(err) {
+		t.Error(".gitignore should not be created by WriteComposeFiles")
 	}
 }
 
-func TestWriteComposeFiles_DoesNotOverwriteExistingGitignore(t *testing.T) {
-	projectDir := t.TempDir()
-	cfg := &config.Config{}
-	gen := NewDevcontainerGenerator(cfg, nil)
-
-	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
-		t.Fatalf("Failed to create .devcontainer dir: %v", err)
-	}
-
-	// Create existing .gitignore with custom content
-	gitignorePath := filepath.Join(devcontainerDir, ".gitignore")
-	customContent := "# Custom gitignore\noriginal-entry/\n"
-	if err := os.WriteFile(gitignorePath, []byte(customContent), 0644); err != nil {
-		t.Fatalf("Failed to write custom .gitignore: %v", err)
-	}
-
-	composeResult := &ComposeResult{
-		ComposeYAML:     "services: {}",
-		DockerfileProxy: "FROM scratch",
-		FilterScript:    "# empty",
-	}
-
-	err := gen.WriteComposeFiles(projectDir, composeResult)
-	if err != nil {
-		t.Fatalf("WriteComposeFiles failed: %v", err)
-	}
-
-	// Verify .gitignore was NOT overwritten
-	content, err := os.ReadFile(gitignorePath)
-	if err != nil {
-		t.Fatalf("Failed to read .gitignore: %v", err)
-	}
-
-	if string(content) != customContent {
-		t.Errorf(".gitignore was overwritten:\ngot: %q\nwant: %q", string(content), customContent)
-	}
-}

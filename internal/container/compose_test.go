@@ -22,7 +22,7 @@ func createTestTemplateDir(t *testing.T, name string) string {
 		t.Fatalf("Failed to create template directory: %v", err)
 	}
 
-	// Create docker-compose.yml.tmpl
+	// Create docker-compose.yml.tmpl (matches new template structure)
 	composeContent := `services:
   app:
     build:
@@ -47,7 +47,7 @@ func createTestTemplateDir(t *testing.T, name string) string {
     volumes:
       - {{.ProjectPath}}:{{.WorkspaceFolder}}:cached
       - proxy-certs:/tmp/mitmproxy-certs:ro
-      - {{.ClaudeConfigDir}}:/home/vscode/.claude:cached
+      - {{.ProjectPath}}/.devcontainer/home/vscode:/home/vscode:cached
       - {{.ClaudeTokenPath}}:/run/secrets/claude-token:ro
     cap_drop:
       - NET_RAW
@@ -63,15 +63,14 @@ func createTestTemplateDir(t *testing.T, name string) string {
     command: sleep infinity
 
   proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile.proxy
+    image: mitmproxy/mitmproxy:latest
     container_name: devagent-{{.ProjectHash}}-proxy
     networks:
       - isolated
     volumes:
       - proxy-certs:/home/mitmproxy/.mitmproxy
-    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/home/mitmproxy/filter.py"]
+      - {{.ProjectPath}}/.devcontainer/proxy:/opt/devagent-proxy
+    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/opt/devagent-proxy/filter.py"]
     labels:
       devagent.managed: "true"
       devagent.sidecar_of: "{{.ProjectHash}}"
@@ -86,81 +85,6 @@ volumes:
 `
 	if err := os.WriteFile(filepath.Join(templateDir, "docker-compose.yml.tmpl"), []byte(composeContent), 0644); err != nil {
 		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
-	}
-
-	// Create Dockerfile.proxy
-	dockerfileContent := `FROM mitmproxy/mitmproxy:latest
-COPY filter.py /home/mitmproxy/filter.py
-EXPOSE 8080
-`
-	if err := os.WriteFile(filepath.Join(templateDir, "Dockerfile.proxy"), []byte(dockerfileContent), 0644); err != nil {
-		t.Fatalf("Failed to write Dockerfile.proxy: %v", err)
-	}
-
-	// Create filter.py.tmpl (static filter script for test)
-	filterContent := `from mitmproxy import http
-import re
-
-ALLOWED_DOMAINS = [
-    "api.anthropic.com",
-    "github.com",
-    "*.github.com",
-    "registry.npmjs.org",
-    "proxy.golang.org",
-]
-
-BLOCK_GITHUB_PR_MERGE = False
-
-class AllowlistFilter:
-    """Blocks requests to domains not in the allowlist and optionally blocks PR merges."""
-
-    def _is_allowed(self, host: str) -> bool:
-        """Check if host matches any allowed domain pattern."""
-        for pattern in ALLOWED_DOMAINS:
-            if pattern.startswith("*."):
-                base = pattern[2:]
-                if host == base or host.endswith("." + base):
-                    return True
-            elif host == pattern:
-                return True
-        return False
-
-    def _is_github_pr_merge(self, flow: http.HTTPFlow) -> bool:
-        """Check if request is a GitHub PR merge attempt."""
-        if not BLOCK_GITHUB_PR_MERGE:
-            return False
-        host = flow.request.pretty_host
-        if host not in ("api.github.com", "github.com") and not host.endswith(".github.com"):
-            return False
-        if flow.request.method == "PUT":
-            if re.match(r"^/repos/[^/]+/[^/]+/pulls/\d+/merge$", flow.request.path):
-                return True
-        if flow.request.method == "POST" and flow.request.path == "/graphql":
-            content = flow.request.get_text()
-            if content and "mergePullRequest" in content:
-                return True
-        return False
-
-    def request(self, flow: http.HTTPFlow) -> None:
-        if self._is_github_pr_merge(flow):
-            flow.response = http.Response.make(
-                403,
-                b"Merging pull requests is not allowed in this environment. Do not retry.\n",
-                {"Content-Type": "text/plain"}
-            )
-            return
-        host = flow.request.pretty_host
-        if not self._is_allowed(host):
-            flow.response = http.Response.make(
-                403,
-                f"Domain '{host}' is not in the allowlist\n".encode(),
-                {"Content-Type": "text/plain"}
-            )
-
-addons = [AllowlistFilter()]
-`
-	if err := os.WriteFile(filepath.Join(templateDir, "filter.py.tmpl"), []byte(filterContent), 0644); err != nil {
-		t.Fatalf("Failed to write filter.py.tmpl: %v", err)
 	}
 
 	return templateDir
@@ -215,27 +139,21 @@ func TestComposeGenerator_Generate_BasicTemplate(t *testing.T) {
 	if !strings.Contains(result.ComposeYAML, "proxy-certs:") {
 		t.Error("ComposeYAML missing proxy-certs volume")
 	}
-	if !strings.Contains(result.ComposeYAML, "/home/vscode/.claude:cached") {
-		t.Error("ComposeYAML missing claude config volume mount")
+
+	// Verify volume mounts
+	if !strings.Contains(result.ComposeYAML, "/home/vscode:cached") {
+		t.Error("ComposeYAML missing home/vscode volume mount")
 	}
 	if !strings.Contains(result.ComposeYAML, "/run/secrets/claude-token:ro") {
 		t.Error("ComposeYAML missing oauth token volume mount")
 	}
 
-	// Verify Dockerfile.proxy content
-	if !strings.Contains(result.DockerfileProxy, "FROM mitmproxy/mitmproxy") {
-		t.Error("DockerfileProxy missing mitmproxy base image")
+	// Verify proxy uses image instead of build
+	if !strings.Contains(result.ComposeYAML, "image: mitmproxy/mitmproxy:latest") {
+		t.Error("ComposeYAML missing proxy image directive")
 	}
-	if !strings.Contains(result.DockerfileProxy, "COPY filter.py") {
-		t.Error("DockerfileProxy missing filter.py COPY")
-	}
-
-	// Verify filter script from template
-	if !strings.Contains(result.FilterScript, "ALLOWED_DOMAINS") {
-		t.Error("FilterScript missing ALLOWED_DOMAINS")
-	}
-	if !strings.Contains(result.FilterScript, "api.anthropic.com") {
-		t.Error("FilterScript missing expected domain")
+	if strings.Contains(result.ComposeYAML, "dockerfile: Dockerfile.proxy") {
+		t.Error("ComposeYAML should not reference Dockerfile.proxy")
 	}
 }
 
@@ -416,14 +334,6 @@ func TestComposeGenerator_BasicTemplate(t *testing.T) {
 	if !strings.Contains(result.ComposeYAML, "cap_drop:") {
 		t.Error("Missing capability drops from template")
 	}
-
-	// Verify filter script from template has allowlist domains
-	if !strings.Contains(result.FilterScript, "api.anthropic.com") {
-		t.Error("Missing anthropic domain in filter script")
-	}
-	if !strings.Contains(result.FilterScript, "github.com") {
-		t.Error("Missing github domain in filter script")
-	}
 }
 
 func TestComposeGenerator_GoProjectTemplate(t *testing.T) {
@@ -453,11 +363,6 @@ func TestComposeGenerator_GoProjectTemplate(t *testing.T) {
 	}
 	if !strings.Contains(result.ComposeYAML, "cpus:") {
 		t.Error("Missing CPU limit from template")
-	}
-
-	// Verify filter script has Go proxy domain from template
-	if !strings.Contains(result.FilterScript, "proxy.golang.org") {
-		t.Error("Missing Go proxy domain in filter script")
 	}
 }
 

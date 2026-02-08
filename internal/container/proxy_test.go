@@ -7,46 +7,6 @@ import (
 	"testing"
 )
 
-func TestGetProxyConfigDir(t *testing.T) {
-	// Redirect data directory to temp for this test to avoid polluting real user data
-	tmpDir := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", tmpDir)
-
-	projectPath := "/some/project/path"
-	dir, err := GetProxyConfigDir(projectPath)
-	if err != nil {
-		t.Fatalf("GetProxyConfigDir() error = %v", err)
-	}
-
-	// Verify directory was created
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		t.Errorf("directory was not created: %s", dir)
-	}
-
-	// Verify it's under proxy-configs
-	if !strings.Contains(dir, "proxy-configs") {
-		t.Errorf("directory should be under proxy-configs: %s", dir)
-	}
-
-	// Verify consistent hashing (same project = same dir)
-	dir2, err := GetProxyConfigDir(projectPath)
-	if err != nil {
-		t.Fatalf("GetProxyConfigDir() second call error = %v", err)
-	}
-	if dir != dir2 {
-		t.Errorf("same project path should return same dir: %s != %s", dir, dir2)
-	}
-
-	// Verify different projects get different dirs
-	dir3, err := GetProxyConfigDir("/different/project")
-	if err != nil {
-		t.Fatalf("GetProxyConfigDir() different project error = %v", err)
-	}
-	if dir == dir3 {
-		t.Errorf("different projects should get different dirs")
-	}
-}
-
 func TestGetProxyCertDir(t *testing.T) {
 	// Redirect data directory to temp for this test to avoid polluting real user data
 	tmpDir := t.TempDir()
@@ -147,20 +107,13 @@ func TestCleanupProxyConfigs(t *testing.T) {
 
 	projectPath := "/some/project/path"
 
-	// Create config and cert directories
-	configDir, err := GetProxyConfigDir(projectPath)
-	if err != nil {
-		t.Fatalf("GetProxyConfigDir() error = %v", err)
-	}
+	// Create cert directory
 	certDir, err := GetProxyCertDir(projectPath)
 	if err != nil {
 		t.Fatalf("GetProxyCertDir() error = %v", err)
 	}
 
-	// Verify directories exist
-	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		t.Fatal("config directory should exist")
-	}
+	// Verify directory exists
 	if _, err := os.Stat(certDir); os.IsNotExist(err) {
 		t.Fatal("cert directory should exist")
 	}
@@ -170,10 +123,7 @@ func TestCleanupProxyConfigs(t *testing.T) {
 		t.Fatalf("CleanupProxyConfigs() error = %v", err)
 	}
 
-	// Verify directories are removed
-	if _, err := os.Stat(configDir); !os.IsNotExist(err) {
-		t.Error("config directory should be removed")
-	}
+	// Verify cert directory is removed
 	if _, err := os.Stat(certDir); !os.IsNotExist(err) {
 		t.Error("cert directory should be removed")
 	}
@@ -258,14 +208,10 @@ without the marker`,
 }
 
 func TestReadAllowlistFromFilterScript(t *testing.T) {
-	// Redirect data directory to temp for this test
-	tmpDir := t.TempDir()
-	t.Setenv("XDG_DATA_HOME", tmpDir)
-
-	projectPath := "/test/project"
+	projectPath := t.TempDir()
 
 	t.Run("returns nil for non-existent file", func(t *testing.T) {
-		domains, err := ReadAllowlistFromFilterScript("/nonexistent/project")
+		domains, err := ReadAllowlistFromFilterScript(projectPath)
 		if err != nil {
 			t.Errorf("ReadAllowlistFromFilterScript() error = %v", err)
 		}
@@ -275,17 +221,17 @@ func TestReadAllowlistFromFilterScript(t *testing.T) {
 	})
 
 	t.Run("reads allowlist from existing file", func(t *testing.T) {
-		// Write a filter script
-		configDir, err := GetProxyConfigDir(projectPath)
-		if err != nil {
-			t.Fatalf("GetProxyConfigDir() error = %v", err)
+		// Write a filter script to the new location
+		proxyDir := filepath.Join(projectPath, ".devcontainer", "proxy")
+		if err := os.MkdirAll(proxyDir, 0755); err != nil {
+			t.Fatalf("Failed to create proxy dir: %v", err)
 		}
 
 		scriptContent := `ALLOWED_DOMAINS = [
     "github.com",
     "api.anthropic.com",
 ]`
-		scriptPath := filepath.Join(configDir, "filter.py")
+		scriptPath := filepath.Join(proxyDir, "filter.py")
 		if err := os.WriteFile(scriptPath, []byte(scriptContent), 0644); err != nil {
 			t.Fatalf("Failed to write filter script: %v", err)
 		}

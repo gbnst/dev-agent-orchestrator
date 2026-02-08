@@ -22,10 +22,13 @@ func testCreateContainer(t *testing.T, runtime string) {
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
-	projectDir := TestProject(t, "default")
+	projectDir := TestProject(t, "basic")
+
+	// Create logging manager for the TUI model
+	logMgr := TestLogManager(t)
 
 	// Create model and test runner
-	model := tui.NewModelWithTemplates(cfg, templates)
+	model := tui.NewModelWithTemplates(cfg, templates, logMgr)
 	runner := NewTUITestRunner(t, model)
 
 	// Initialize
@@ -85,10 +88,13 @@ func testStartStopContainer(t *testing.T, runtime string) {
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
-	projectDir := TestProject(t, "default")
+	projectDir := TestProject(t, "basic")
+
+	// Create logging manager for the TUI model
+	logMgr := TestLogManager(t)
 
 	// Create model and test runner
-	model := tui.NewModelWithTemplates(cfg, templates)
+	model := tui.NewModelWithTemplates(cfg, templates, logMgr)
 	runner := NewTUITestRunner(t, model)
 
 	// Initialize
@@ -100,9 +106,9 @@ func testStartStopContainer(t *testing.T, runtime string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	c, err := runner.Model().Manager().Create(ctx, container.CreateOptions{
+	c, err := runner.Model().Manager().CreateWithCompose(ctx, container.CreateOptions{
 		ProjectPath: projectDir,
-		Template:    "default",
+		Template:    "basic",
 		Name:        containerName,
 	})
 	if err != nil {
@@ -110,7 +116,9 @@ func testStartStopContainer(t *testing.T, runtime string) {
 	}
 
 	t.Cleanup(func() {
-		CleanupContainer(t, runtime, c.ID)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		_ = runner.Model().Manager().DestroyWithCompose(cleanupCtx, c.ID)
 	})
 
 	// Refresh to see the container
@@ -169,10 +177,13 @@ func testDestroyContainer(t *testing.T, runtime string) {
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
-	projectDir := TestProject(t, "default")
+	projectDir := TestProject(t, "basic")
+
+	// Create logging manager for the TUI model
+	logMgr := TestLogManager(t)
 
 	// Create model and test runner
-	model := tui.NewModelWithTemplates(cfg, templates)
+	model := tui.NewModelWithTemplates(cfg, templates, logMgr)
 	runner := NewTUITestRunner(t, model)
 
 	// Initialize
@@ -184,9 +195,9 @@ func testDestroyContainer(t *testing.T, runtime string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	c, err := runner.Model().Manager().Create(ctx, container.CreateOptions{
+	c, err := runner.Model().Manager().CreateWithCompose(ctx, container.CreateOptions{
 		ProjectPath: projectDir,
-		Template:    "default",
+		Template:    "basic",
 		Name:        containerName,
 	})
 	if err != nil {
@@ -227,10 +238,13 @@ func testCreateTmuxSession(t *testing.T, runtime string) {
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
-	projectDir := TestProject(t, "default")
+	projectDir := TestProject(t, "basic")
+
+	// Create logging manager for the TUI model
+	logMgr := TestLogManager(t)
 
 	// Create model and test runner
-	model := tui.NewModelWithTemplates(cfg, templates)
+	model := tui.NewModelWithTemplates(cfg, templates, logMgr)
 	runner := NewTUITestRunner(t, model)
 
 	// Initialize
@@ -242,9 +256,9 @@ func testCreateTmuxSession(t *testing.T, runtime string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	c, err := runner.Model().Manager().Create(ctx, container.CreateOptions{
+	c, err := runner.Model().Manager().CreateWithCompose(ctx, container.CreateOptions{
 		ProjectPath: projectDir,
-		Template:    "default",
+		Template:    "basic",
 		Name:        containerName,
 	})
 	if err != nil {
@@ -309,10 +323,13 @@ func testKillTmuxSession(t *testing.T, runtime string) {
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
-	projectDir := TestProject(t, "default")
+	projectDir := TestProject(t, "basic")
+
+	// Create logging manager for the TUI model
+	logMgr := TestLogManager(t)
 
 	// Create model and test runner
-	model := tui.NewModelWithTemplates(cfg, templates)
+	model := tui.NewModelWithTemplates(cfg, templates, logMgr)
 	runner := NewTUITestRunner(t, model)
 
 	// Initialize
@@ -324,9 +341,9 @@ func testKillTmuxSession(t *testing.T, runtime string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	c, err := runner.Model().Manager().Create(ctx, container.CreateOptions{
+	c, err := runner.Model().Manager().CreateWithCompose(ctx, container.CreateOptions{
 		ProjectPath: projectDir,
-		Template:    "default",
+		Template:    "basic",
 		Name:        containerName,
 	})
 	if err != nil {
@@ -375,10 +392,13 @@ func testTmuxAttachCommand(t *testing.T, runtime string) {
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
-	projectDir := TestProject(t, "default")
+	projectDir := TestProject(t, "basic")
+
+	// Create logging manager for the TUI model
+	logMgr := TestLogManager(t)
 
 	// Create model and test runner
-	model := tui.NewModelWithTemplates(cfg, templates)
+	model := tui.NewModelWithTemplates(cfg, templates, logMgr)
 	runner := NewTUITestRunner(t, model)
 
 	// Initialize
@@ -390,9 +410,9 @@ func testTmuxAttachCommand(t *testing.T, runtime string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	c, err := runner.Model().Manager().Create(ctx, container.CreateOptions{
+	c, err := runner.Model().Manager().CreateWithCompose(ctx, container.CreateOptions{
 		ProjectPath: projectDir,
-		Template:    "default",
+		Template:    "basic",
 		Name:        containerName,
 	})
 	if err != nil {

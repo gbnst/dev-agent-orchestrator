@@ -4,8 +4,6 @@ package container
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -27,66 +25,6 @@ func getDataDir() string {
 		return filepath.Join(".local", "share", "devagent")
 	}
 	return filepath.Join(home, ".local", "share", "devagent")
-}
-
-// getContainerClaudeDir returns the host path for a container's .claude directory.
-// Uses a hash of the project path to create a unique directory per container.
-func getContainerClaudeDir(projectPath string) string {
-	// Use SHA256 hash of project path for uniqueness
-	hash := sha256.Sum256([]byte(projectPath))
-	hashStr := hex.EncodeToString(hash[:])[:HashTruncLen]
-	return filepath.Join(getDataDir(), "claude-configs", hashStr)
-}
-
-// ensureClaudeDir creates the host-side claude config directory for a container.
-func ensureClaudeDir(projectPath string) (string, error) {
-	dir := getContainerClaudeDir(projectPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create claude config directory: %w", err)
-	}
-	return dir, nil
-}
-
-// copyClaudeTemplateFiles copies template claude files to the container's claude config dir.
-// Files from <templatePath>/home/vscode/.claude/ are copied to claudeDir.
-// Existing files are not overwritten, preserving user modifications.
-func copyClaudeTemplateFiles(templatePath, claudeDir string) error {
-	srcDir := filepath.Join(templatePath, "home", "vscode", ".claude")
-
-	info, err := os.Stat(srcDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if !info.IsDir() {
-		return nil
-	}
-
-	return filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		relPath, err := filepath.Rel(srcDir, path)
-		if err != nil {
-			return err
-		}
-
-		destPath := filepath.Join(claudeDir, relPath)
-
-		if d.IsDir() {
-			return os.MkdirAll(destPath, 0755)
-		}
-
-		// Skip existing files to preserve user modifications
-		if _, err := os.Stat(destPath); err == nil {
-			return nil
-		}
-
-		return copyFile(path, destPath)
-	})
 }
 
 // getClaudeConfigDir returns the XDG-compliant Claude config directory.
@@ -228,15 +166,6 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 	// ignores dockerComposeFile when build is present in devcontainer.json.
 	copyDockerfile := "Dockerfile"
 
-	// Ensure claude config dir exists and seed with template files
-	claudeDir, err := ensureClaudeDir(opts.ProjectPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := copyClaudeTemplateFiles(tmpl.Path, claudeDir); err != nil {
-		return nil, fmt.Errorf("failed to copy claude template files: %w", err)
-	}
-
 	return g.generateFromTemplate(tmpl, opts, copyDockerfile)
 }
 
@@ -251,14 +180,13 @@ func (g *DevcontainerGenerator) generateFromTemplate(tmpl *config.Template, opts
 		ProjectPath:        opts.ProjectPath,
 		ProjectName:        projectName,
 		WorkspaceFolder:    fmt.Sprintf("/workspaces/%s", projectName),
-		ClaudeConfigDir:    getContainerClaudeDir(opts.ProjectPath),
 		TemplateName:       tmpl.Name,
 		ContainerName:      opts.Name,
 		CertInstallCommand: certInstallCommand,
 		ProxyImage:         "mitmproxy/mitmproxy:latest",
 		ProxyPort:          "8080",
 		RemoteUser:         DefaultRemoteUser,
-		ProxyLogPath:       "/var/log/proxy/requests.jsonl",
+		ProxyLogPath:       "/opt/devagent-proxy/logs/requests.jsonl",
 	}
 
 	// Process the template
@@ -312,6 +240,28 @@ func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *Gener
 		}
 	}
 
+	// Copy proxy directory if it exists (for filter.py volume mount)
+	if result.TemplatePath != "" {
+		srcProxy := filepath.Join(result.TemplatePath, "proxy")
+		if info, err := os.Stat(srcProxy); err == nil && info.IsDir() {
+			dstProxy := filepath.Join(devcontainerDir, "proxy")
+			if err := copyDir(srcProxy, dstProxy); err != nil {
+				return fmt.Errorf("failed to copy proxy directory: %w", err)
+			}
+		}
+	}
+
+	// Copy .gitignore if it exists
+	if result.TemplatePath != "" {
+		srcGitignore := filepath.Join(result.TemplatePath, ".gitignore")
+		if _, err := os.Stat(srcGitignore); err == nil {
+			dstGitignore := filepath.Join(devcontainerDir, ".gitignore")
+			if err := copyFile(srcGitignore, dstGitignore); err != nil {
+				return fmt.Errorf("failed to copy .gitignore: %w", err)
+			}
+		}
+	}
+
 	jsonPath := filepath.Join(devcontainerDir, "devcontainer.json")
 
 	if result.DevcontainerTemplate == "" {
@@ -321,48 +271,24 @@ func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *Gener
 	return os.WriteFile(jsonPath, []byte(result.DevcontainerTemplate), 0644)
 }
 
-// WriteComposeFiles writes docker-compose.yml, Dockerfile.proxy, and filter.py
-// to the project's .devcontainer directory alongside the devcontainer.json.
+// WriteComposeFiles writes docker-compose.yml to the project's .devcontainer
+// directory and creates the proxy/logs/ directory for runtime proxy logs.
 func (g *DevcontainerGenerator) WriteComposeFiles(projectPath string, composeResult *ComposeResult) error {
 	devcontainerDir := filepath.Join(projectPath, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
 		return fmt.Errorf("failed to create .devcontainer directory: %w", err)
 	}
 
-	// Create proxy-logs directory for JSONL request logging
-	proxyLogsDir := filepath.Join(devcontainerDir, "proxy-logs")
+	// Create proxy/logs directory for JSONL request logging
+	proxyLogsDir := filepath.Join(devcontainerDir, "proxy", "logs")
 	if err := os.MkdirAll(proxyLogsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create proxy-logs directory: %w", err)
-	}
-
-	// Write .gitignore for runtime data (only if it doesn't exist)
-	gitignorePath := filepath.Join(devcontainerDir, ".gitignore")
-	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
-		gitignoreContent := `# Runtime data - do not commit
-proxy-logs/
-*.jsonl
-`
-		if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
-			return fmt.Errorf("failed to write .gitignore: %w", err)
-		}
+		return fmt.Errorf("failed to create proxy/logs directory: %w", err)
 	}
 
 	// Write docker-compose.yml
 	composePath := filepath.Join(devcontainerDir, "docker-compose.yml")
 	if err := os.WriteFile(composePath, []byte(composeResult.ComposeYAML), 0644); err != nil {
 		return fmt.Errorf("failed to write docker-compose.yml: %w", err)
-	}
-
-	// Write Dockerfile.proxy
-	dockerfileProxyPath := filepath.Join(devcontainerDir, "Dockerfile.proxy")
-	if err := os.WriteFile(dockerfileProxyPath, []byte(composeResult.DockerfileProxy), 0644); err != nil {
-		return fmt.Errorf("failed to write Dockerfile.proxy: %w", err)
-	}
-
-	// Write filter.py
-	filterPath := filepath.Join(devcontainerDir, "filter.py")
-	if err := os.WriteFile(filterPath, []byte(composeResult.FilterScript), 0644); err != nil {
-		return fmt.Errorf("failed to write filter.py: %w", err)
 	}
 
 	return nil

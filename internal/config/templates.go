@@ -10,7 +10,7 @@ import (
 // Template represents a loaded devcontainer template.
 // Templates are discovered by scanning directories for docker-compose.yml.tmpl marker files.
 // All orchestration config (capabilities, resources, network allowlists) is hardcoded
-// directly in template files (docker-compose.yml.tmpl, filter.py.tmpl, devcontainer.json.tmpl).
+// directly in template files (docker-compose.yml.tmpl, proxy/filter.py, devcontainer.json.tmpl).
 type Template struct {
 	Name string // Template name (from directory name)
 	Path string // Absolute path to template directory

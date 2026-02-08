@@ -18,9 +18,7 @@ const certInstallCommand = "timeout=30; while [ ! -f /tmp/mitmproxy-certs/mitmpr
 
 // ComposeResult holds the generated compose configuration files.
 type ComposeResult struct {
-	ComposeYAML     string // docker-compose.yml content
-	DockerfileProxy string // Dockerfile.proxy content
-	FilterScript    string // filter.py content
+	ComposeYAML string // docker-compose.yml content
 }
 
 // TemplateData holds all values for template placeholder substitution.
@@ -30,7 +28,6 @@ type TemplateData struct {
 	ProjectPath        string // Absolute path to project
 	ProjectName        string // Base name of project directory
 	WorkspaceFolder    string // /workspaces/{{.ProjectName}}
-	ClaudeConfigDir    string // Host path for persistent .claude directory
 	ClaudeTokenPath    string // Host path to Claude OAuth token file (absolute)
 	TemplateName       string // Template name (e.g., "basic")
 	ContainerName      string // Container name for devcontainer.json
@@ -38,7 +35,7 @@ type TemplateData struct {
 	ProxyImage         string // Docker image for mitmproxy sidecar (default: mitmproxy/mitmproxy:latest)
 	ProxyPort          string // Port mitmproxy listens on (default: 8080)
 	RemoteUser         string // User for devcontainer exec commands (default: vscode)
-	ProxyLogPath       string // Container path for proxy request logs (default: /var/log/proxy/requests.jsonl)
+	ProxyLogPath       string // Container path for proxy request logs (default: /opt/devagent-proxy/logs/requests.jsonl)
 }
 
 // ComposeGenerator creates docker-compose.yml and related files for container orchestration.
@@ -72,8 +69,8 @@ type ComposeOptions struct {
 	Name        string // Container name (used for compose service naming)
 }
 
-// Generate creates docker-compose.yml, Dockerfile.proxy, and filter.py content.
-// Returns ComposeResult with all generated file contents.
+// Generate creates docker-compose.yml content.
+// Returns ComposeResult with generated compose configuration.
 func (g *ComposeGenerator) Generate(opts ComposeOptions) (*ComposeResult, error) {
 	// Find template
 	tmpl := g.GetTemplate(opts.Template)
@@ -90,22 +87,8 @@ func (g *ComposeGenerator) Generate(opts ComposeOptions) (*ComposeResult, error)
 		return nil, fmt.Errorf("failed to process docker-compose.yml.tmpl: %w", err)
 	}
 
-	// Load Dockerfile.proxy from template (static file)
-	dockerfileProxy, err := g.loadDockerfileProxy(tmpl.Path, data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load Dockerfile.proxy: %w", err)
-	}
-
-	// Process filter.py.tmpl (currently static, but processed for consistency)
-	filterScript, err := g.processFilterTemplate(tmpl.Path, data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process filter.py.tmpl: %w", err)
-	}
-
 	return &ComposeResult{
-		ComposeYAML:     composeYAML,
-		DockerfileProxy: dockerfileProxy,
-		FilterScript:    filterScript,
+		ComposeYAML: composeYAML,
 	}, nil
 }
 
@@ -126,7 +109,6 @@ func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.T
 		ProjectPath:        opts.ProjectPath,
 		ProjectName:        projectName,
 		WorkspaceFolder:    fmt.Sprintf("/workspaces/%s", projectName),
-		ClaudeConfigDir:    getContainerClaudeDir(opts.ProjectPath),
 		ClaudeTokenPath:    tokenPath,
 		TemplateName:       tmpl.Name,
 		ContainerName:      opts.Name,
@@ -134,7 +116,7 @@ func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.T
 		ProxyImage:         "mitmproxy/mitmproxy:latest",
 		ProxyPort:          "8080",
 		RemoteUser:         DefaultRemoteUser, // "vscode" — config-driven override is out of scope for this phase
-		ProxyLogPath:       "/var/log/proxy/requests.jsonl",
+		ProxyLogPath:       "/opt/devagent-proxy/logs/requests.jsonl",
 	}
 }
 
@@ -142,42 +124,6 @@ func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.T
 func (g *ComposeGenerator) processComposeTemplate(templatePath string, data TemplateData) (string, error) {
 	tmplFile := filepath.Join(templatePath, "docker-compose.yml.tmpl")
 	return processTemplate(tmplFile, data)
-}
-
-// processFilterTemplate processes filter.py.tmpl with the given data.
-func (g *ComposeGenerator) processFilterTemplate(templatePath string, data TemplateData) (string, error) {
-	tmplFile := filepath.Join(templatePath, "filter.py.tmpl")
-	return processTemplate(tmplFile, data)
-}
-
-// loadDockerfileProxy loads the static Dockerfile.proxy from the template directory.
-func (g *ComposeGenerator) loadDockerfileProxy(templatePath string, data TemplateData) (string, error) {
-	dockerfilePath := filepath.Join(templatePath, "Dockerfile.proxy")
-	content, err := os.ReadFile(dockerfilePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Fallback to generated content for backward compatibility
-			return generateDockerfileProxy(data), nil
-		}
-		return "", err
-	}
-	return string(content), nil
-}
-
-// generateDockerfileProxy creates the Dockerfile for the mitmproxy sidecar.
-// Used as fallback when template doesn't have Dockerfile.proxy.
-// NOTE: Do NOT set USER mitmproxy in this Dockerfile. The mitmproxy base image
-// has an entrypoint script that runs usermod and gosu (both require root) before
-// switching to the mitmproxy user. Setting USER breaks the entrypoint.
-func generateDockerfileProxy(data TemplateData) string {
-	return fmt.Sprintf(`FROM %s
-
-# Copy filter script into container
-COPY filter.py /home/mitmproxy/filter.py
-
-# Expose proxy port
-EXPOSE %s
-`, data.ProxyImage, data.ProxyPort)
 }
 
 // processTemplate reads a template file and processes it with the given data.
