@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/config"
+	"devagent/internal/logging"
 	"devagent/internal/tui"
 )
 
@@ -95,6 +96,32 @@ func findProjectRoot() string {
 		}
 		dir = parent
 	}
+}
+
+// TestLogManager creates a logging manager for E2E tests with automatic cleanup.
+// The manager is configured with a temporary log file and will be automatically closed
+// via t.Cleanup when the test finishes.
+func TestLogManager(t *testing.T) *logging.Manager {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	logPath := tmpDir + "/test.log"
+	logMgr, err := logging.NewManager(logging.Config{
+		FilePath:       logPath,
+		MaxSizeMB:      1,
+		MaxBackups:     1,
+		MaxAgeDays:     1,
+		ChannelBufSize: 100,
+		Level:          "debug",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create logging manager: %v", err)
+	}
+	t.Cleanup(func() {
+		logMgr.Close()
+	})
+
+	return logMgr
 }
 
 // CleanupContainer removes a container after test.

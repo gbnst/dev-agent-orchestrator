@@ -32,15 +32,18 @@ func testCreateWithCompose(t *testing.T, runtime string) {
 	// Create a temporary project directory
 	projectDir := TestProject(t, "basic")
 
+	// Create logging manager for the container manager
+	logMgr := TestLogManager(t)
+
 	// Create manager
-	mgr := container.NewManager(cfg, templates)
+	mgr := container.NewManagerWithConfigAndLogger(cfg, templates, logMgr)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	opts := container.CreateOptions{
 		ProjectPath: projectDir,
-		Template:    "default",
+		Template:    "basic",
 		Name:        "test-compose-container",
 	}
 
@@ -50,14 +53,11 @@ func testCreateWithCompose(t *testing.T, runtime string) {
 		t.Fatalf("CreateWithCompose failed: %v", err)
 	}
 
-	// Cleanup - use standard Destroy which works for compose containers too
-	// DestroyWithCompose is added in Phase 6; until then, standard Destroy works
+	// Cleanup - use DestroyWithCompose since we created with CreateWithCompose
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		// Standard Destroy will remove the container; compose down would be cleaner
-		// but isn't available yet in Phase 5
-		_ = mgr.Destroy(cleanupCtx, c.ID)
+		_ = mgr.DestroyWithCompose(cleanupCtx, c.ID)
 	})
 
 	// Verify container was created
@@ -77,14 +77,9 @@ func testCreateWithCompose(t *testing.T, runtime string) {
 		t.Error("docker-compose.yml was not created")
 	}
 
-	dockerfileProxy := filepath.Join(projectDir, ".devcontainer", "Dockerfile.proxy")
-	if _, err := os.Stat(dockerfileProxy); os.IsNotExist(err) {
-		t.Error("Dockerfile.proxy was not created")
-	}
-
-	filterPy := filepath.Join(projectDir, ".devcontainer", "filter.py")
+	filterPy := filepath.Join(projectDir, ".devcontainer", "proxy", "filter.py")
 	if _, err := os.Stat(filterPy); os.IsNotExist(err) {
-		t.Error("filter.py was not created")
+		t.Error("proxy/filter.py was not created")
 	}
 
 	devcontainerJson := filepath.Join(projectDir, ".devcontainer", "devcontainer.json")
@@ -136,7 +131,10 @@ func testCreateWithComposeTemplate(t *testing.T, runtime, templateName string) {
 
 	projectDir := TestProject(t, templateName)
 
-	mgr := container.NewManager(cfg, templates)
+	// Create logging manager for the container manager
+	logMgr := TestLogManager(t)
+
+	mgr := container.NewManagerWithConfigAndLogger(cfg, templates, logMgr)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -180,9 +178,9 @@ func testCreateWithComposeTemplate(t *testing.T, runtime, templateName string) {
 	}
 
 	// Verify filter script exists (proxy sidecar configuration)
-	filterPy := filepath.Join(projectDir, ".devcontainer", "filter.py")
+	filterPy := filepath.Join(projectDir, ".devcontainer", "proxy", "filter.py")
 	if _, err := os.Stat(filterPy); os.IsNotExist(err) {
-		t.Error("filter.py was not created")
+		t.Error("proxy/filter.py was not created")
 	}
 }
 
@@ -203,14 +201,17 @@ func testComposeLifecycle(t *testing.T, runtime string) {
 
 	projectDir := TestProject(t, "basic")
 
-	mgr := container.NewManager(cfg, templates)
+	// Create logging manager for the container manager
+	logMgr := TestLogManager(t)
+
+	mgr := container.NewManagerWithConfigAndLogger(cfg, templates, logMgr)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	opts := container.CreateOptions{
 		ProjectPath: projectDir,
-		Template:    "default",
+		Template:    "basic",
 		Name:        "test-lifecycle-compose",
 	}
 

@@ -2,8 +2,6 @@ package container
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -177,27 +175,41 @@ func TestManager_GetSidecarsForProject(t *testing.T) {
 	mock := &mockRuntime{}
 	mgr := NewManagerWithRuntime(mock)
 
-	// Calculate hashes for test projects
-	project1Hash := calculateHash("/project/1")
-	project2Hash := calculateHash("/project/2")
+	// Add test containers with compose project labels
+	mgr.containers["app-1"] = &Container{
+		ID:          "app-1",
+		Name:        "project1-app-1",
+		ProjectPath: "/project/1",
+		Labels: map[string]string{
+			LabelComposeProject: "project1",
+		},
+	}
+	mgr.containers["app-2"] = &Container{
+		ID:          "app-2",
+		Name:        "project2-app-1",
+		ProjectPath: "/project/2",
+		Labels: map[string]string{
+			LabelComposeProject: "project2",
+		},
+	}
 
-	// Add test sidecars
+	// Add test sidecars keyed by compose project name
 	mgr.sidecars["sidecar-1"] = &Sidecar{
 		ID:        "sidecar-1",
 		Type:      "proxy",
-		ParentRef: project1Hash,
+		ParentRef: "project1",
 		State:     StateRunning,
 	}
 	mgr.sidecars["sidecar-2"] = &Sidecar{
 		ID:        "sidecar-2",
 		Type:      "proxy",
-		ParentRef: project2Hash,
+		ParentRef: "project2",
 		State:     StateRunning,
 	}
 	mgr.sidecars["sidecar-3"] = &Sidecar{
 		ID:        "sidecar-3",
 		Type:      "other",
-		ParentRef: project1Hash,
+		ParentRef: "project1",
 		State:     StateStopped,
 	}
 
@@ -228,25 +240,26 @@ func TestManager_RefreshSidecars(t *testing.T) {
 	allContainers := []Container{
 		{
 			ID:    "devcontainer-1",
-			Name:  "devcontainer-1",
+			Name:  "myproject-app-1",
 			State: StateRunning,
 			Labels: map[string]string{
-				LabelManagedBy: "true",
+				LabelManagedBy:      "true",
+				LabelComposeProject: "myproject",
 			},
 		},
 		{
 			ID:    "proxy-sidecar-1",
-			Name:  "devagent-abc123-proxy",
+			Name:  "myproject-proxy-1",
 			State: StateRunning,
 			Labels: map[string]string{
-				LabelManagedBy:   "true",
-				LabelSidecarOf:   "abc123", // Project hash, not container ID
-				LabelSidecarType: "proxy",
+				LabelManagedBy:      "true",
+				LabelSidecarType:    "proxy",
+				LabelComposeProject: "myproject",
 			},
 		},
 	}
 
-	mgr.refreshSidecars(context.Background(), allContainers)
+	mgr.refreshSidecars(allContainers)
 
 	// Verify sidecar was discovered
 	if len(mgr.sidecars) != 1 {
@@ -258,21 +271,12 @@ func TestManager_RefreshSidecars(t *testing.T) {
 		t.Fatal("sidecar not found in map")
 	}
 
-	if sidecar.ParentRef != "abc123" {
-		t.Errorf("sidecar.ParentRef = %q, want %q", sidecar.ParentRef, "abc123")
+	if sidecar.ParentRef != "myproject" {
+		t.Errorf("sidecar.ParentRef = %q, want %q", sidecar.ParentRef, "myproject")
 	}
 	if sidecar.Type != "proxy" {
 		t.Errorf("sidecar.Type = %q, want %q", sidecar.Type, "proxy")
 	}
-	if sidecar.NetworkName != "devagent-abc123-net" {
-		t.Errorf("sidecar.NetworkName = %q, want %q", sidecar.NetworkName, "devagent-abc123-net")
-	}
-}
-
-// Helper function to calculate hash like manager does
-func calculateHash(projectPath string) string {
-	hash := sha256.Sum256([]byte(projectPath))
-	return hex.EncodeToString(hash[:])[:HashTruncLen]
 }
 
 func TestComposeGenerator_GeneratesAndWritesFiles(t *testing.T) {
@@ -302,7 +306,6 @@ func TestComposeGenerator_GeneratesAndWritesFiles(t *testing.T) {
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: devagent-{{.ProjectHash}}-app
     depends_on:
       proxy:
         condition: service_started
@@ -317,97 +320,24 @@ func TestComposeGenerator_GeneratesAndWritesFiles(t *testing.T) {
     command: sleep infinity
 
   proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile.proxy
-    container_name: devagent-{{.ProjectHash}}-proxy
+    image: mitmproxy/mitmproxy:latest
     networks:
       - isolated
     volumes:
       - proxy-certs:/home/mitmproxy/.mitmproxy
-    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/home/mitmproxy/filter.py"]
+    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/opt/devagent-proxy/filter.py"]
     labels:
       devagent.managed: "true"
+      devagent.sidecar_type: "proxy"
 
 networks:
   isolated:
-    name: devagent-{{.ProjectHash}}-net
 
 volumes:
   proxy-certs:
 `
 	if err := os.WriteFile(filepath.Join(templateDir, "docker-compose.yml.tmpl"), []byte(composeContent), 0644); err != nil {
 		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
-	}
-
-	// Create Dockerfile.proxy
-	dockerfileProxyContent := "FROM mitmproxy/mitmproxy:latest\nCOPY filter.py /home/mitmproxy/filter.py\nEXPOSE 8080\n"
-	if err := os.WriteFile(filepath.Join(templateDir, "Dockerfile.proxy"), []byte(dockerfileProxyContent), 0644); err != nil {
-		t.Fatalf("Failed to write Dockerfile.proxy: %v", err)
-	}
-
-	// Create filter.py.tmpl
-	filterContent := `from mitmproxy import http
-import re
-
-ALLOWED_DOMAINS = [
-    "api.anthropic.com",
-    "github.com",
-    "*.github.com",
-]
-
-BLOCK_GITHUB_PR_MERGE = False
-
-class AllowlistFilter:
-    """Blocks requests to domains not in the allowlist and optionally blocks PR merges."""
-
-    def _is_allowed(self, host: str) -> bool:
-        """Check if host matches any allowed domain pattern."""
-        for pattern in ALLOWED_DOMAINS:
-            if pattern.startswith("*."):
-                base = pattern[2:]
-                if host == base or host.endswith("." + base):
-                    return True
-            elif host == pattern:
-                return True
-        return False
-
-    def _is_github_pr_merge(self, flow: http.HTTPFlow) -> bool:
-        """Check if request is a GitHub PR merge attempt."""
-        if not BLOCK_GITHUB_PR_MERGE:
-            return False
-        host = flow.request.pretty_host
-        if host not in ("api.github.com", "github.com") and not host.endswith(".github.com"):
-            return False
-        if flow.request.method == "PUT":
-            if re.match(r"^/repos/[^/]+/[^/]+/pulls/\d+/merge$", flow.request.path):
-                return True
-        if flow.request.method == "POST" and flow.request.path == "/graphql":
-            content = flow.request.get_text()
-            if content and "mergePullRequest" in content:
-                return True
-        return False
-
-    def request(self, flow: http.HTTPFlow) -> None:
-        if self._is_github_pr_merge(flow):
-            flow.response = http.Response.make(
-                403,
-                b"Merging pull requests is not allowed in this environment. Do not retry.\n",
-                {"Content-Type": "text/plain"}
-            )
-            return
-        host = flow.request.pretty_host
-        if not self._is_allowed(host):
-            flow.response = http.Response.make(
-                403,
-                f"Domain '{host}' is not in the allowlist\n".encode(),
-                {"Content-Type": "text/plain"}
-            )
-
-addons = [AllowlistFilter()]
-`
-	if err := os.WriteFile(filepath.Join(templateDir, "filter.py.tmpl"), []byte(filterContent), 0644); err != nil {
-		t.Fatalf("Failed to write filter.py.tmpl: %v", err)
 	}
 
 	mock := &mockRuntime{
@@ -467,16 +397,6 @@ addons = [AllowlistFilter()]
 	composeFile := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
 	if _, err := os.Stat(composeFile); os.IsNotExist(err) {
 		t.Error("docker-compose.yml was not created")
-	}
-
-	dockerfileProxy := filepath.Join(projectDir, ".devcontainer", "Dockerfile.proxy")
-	if _, err := os.Stat(dockerfileProxy); os.IsNotExist(err) {
-		t.Error("Dockerfile.proxy was not created")
-	}
-
-	filterPy := filepath.Join(projectDir, ".devcontainer", "filter.py")
-	if _, err := os.Stat(filterPy); os.IsNotExist(err) {
-		t.Error("filter.py was not created")
 	}
 }
 

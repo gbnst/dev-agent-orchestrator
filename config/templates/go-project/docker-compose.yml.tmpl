@@ -3,17 +3,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: devagent-{{.ProjectHash}}-app
     depends_on:
       proxy:
         condition: service_started
     networks:
       - isolated
     environment:
-      - http_proxy=http://devagent-{{.ProjectHash}}-proxy:{{.ProxyPort}}
-      - https_proxy=http://devagent-{{.ProjectHash}}-proxy:{{.ProxyPort}}
-      - HTTP_PROXY=http://devagent-{{.ProjectHash}}-proxy:{{.ProxyPort}}
-      - HTTPS_PROXY=http://devagent-{{.ProjectHash}}-proxy:{{.ProxyPort}}
+      - http_proxy=http://proxy:{{.ProxyPort}}
+      - https_proxy=http://proxy:{{.ProxyPort}}
+      - HTTP_PROXY=http://proxy:{{.ProxyPort}}
+      - HTTPS_PROXY=http://proxy:{{.ProxyPort}}
       - no_proxy=localhost,127.0.0.1
       - NO_PROXY=localhost,127.0.0.1
       - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
@@ -23,7 +22,7 @@ services:
     volumes:
       - {{.ProjectPath}}:{{.WorkspaceFolder}}:cached
       - proxy-certs:/tmp/mitmproxy-certs:ro
-      - {{.ClaudeConfigDir}}:/home/vscode/.claude:cached
+      - {{.ProjectPath}}/.devcontainer/home/vscode:/home/vscode:cached
       - {{.ClaudeTokenPath}}:/run/secrets/claude-token:ro
     cap_drop:
       - NET_RAW
@@ -46,24 +45,19 @@ services:
     command: sleep infinity
 
   proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile.proxy
-    container_name: devagent-{{.ProjectHash}}-proxy
+    image: mitmproxy/mitmproxy:latest
     networks:
       - isolated
     volumes:
       - proxy-certs:/home/mitmproxy/.mitmproxy
-      - {{.ProjectPath}}/.devcontainer/proxy-logs:/var/log/proxy
-    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "{{.ProxyPort}}", "-s", "/home/mitmproxy/filter.py"]
+      - {{.ProjectPath}}/.devcontainer/proxy:/opt/devagent-proxy
+    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "{{.ProxyPort}}", "-s", "/opt/devagent-proxy/filter.py"]
     labels:
       devagent.managed: "true"
-      devagent.sidecar_of: "{{.ProjectHash}}"
       devagent.sidecar_type: "proxy"
 
 networks:
   isolated:
-    name: devagent-{{.ProjectHash}}-net
 
 volumes:
   proxy-certs:

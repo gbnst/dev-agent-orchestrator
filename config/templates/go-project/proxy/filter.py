@@ -63,7 +63,7 @@ def _get_domain_config(host: str) -> dict | None:
 
 
 # Log file path
-LOG_FILE_PATH = "/var/log/proxy/requests.jsonl"
+LOG_FILE_PATH = "/opt/devagent-proxy/logs/requests.jsonl"
 
 
 # Block GitHub PR merge API calls.

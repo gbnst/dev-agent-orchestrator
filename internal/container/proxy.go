@@ -17,20 +17,6 @@ func projectHash(projectPath string) string {
 	return hex.EncodeToString(hash[:])[:HashTruncLen]
 }
 
-// GetProxyConfigDir returns the directory for proxy configuration files.
-// Creates the directory if it doesn't exist.
-// Uses a hash of the project path for uniqueness.
-func GetProxyConfigDir(projectPath string) (string, error) {
-	hashStr := projectHash(projectPath)
-	configDir := filepath.Join(getDataDir(), "proxy-configs", hashStr)
-
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create proxy config directory: %w", err)
-	}
-
-	return configDir, nil
-}
-
 // GetProxyCertDir returns the directory for proxy certificate files.
 // Creates the directory if it doesn't exist.
 // Uses a hash of the project path for uniqueness.
@@ -74,12 +60,7 @@ func ProxyCertExists(projectPath string) (bool, error) {
 // ReadAllowlistFromFilterScript reads the allowlist domains from an existing filter script.
 // Returns nil if the file doesn't exist or can't be parsed.
 func ReadAllowlistFromFilterScript(projectPath string) ([]string, error) {
-	configDir, err := GetProxyConfigDir(projectPath)
-	if err != nil {
-		return nil, err
-	}
-
-	scriptPath := filepath.Join(configDir, "filter.py")
+	scriptPath := filepath.Join(projectPath, ".devcontainer", "proxy", "filter.py")
 	content, err := os.ReadFile(scriptPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -133,12 +114,6 @@ func parseAllowlistFromScript(content string) []string {
 // Called when a container is destroyed to clean up associated resources.
 func CleanupProxyConfigs(projectPath string) error {
 	hashStr := projectHash(projectPath)
-
-	// Remove proxy-configs directory
-	configDir := filepath.Join(getDataDir(), "proxy-configs", hashStr)
-	if err := os.RemoveAll(configDir); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove proxy config directory: %w", err)
-	}
 
 	// Remove proxy-certs directory
 	certDir := filepath.Join(getDataDir(), "proxy-certs", hashStr)
