@@ -1,9 +1,13 @@
 FROM mcr.microsoft.com/devcontainers/go:1.25
 
+# Match container vscode user to host uid so bind mounts are read/write
+ARG HOST_UID=501
+RUN usermod -u ${HOST_UID} vscode
+
 # Install Claude Code and make it available system-wide.
-# The installer places the binary in ~/.claude/bin/ which gets shadowed
-# by the /home/vscode volume mount at runtime, so copy it to /usr/local/bin/.
+# Copy to /usr/local/bin/ so it's available regardless of home directory mount configuration.
 USER vscode
 RUN curl -fsSL https://claude.ai/install.sh | bash
 USER root
-RUN cp /home/vscode/.claude/bin/claude /usr/local/bin/claude
+RUN cp /home/vscode/.local/bin/claude /usr/local/bin/claude
+USER vscode

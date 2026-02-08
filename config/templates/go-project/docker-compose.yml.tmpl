@@ -22,7 +22,11 @@ services:
     volumes:
       - {{.ProjectPath}}:{{.WorkspaceFolder}}:cached
       - proxy-certs:/tmp/mitmproxy-certs:ro
-      - {{.ProjectPath}}/.devcontainer/home/vscode:/home/vscode:cached
+      # Persistent dotfiles (from template seed files)
+      - {{.ProjectPath}}/.devcontainer/home/vscode/.bashrc:/home/vscode/.bashrc:cached
+      - {{.ProjectPath}}/.devcontainer/home/vscode/.zshrc:/home/vscode/.zshrc:cached
+      - {{.ProjectPath}}/.devcontainer/home/vscode/.tmux.conf:/home/vscode/.tmux.conf:cached
+      - {{.ProjectPath}}/.devcontainer/home/vscode/.claude:/home/vscode/.claude:cached
       - {{.ClaudeTokenPath}}:/run/secrets/claude-token:ro
     cap_drop:
       - NET_RAW

@@ -227,7 +227,7 @@ func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *Gener
 		}
 	}
 
-	// Copy home directory if it exists (for Dockerfile COPY)
+	// Copy home directory seed files if they exist (mounted as individual files at runtime)
 	if result.TemplatePath != "" {
 		srcHome := filepath.Join(result.TemplatePath, "home")
 		if info, err := os.Stat(srcHome); err == nil && info.IsDir() {

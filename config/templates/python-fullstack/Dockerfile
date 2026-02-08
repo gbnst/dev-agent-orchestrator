@@ -1,7 +1,18 @@
-FROM mcr.microsoft.com/devcontainers/base:ubuntu
+FROM mcr.microsoft.com/devcontainers/python:3.12-bookworm
+
+# Install Node.js 22 LTS
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv package manager
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Install tmux for terminal session management
-RUN apt-get update && apt-get install -y tmux && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    make \
+    tmux \
+    && rm -rf /var/lib/apt/lists/*
 
 # Match container vscode user to host uid so bind mounts are read/write
 ARG HOST_UID=501
