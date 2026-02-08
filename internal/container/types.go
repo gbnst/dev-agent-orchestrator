@@ -59,14 +59,12 @@ func (c *Container) SessionCount() int {
 }
 
 // Sidecar represents an auxiliary container that provides services to a devcontainer.
-// Note: ParentRef uses project path hash (not container ID) because the sidecar is created
-// before the devcontainer exists. This allows matching sidecars to containers via labels.
+// ParentRef contains the compose project name, which groups the app and sidecar containers.
 type Sidecar struct {
-	ID          string // Container ID
-	Type        string // Sidecar type (e.g., "proxy")
-	ParentRef   string // Project path hash (12 chars) linking sidecar to devcontainer
-	NetworkName string // Docker network connecting sidecar and devcontainer
-	State       ContainerState
+	ID        string         // Container ID
+	Type      string         // Sidecar type (e.g., "proxy")
+	ParentRef string         // Compose project name linking sidecar to devcontainer
+	State     ContainerState
 }
 
 // BuildConfig represents the build section of a devcontainer.json.
@@ -124,7 +122,6 @@ const (
 
 // Sidecar label constants
 const (
-	LabelSidecarOf   = "devagent.sidecar_of"   // Project path hash this sidecar belongs to
 	LabelSidecarType = "devagent.sidecar_type" // Type of sidecar (e.g., "proxy")
 )
 

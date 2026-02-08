@@ -22,23 +22,22 @@ func createTestTemplateDir(t *testing.T, name string) string {
 		t.Fatalf("Failed to create template directory: %v", err)
 	}
 
-	// Create docker-compose.yml.tmpl (matches new template structure)
+	// Create docker-compose.yml.tmpl (matches new template structure — no container_name, uses service name for proxy)
 	composeContent := `services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: devagent-{{.ProjectHash}}-app
     depends_on:
       proxy:
         condition: service_started
     networks:
       - isolated
     environment:
-      - http_proxy=http://devagent-{{.ProjectHash}}-proxy:8080
-      - https_proxy=http://devagent-{{.ProjectHash}}-proxy:8080
-      - HTTP_PROXY=http://devagent-{{.ProjectHash}}-proxy:8080
-      - HTTPS_PROXY=http://devagent-{{.ProjectHash}}-proxy:8080
+      - http_proxy=http://proxy:8080
+      - https_proxy=http://proxy:8080
+      - HTTP_PROXY=http://proxy:8080
+      - HTTPS_PROXY=http://proxy:8080
       - no_proxy=localhost,127.0.0.1
       - NO_PROXY=localhost,127.0.0.1
       - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
@@ -64,7 +63,6 @@ func createTestTemplateDir(t *testing.T, name string) string {
 
   proxy:
     image: mitmproxy/mitmproxy:latest
-    container_name: devagent-{{.ProjectHash}}-proxy
     networks:
       - isolated
     volumes:
@@ -73,12 +71,10 @@ func createTestTemplateDir(t *testing.T, name string) string {
     command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/opt/devagent-proxy/filter.py"]
     labels:
       devagent.managed: "true"
-      devagent.sidecar_of: "{{.ProjectHash}}"
       devagent.sidecar_type: "proxy"
 
 networks:
   isolated:
-    name: devagent-{{.ProjectHash}}-net
 
 volumes:
   proxy-certs:
@@ -157,7 +153,7 @@ func TestComposeGenerator_Generate_BasicTemplate(t *testing.T) {
 	}
 }
 
-func TestComposeGenerator_Generate_ContainerNaming(t *testing.T) {
+func TestComposeGenerator_Generate_NoHardcodedContainerNames(t *testing.T) {
 	templateDir := createTestTemplateDir(t, "basic")
 
 	templates := []config.Template{
@@ -176,20 +172,14 @@ func TestComposeGenerator_Generate_ContainerNaming(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	expectedHash := projectHash("/home/user/myproject")
-
-	expectedAppName := "devagent-" + expectedHash + "-app"
-	expectedProxyName := "devagent-" + expectedHash + "-proxy"
-	expectedNetworkName := "devagent-" + expectedHash + "-net"
-
-	if !strings.Contains(result.ComposeYAML, expectedAppName) {
-		t.Errorf("ComposeYAML missing expected app container name: %s", expectedAppName)
+	// Verify no hardcoded container_name directives
+	if strings.Contains(result.ComposeYAML, "container_name:") {
+		t.Error("ComposeYAML should not contain hardcoded container_name directives")
 	}
-	if !strings.Contains(result.ComposeYAML, expectedProxyName) {
-		t.Errorf("ComposeYAML missing expected proxy container name: %s", expectedProxyName)
-	}
-	if !strings.Contains(result.ComposeYAML, expectedNetworkName) {
-		t.Errorf("ComposeYAML missing expected network name: %s", expectedNetworkName)
+
+	// Verify proxy hostname uses compose service name, not hash-based name
+	if !strings.Contains(result.ComposeYAML, "http_proxy=http://proxy:") {
+		t.Error("Proxy hostname should use compose service name 'proxy'")
 	}
 }
 
@@ -248,8 +238,8 @@ func TestComposeGenerator_Generate_Labels(t *testing.T) {
 	if !strings.Contains(result.ComposeYAML, LabelTemplate+": \"go-project\"") {
 		t.Error("ComposeYAML missing devagent.template label")
 	}
-	if !strings.Contains(result.ComposeYAML, LabelSidecarOf) {
-		t.Error("ComposeYAML missing devagent.sidecar_of label")
+	if !strings.Contains(result.ComposeYAML, LabelSidecarType) {
+		t.Error("ComposeYAML missing devagent.sidecar_type label")
 	}
 }
 

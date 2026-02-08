@@ -24,7 +24,6 @@ type ComposeResult struct {
 // TemplateData holds all values for template placeholder substitution.
 // Only instance-specific values are substituted - everything else is hardcoded in templates.
 type TemplateData struct {
-	ProjectHash        string // 12-char SHA256 of project path
 	ProjectPath        string // Absolute path to project
 	ProjectName        string // Base name of project directory
 	WorkspaceFolder    string // /workspaces/{{.ProjectName}}
@@ -94,7 +93,6 @@ func (g *ComposeGenerator) Generate(opts ComposeOptions) (*ComposeResult, error)
 
 // buildTemplateData constructs TemplateData from options and template.
 func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.Template) TemplateData {
-	hash := projectHash(opts.ProjectPath)
 	projectName := filepath.Base(opts.ProjectPath)
 
 	// Ensure Claude token exists (non-blocking on error).
@@ -105,7 +103,6 @@ func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.T
 	}
 
 	return TemplateData{
-		ProjectHash:        hash,
 		ProjectPath:        opts.ProjectPath,
 		ProjectName:        projectName,
 		WorkspaceFolder:    fmt.Sprintf("/workspaces/%s", projectName),

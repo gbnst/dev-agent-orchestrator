@@ -92,13 +92,16 @@ func runListCommand(configDir string) {
 	}
 
 	// Separate devcontainers from sidecars
-	// Sidecars have LabelSidecarOf label, devcontainers don't
+	// Sidecars have LabelSidecarType label, devcontainers don't
 	devcontainers := make([]container.Container, 0)
-	sidecars := make(map[string]container.Container) // keyed by project hash (LabelSidecarOf value)
+	sidecars := make(map[string]container.Container) // keyed by compose project name
 
 	for _, c := range containers {
-		if parentRef, ok := c.Labels[container.LabelSidecarOf]; ok {
-			sidecars[parentRef] = c
+		if _, ok := c.Labels[container.LabelSidecarType]; ok {
+			composeProject := c.Labels[container.LabelComposeProject]
+			if composeProject != "" {
+				sidecars[composeProject] = c
+			}
 		} else {
 			devcontainers = append(devcontainers, c)
 		}
@@ -121,12 +124,10 @@ func runListCommand(configDir string) {
 			},
 		}
 
-		// Find matching sidecar by project hash
-		// Container names follow pattern: devagent-{hash}-app
-		// Extract hash from name if possible
-		projectHash := extractProjectHash(c.Name)
-		if projectHash != "" {
-			if sidecar, ok := sidecars[projectHash]; ok {
+		// Find matching sidecar by compose project label
+		composeProject := c.Labels[container.LabelComposeProject]
+		if composeProject != "" {
+			if sidecar, ok := sidecars[composeProject]; ok {
 				project.ProxySidecar = &SidecarInfo{
 					ID:    sidecar.ID,
 					Name:  sidecar.Name,
@@ -144,24 +145,6 @@ func runListCommand(configDir string) {
 		_, _ = fmt.Fprintf(os.Stderr, "error encoding JSON: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-// extractProjectHash extracts the project hash from a container name.
-// Container names follow the pattern: devagent-{hash}-app or similar.
-func extractProjectHash(name string) string {
-	const prefix = "devagent-"
-	if len(name) < len(prefix)+container.HashTruncLen+1 {
-		return ""
-	}
-	if name[:len(prefix)] != prefix {
-		return ""
-	}
-	// Extract the hash portion (12 chars after prefix)
-	rest := name[len(prefix):]
-	if len(rest) < container.HashTruncLen {
-		return ""
-	}
-	return rest[:container.HashTruncLen]
 }
 
 // loadConfig loads the configuration from the specified directory or default location.
