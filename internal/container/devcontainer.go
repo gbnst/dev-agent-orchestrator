@@ -172,11 +172,9 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 // generateFromTemplate processes devcontainer.json.tmpl and returns the result.
 func (g *DevcontainerGenerator) generateFromTemplate(tmpl *config.Template, opts CreateOptions, copyDockerfile string) (*GenerateResult, error) {
 	// Build template data (same data used for docker-compose.yml.tmpl)
-	hash := projectHash(opts.ProjectPath)
 	projectName := filepath.Base(opts.ProjectPath)
 
 	data := TemplateData{
-		ProjectHash:        hash,
 		ProjectPath:        opts.ProjectPath,
 		ProjectName:        projectName,
 		WorkspaceFolder:    fmt.Sprintf("/workspaces/%s", projectName),

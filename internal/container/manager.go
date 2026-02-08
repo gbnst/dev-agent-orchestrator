@@ -4,8 +4,6 @@ package container
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -160,13 +158,13 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	for i := range containers {
 		c := containers[i]
 		// Skip sidecars - they're tracked separately
-		if _, isSidecar := c.Labels[LabelSidecarOf]; !isSidecar {
+		if _, isSidecar := c.Labels[LabelSidecarType]; !isSidecar {
 			m.containers[c.ID] = &c
 		}
 	}
 
 	// Rebuild sidecars map
-	m.refreshSidecars(ctx, containers)
+	m.refreshSidecars(containers)
 
 	m.logger.Debug("container list refreshed", "count", len(m.containers), "sidecars", len(m.sidecars))
 
@@ -208,46 +206,54 @@ func (m *Manager) reportProgress(logger *logging.ScopedLogger, callback Progress
 
 // refreshSidecars populates the sidecars map from container labels.
 // Called during Refresh() to discover existing sidecars.
-func (m *Manager) refreshSidecars(ctx context.Context, allContainers []Container) {
+// Sidecars are identified by having a LabelSidecarType label and are grouped
+// by their compose project name (com.docker.compose.project label).
+func (m *Manager) refreshSidecars(allContainers []Container) {
 	// Clear existing sidecar map
 	m.sidecars = make(map[string]*Sidecar)
 
 	for _, c := range allContainers {
-		// Check if this container is a sidecar (LabelSidecarOf contains project hash)
-		if parentRef, ok := c.Labels[LabelSidecarOf]; ok {
-			sidecarType := c.Labels[LabelSidecarType]
-
-			// Determine network name from container name pattern
-			// e.g., devagent-abc123-proxy -> devagent-abc123-net
-			networkName := ""
-			if strings.HasSuffix(c.Name, "-proxy") {
-				networkName = strings.TrimSuffix(c.Name, "-proxy") + "-net"
-			}
-
-			sidecar := &Sidecar{
-				ID:          c.ID,
-				Type:        sidecarType,
-				ParentRef:   parentRef, // Project path hash
-				NetworkName: networkName,
-				State:       c.State,
-			}
-			m.sidecars[c.ID] = sidecar
+		sidecarType := c.Labels[LabelSidecarType]
+		if sidecarType == "" {
+			continue
 		}
+
+		// Use compose project name as the parent reference for grouping
+		composeProject := c.Labels[LabelComposeProject]
+
+		sidecar := &Sidecar{
+			ID:        c.ID,
+			Type:      sidecarType,
+			ParentRef: composeProject, // Compose project name for grouping
+			State:     c.State,
+		}
+		m.sidecars[c.ID] = sidecar
 	}
 }
 
 // GetSidecarsForProject returns all sidecars associated with a project path.
-// Uses the project path hash (same hash used when creating sidecars).
+// Finds the compose project name for the project by checking app containers,
+// then returns sidecars with the same compose project name.
 func (m *Manager) GetSidecarsForProject(projectPath string) []*Sidecar {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	hash := sha256.Sum256([]byte(projectPath))
-	hashStr := hex.EncodeToString(hash[:])[:HashTruncLen]
+	// Find the compose project name by looking at the app container for this project
+	var composeProject string
+	for _, c := range m.containers {
+		if c.ProjectPath == projectPath {
+			composeProject = c.Labels[LabelComposeProject]
+			break
+		}
+	}
+
+	if composeProject == "" {
+		return nil
+	}
 
 	var result []*Sidecar
 	for _, s := range m.sidecars {
-		if s.ParentRef == hashStr {
+		if s.ParentRef == composeProject {
 			result = append(result, s)
 		}
 	}
@@ -327,9 +333,7 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 	}
 
 	// Create scoped logger for this operation.
-	// Use the compose container name (devagent-<hash>-app) so the TUI log filter matches.
-	containerName := fmt.Sprintf("devagent-%s-app", projectHash(opts.ProjectPath))
-	logger := m.containerLogger(containerName)
+	logger := m.containerLogger(opts.Name)
 
 	reportProgress := func(step, status, msg string) {
 		m.reportProgress(logger, opts.OnProgress, step, status, msg)
@@ -450,12 +454,12 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 
 // composeProjectName returns the compose project name for a container.
 // Reads from Docker's com.docker.compose.project label (set by devcontainer CLI).
-// Falls back to "devagent-<hash>" if label is missing (shouldn't happen for compose containers).
+// Falls back to the container name if label is missing (shouldn't happen for compose containers).
 func composeProjectName(c *Container) string {
 	if name := c.Labels[LabelComposeProject]; name != "" {
 		return name
 	}
-	return "devagent-" + projectHash(c.ProjectPath)
+	return c.Name
 }
 
 // startMissingProxyLogReaders starts proxy log readers for containers that don't have one.
