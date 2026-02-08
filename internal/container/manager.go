@@ -423,7 +423,7 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 
 	// Start proxy log reader for this container
 	if m.logManager != nil {
-		proxyLogPath := filepath.Join(opts.ProjectPath, ".devcontainer", "proxy-logs", "requests.jsonl")
+		proxyLogPath := filepath.Join(opts.ProjectPath, ".devcontainer", "proxy", "logs", "requests.jsonl")
 		reader, err := logging.NewProxyLogReader(proxyLogPath, container.Name, m.logManager.(interface{ GetChannelSink() *logging.ChannelSink }).GetChannelSink())
 		if err != nil {
 			logger.Warn("failed to create proxy log reader", "error", err)
@@ -482,7 +482,7 @@ func (m *Manager) startMissingProxyLogReaders() {
 		}
 
 		// Start proxy log reader
-		proxyLogPath := filepath.Join(c.ProjectPath, ".devcontainer", "proxy-logs", "requests.jsonl")
+		proxyLogPath := filepath.Join(c.ProjectPath, ".devcontainer", "proxy", "logs", "requests.jsonl")
 		reader, err := logging.NewProxyLogReader(proxyLogPath, c.Name, sink.GetChannelSink())
 		if err != nil {
 			m.logger.Debug("failed to create proxy log reader", "container", c.Name, "error", err)

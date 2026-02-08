@@ -317,15 +317,13 @@ func TestComposeGenerator_GeneratesAndWritesFiles(t *testing.T) {
     command: sleep infinity
 
   proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile.proxy
+    image: mitmproxy/mitmproxy:latest
     container_name: devagent-{{.ProjectHash}}-proxy
     networks:
       - isolated
     volumes:
       - proxy-certs:/home/mitmproxy/.mitmproxy
-    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/home/mitmproxy/filter.py"]
+    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/opt/devagent-proxy/filter.py"]
     labels:
       devagent.managed: "true"
 
@@ -338,76 +336,6 @@ volumes:
 `
 	if err := os.WriteFile(filepath.Join(templateDir, "docker-compose.yml.tmpl"), []byte(composeContent), 0644); err != nil {
 		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
-	}
-
-	// Create Dockerfile.proxy
-	dockerfileProxyContent := "FROM mitmproxy/mitmproxy:latest\nCOPY filter.py /home/mitmproxy/filter.py\nEXPOSE 8080\n"
-	if err := os.WriteFile(filepath.Join(templateDir, "Dockerfile.proxy"), []byte(dockerfileProxyContent), 0644); err != nil {
-		t.Fatalf("Failed to write Dockerfile.proxy: %v", err)
-	}
-
-	// Create filter.py.tmpl
-	filterContent := `from mitmproxy import http
-import re
-
-ALLOWED_DOMAINS = [
-    "api.anthropic.com",
-    "github.com",
-    "*.github.com",
-]
-
-BLOCK_GITHUB_PR_MERGE = False
-
-class AllowlistFilter:
-    """Blocks requests to domains not in the allowlist and optionally blocks PR merges."""
-
-    def _is_allowed(self, host: str) -> bool:
-        """Check if host matches any allowed domain pattern."""
-        for pattern in ALLOWED_DOMAINS:
-            if pattern.startswith("*."):
-                base = pattern[2:]
-                if host == base or host.endswith("." + base):
-                    return True
-            elif host == pattern:
-                return True
-        return False
-
-    def _is_github_pr_merge(self, flow: http.HTTPFlow) -> bool:
-        """Check if request is a GitHub PR merge attempt."""
-        if not BLOCK_GITHUB_PR_MERGE:
-            return False
-        host = flow.request.pretty_host
-        if host not in ("api.github.com", "github.com") and not host.endswith(".github.com"):
-            return False
-        if flow.request.method == "PUT":
-            if re.match(r"^/repos/[^/]+/[^/]+/pulls/\d+/merge$", flow.request.path):
-                return True
-        if flow.request.method == "POST" and flow.request.path == "/graphql":
-            content = flow.request.get_text()
-            if content and "mergePullRequest" in content:
-                return True
-        return False
-
-    def request(self, flow: http.HTTPFlow) -> None:
-        if self._is_github_pr_merge(flow):
-            flow.response = http.Response.make(
-                403,
-                b"Merging pull requests is not allowed in this environment. Do not retry.\n",
-                {"Content-Type": "text/plain"}
-            )
-            return
-        host = flow.request.pretty_host
-        if not self._is_allowed(host):
-            flow.response = http.Response.make(
-                403,
-                f"Domain '{host}' is not in the allowlist\n".encode(),
-                {"Content-Type": "text/plain"}
-            )
-
-addons = [AllowlistFilter()]
-`
-	if err := os.WriteFile(filepath.Join(templateDir, "filter.py.tmpl"), []byte(filterContent), 0644); err != nil {
-		t.Fatalf("Failed to write filter.py.tmpl: %v", err)
 	}
 
 	mock := &mockRuntime{
@@ -467,16 +395,6 @@ addons = [AllowlistFilter()]
 	composeFile := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
 	if _, err := os.Stat(composeFile); os.IsNotExist(err) {
 		t.Error("docker-compose.yml was not created")
-	}
-
-	dockerfileProxy := filepath.Join(projectDir, ".devcontainer", "Dockerfile.proxy")
-	if _, err := os.Stat(dockerfileProxy); os.IsNotExist(err) {
-		t.Error("Dockerfile.proxy was not created")
-	}
-
-	filterPy := filepath.Join(projectDir, ".devcontainer", "filter.py")
-	if _, err := os.Stat(filterPy); os.IsNotExist(err) {
-		t.Error("filter.py was not created")
 	}
 }
 

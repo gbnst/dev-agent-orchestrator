@@ -23,7 +23,7 @@ services:
     volumes:
       - {{.ProjectPath}}:{{.WorkspaceFolder}}:cached
       - proxy-certs:/tmp/mitmproxy-certs:ro
-      - {{.ClaudeConfigDir}}:/home/vscode/.claude:cached
+      - {{.ProjectPath}}/.devcontainer/home/vscode:/home/vscode:cached
       - {{.ClaudeTokenPath}}:/run/secrets/claude-token:ro
     cap_drop:
       - NET_RAW
@@ -46,16 +46,14 @@ services:
     command: sleep infinity
 
   proxy:
-    build:
-      context: .
-      dockerfile: Dockerfile.proxy
+    image: mitmproxy/mitmproxy:latest
     container_name: devagent-{{.ProjectHash}}-proxy
     networks:
       - isolated
     volumes:
       - proxy-certs:/home/mitmproxy/.mitmproxy
-      - {{.ProjectPath}}/.devcontainer/proxy-logs:/var/log/proxy
-    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "{{.ProxyPort}}", "-s", "/home/mitmproxy/filter.py"]
+      - {{.ProjectPath}}/.devcontainer/proxy:/opt/devagent-proxy
+    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "{{.ProxyPort}}", "-s", "/opt/devagent-proxy/filter.py"]
     labels:
       devagent.managed: "true"
       devagent.sidecar_of: "{{.ProjectHash}}"
