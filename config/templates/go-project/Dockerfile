@@ -1,6 +1,9 @@
 FROM mcr.microsoft.com/devcontainers/go:1.25
 
-# Install Claude Code for vscode user (not root)
+# Install Claude Code and make it available system-wide.
+# The installer places the binary in ~/.claude/bin/ which gets shadowed
+# by the /home/vscode volume mount at runtime, so copy it to /usr/local/bin/.
 USER vscode
 RUN curl -fsSL https://claude.ai/install.sh | bash
 USER root
+RUN cp /home/vscode/.claude/bin/claude /usr/local/bin/claude
