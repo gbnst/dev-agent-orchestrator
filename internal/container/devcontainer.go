@@ -93,6 +93,28 @@ func ensureClaudeToken() (tokenPath string, token string) {
 	return tokenPath, token
 }
 
+// ensureGitHubToken reads a GitHub Personal Access Token from the host filesystem.
+// Returns the token file path and token content, or empty strings if the file is missing.
+// Unlike ensureClaudeToken(), this does not auto-provision — the user must create the token file.
+func ensureGitHubToken() (tokenPath string, token string) {
+	configDir := os.Getenv("XDG_CONFIG_HOME")
+	if configDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", ""
+		}
+		configDir = filepath.Join(home, ".config")
+	}
+	tokenPath = filepath.Join(configDir, "github", "token")
+
+	data, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return "", ""
+	}
+
+	return tokenPath, strings.TrimSpace(string(data))
+}
+
 // ReadWorkspaceFolder reads the workspaceFolder from a project's devcontainer.json.
 // Returns the workspace folder path, or a default of "/workspaces" if not specified or on error.
 func ReadWorkspaceFolder(projectPath string) string {
