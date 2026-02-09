@@ -684,3 +684,68 @@ func TestWriteComposeFiles_DoesNotCreateGitignore(t *testing.T) {
 	}
 }
 
+func TestEnsureGitHubToken_ExistingToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Create github dir and token file
+	githubDir := filepath.Join(tmpDir, "github")
+	if err := os.MkdirAll(githubDir, 0755); err != nil {
+		t.Fatalf("Failed to create github dir: %v", err)
+	}
+
+	tokenPath := filepath.Join(githubDir, "token")
+	expectedToken := "ghp_testtoken12345"
+	if err := os.WriteFile(tokenPath, []byte(expectedToken), 0600); err != nil {
+		t.Fatalf("Failed to write token: %v", err)
+	}
+
+	gotPath, gotToken := ensureGitHubToken()
+
+	if gotPath != tokenPath {
+		t.Errorf("ensureGitHubToken() path = %q, want %q", gotPath, tokenPath)
+	}
+	if gotToken != expectedToken {
+		t.Errorf("ensureGitHubToken() token = %q, want %q", gotToken, expectedToken)
+	}
+}
+
+func TestEnsureGitHubToken_MissingToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// Don't create the token file
+	gotPath, gotToken := ensureGitHubToken()
+
+	if gotPath != "" {
+		t.Errorf("ensureGitHubToken() path = %q, want empty", gotPath)
+	}
+	if gotToken != "" {
+		t.Errorf("ensureGitHubToken() token = %q, want empty", gotToken)
+	}
+}
+
+func TestEnsureGitHubToken_TokenWithWhitespace(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	githubDir := filepath.Join(tmpDir, "github")
+	if err := os.MkdirAll(githubDir, 0755); err != nil {
+		t.Fatalf("Failed to create github dir: %v", err)
+	}
+
+	tokenPath := filepath.Join(githubDir, "token")
+	if err := os.WriteFile(tokenPath, []byte("ghp_testtoken\n"), 0600); err != nil {
+		t.Fatalf("Failed to write token: %v", err)
+	}
+
+	gotPath, gotToken := ensureGitHubToken()
+
+	if gotPath != tokenPath {
+		t.Errorf("ensureGitHubToken() path = %q, want %q", gotPath, tokenPath)
+	}
+	if gotToken != "ghp_testtoken" {
+		t.Errorf("ensureGitHubToken() token = %q, want %q", gotToken, "ghp_testtoken")
+	}
+}
+
