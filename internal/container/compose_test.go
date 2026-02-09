@@ -49,6 +49,7 @@ func createTestTemplateDir(t *testing.T, name string) string {
       - proxy-certs:/tmp/mitmproxy-certs:ro
       - {{.ProjectPath}}/.devcontainer/home/vscode:/home/vscode:cached
       - {{.ClaudeTokenPath}}:/run/secrets/claude-token:ro
+      - {{.GitHubTokenPath}}:/run/secrets/github-token:ro
     cap_drop:
       - NET_RAW
       - SYS_ADMIN
@@ -143,6 +144,9 @@ func TestComposeGenerator_Generate_BasicTemplate(t *testing.T) {
 	}
 	if !strings.Contains(result.ComposeYAML, "/run/secrets/claude-token:ro") {
 		t.Error("ComposeYAML missing oauth token volume mount")
+	}
+	if !strings.Contains(result.ComposeYAML, "/run/secrets/github-token:ro") {
+		t.Error("ComposeYAML missing GitHub token volume mount")
 	}
 
 	// Verify proxy uses image instead of build
