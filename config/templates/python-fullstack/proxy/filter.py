@@ -8,19 +8,11 @@ import re
 ALLOWED_DOMAINS = [
     # Claude / Anthropic
     "api.anthropic.com",
-    "claude.ai",
-    "*.claude.ai",
-    "platform.claude.com",
-    "sentry.io",
-    "*.sentry.io",
-    "statsigapi.net",
 
     # GitHub
     "github.com",
     "*.github.com",
-    "api.github.com",
     "raw.githubusercontent.com",
-    "objects.githubusercontent.com",
 
     # Python / uv / PyPI
     "pypi.org",

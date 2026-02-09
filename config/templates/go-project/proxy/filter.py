@@ -7,24 +7,12 @@ import re
 # Wildcards are supported: "*.github.com" matches "api.github.com"
 ALLOWED_DOMAINS = [
     "api.anthropic.com",
-    "claude.ai",
-    "*.claude.ai",
-    "platform.claude.com",
-    "sentry.io",
-    "*.sentry.io",
-    "statsigapi.net",
     "github.com",
     "*.github.com",
-    "api.github.com",
     "raw.githubusercontent.com",
-    "objects.githubusercontent.com",
-    "registry.npmjs.org",
-    "pypi.org",
-    "files.pythonhosted.org",
     "proxy.golang.org",
     "sum.golang.org",
     "storage.googleapis.com",
-    "pkg.go.dev",
 ]
 
 # Passthrough domains bypass TLS interception entirely (for certificate pinning).
