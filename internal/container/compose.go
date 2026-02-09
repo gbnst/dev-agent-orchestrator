@@ -29,6 +29,7 @@ type TemplateData struct {
 	ProjectName        string // Base name of project directory
 	WorkspaceFolder    string // /workspaces/{{.ProjectName}}
 	ClaudeTokenPath    string // Host path to Claude OAuth token file (absolute)
+	GitHubTokenPath    string // Host path to GitHub token file (absolute), /dev/null if missing
 	TemplateName       string // Template name (e.g., "basic")
 	ContainerName      string // Container name for devcontainer.json
 	CertInstallCommand string // Command to wait for, copy, and trust mitmproxy CA cert
@@ -105,17 +106,28 @@ func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.T
 		tokenPath = "/dev/null"
 	}
 
+	// Read GitHub token (non-blocking on error).
+	// Falls back to /dev/null so Docker doesn't create an empty directory.
+	ghTokenPath, _ := ensureGitHubToken()
+	if ghTokenPath == "" {
+		if g.logger != nil {
+			g.logger.Warn("GitHub token not found, gh CLI will not be authenticated", "expected_path", "~/.config/github/token")
+		}
+		ghTokenPath = "/dev/null"
+	}
+
 	return TemplateData{
 		ProjectPath:        opts.ProjectPath,
 		ProjectName:        projectName,
 		WorkspaceFolder:    fmt.Sprintf("/workspaces/%s", projectName),
 		ClaudeTokenPath:    tokenPath,
+		GitHubTokenPath:    ghTokenPath,
 		TemplateName:       tmpl.Name,
 		ContainerName:      opts.Name,
 		CertInstallCommand: certInstallCommand,
 		ProxyImage:         "mitmproxy/mitmproxy:latest",
 		ProxyPort:          "8080",
-		RemoteUser:         DefaultRemoteUser, // "vscode" — config-driven override is out of scope for this phase
+		RemoteUser:         DefaultRemoteUser,
 		ProxyLogPath:       "/opt/devagent-proxy/logs/requests.jsonl",
 	}
 }

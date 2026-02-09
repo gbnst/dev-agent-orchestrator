@@ -212,6 +212,7 @@ func (g *DevcontainerGenerator) generateFromTemplate(tmpl *config.Template, opts
 		ProxyPort:          "8080",
 		RemoteUser:         DefaultRemoteUser,
 		ProxyLogPath:       "/opt/devagent-proxy/logs/requests.jsonl",
+		GitHubTokenPath:    "/dev/null", // Only resolved in buildTemplateData(); devcontainer.json.tmpl does not use this field
 	}
 
 	// Process the template
