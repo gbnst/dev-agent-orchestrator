@@ -796,10 +796,12 @@ func (m *Model) refreshDetailViewport() {
 func (m *Model) initLogDetailsViewport() {
 	layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
 
-	// Log details uses 60% of the log panel width
-	logDetailsWidth := int(float64(layout.Logs.Width) * 0.6)
-	if logDetailsWidth < 20 {
-		logDetailsWidth = 20
+	// Log details gets remaining width after log list (40%) and divider (3 cols)
+	logListWidth := int(float64(layout.Logs.Width) * 0.4)
+	dividerWidth := 3
+	logDetailsWidth := layout.Logs.Width - logListWidth - dividerWidth
+	if logDetailsWidth < 10 {
+		logDetailsWidth = 10
 	}
 	logDetailsHeight := layout.Logs.Height - 2 // Account for header
 	if logDetailsHeight < 1 {

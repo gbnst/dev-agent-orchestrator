@@ -7,16 +7,16 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
+	"github.com/charmbracelet/x/ansi"
 
 	"devagent/internal/container"
 	"devagent/internal/logging"
 )
 
-// truncateString truncates a string to fit within maxWidth, accounting for
-// wide characters (e.g., CJK) and ANSI escape sequences.
+// truncateString truncates a string to fit within maxWidth, correctly handling
+// ANSI escape sequences so styled text isn't corrupted.
 func truncateString(s string, maxWidth int) string {
-	return runewidth.Truncate(s, maxWidth, "…")
+	return ansi.Truncate(s, maxWidth, "…")
 }
 
 // View renders the TUI.
@@ -660,14 +660,31 @@ func (m Model) renderLogPanel(layout Layout) string {
 		return logListPanel
 	}
 
+	// Vertical divider between log list and details (1 padding + border + 1 padding = 3 cols)
+	dividerWidth := 3
+	detailsWidth := layout.Logs.Width - logListWidth - dividerWidth
+	if detailsWidth < 10 {
+		detailsWidth = 10
+	}
+
+	// Build divider column
+	dividerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(m.styles.flavor.Surface1().Hex)).
+		PaddingLeft(1).PaddingRight(1)
+	dividerHeight := layout.Logs.Height
+	dividerLines := make([]string, dividerHeight)
+	for i := range dividerLines {
+		dividerLines[i] = dividerStyle.Render("│")
+	}
+	divider := strings.Join(dividerLines, "\n")
+
 	// Details panel
-	detailsWidth := layout.Logs.Width - logListWidth
 	detailsHeader := m.styles.PanelHeaderUnfocusedStyle().Width(detailsWidth).Render(" Details")
 	detailsContent := m.logDetailsViewport.View()
 	detailsPanel := lipgloss.JoinVertical(lipgloss.Left, detailsHeader, detailsContent)
 
-	// Join horizontally
-	return lipgloss.JoinHorizontal(lipgloss.Top, logListPanel, detailsPanel)
+	// Join horizontally: log list | divider | details
+	return lipgloss.JoinHorizontal(lipgloss.Top, logListPanel, divider, detailsPanel)
 }
 
 // renderLogListContent renders the log entries with selection indicator.

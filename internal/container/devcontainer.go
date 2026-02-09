@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"devagent/internal/config"
@@ -70,10 +71,14 @@ func ensureClaudeToken() (tokenPath string, token string) {
 		return "", ""
 	}
 
-	token = strings.TrimSpace(output)
-	if token == "" {
+	// claude setup-token includes TUI rendering and ANSI codes in its output;
+	// extract just the token which starts with "sk-ant-"
+	re := regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]+`)
+	match := re.FindString(output)
+	if match == "" {
 		return "", ""
 	}
+	token = strings.TrimSpace(match)
 
 	// Ensure claude config directory exists
 	if err := os.MkdirAll(claudeDir, 0755); err != nil {
