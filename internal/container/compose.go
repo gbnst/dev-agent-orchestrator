@@ -10,6 +10,7 @@ import (
 	"text/template"
 
 	"devagent/internal/config"
+	"devagent/internal/logging"
 )
 
 // certInstallCommand is the shell command that waits for the mitmproxy CA cert
@@ -40,12 +41,14 @@ type TemplateData struct {
 // ComposeGenerator creates docker-compose.yml and related files for container orchestration.
 type ComposeGenerator struct {
 	templates []config.Template
+	logger    *logging.ScopedLogger
 }
 
 // NewComposeGenerator creates a new generator with the given templates.
-func NewComposeGenerator(templates []config.Template) *ComposeGenerator {
+func NewComposeGenerator(templates []config.Template, logger *logging.ScopedLogger) *ComposeGenerator {
 	return &ComposeGenerator{
 		templates: templates,
+		logger:    logger,
 	}
 }
 
