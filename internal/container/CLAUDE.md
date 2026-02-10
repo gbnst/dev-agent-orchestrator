@@ -1,17 +1,18 @@
 # Container Domain
 
-Last verified: 2026-02-08
+Last verified: 2026-02-10
 
 ## Purpose
 Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker Compose, and tmux session management within containers. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking. Integrates proxy log tailing for real-time HTTP request visibility in TUI.
 
 ## Contracts
 - **Exposes**: `Manager`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `ProcessDevcontainerTemplate`, `HashTruncLen`, `MountInfo`
-- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via postCreateCommand. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on destroy.
+- **Note**: `NewComposeGenerator(templates, logger)` requires a `*logging.ScopedLogger` parameter (use `logging.NopLogger()` in tests)
+- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via postCreateCommand. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on destroy. GitHub token injected into containers when available (non-blocking on missing token).
 - **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation. For compose mode: docker-compose or podman-compose available. LogManager must implement GetChannelSink() for proxy log integration.
 
 ## Dependencies
-- **Uses**: config.Config, config.Template, logging.Manager (optional), logging.ProxyLogReader, @devcontainers/cli (external), mitmproxy/mitmproxy (external image)
+- **Uses**: config.Config, config.Template, logging.Manager (optional), logging.ScopedLogger, logging.ProxyLogReader, @devcontainers/cli (external), mitmproxy/mitmproxy (external image), gh CLI (external, installed in Dockerfiles)
 - **Used by**: TUI (Model), main.go
 - **Boundary**: Container operations only; no UI concerns
 
@@ -24,6 +25,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - RemoteUser defaults to "vscode" per devcontainer spec; all exec operations use ExecAs with this user
 - Auth token auto-provisioning: Checks for `{XDG_CONFIG_HOME}/claude/.devagent-claude-token` (or `~/.claude/.devagent-claude-token`), runs `claude setup-token` if missing (non-blocking on error)
 - Token injection via bind mount: Token file mounted read-only to `/run/secrets/claude-token`, shell profiles export CLAUDE_CODE_OAUTH_TOKEN from mounted file (not via containerEnv)
+- GitHub CLI authentication: `ensureGitHubToken()` reads `{XDG_CONFIG_HOME}/github/token` (or `~/.config/github/token`); token file mounted read-only to `/run/secrets/github-token`; shell profiles export GH_TOKEN (with `-s` file-size check to avoid exporting empty string); falls back to /dev/null mount if token file missing (non-blocking, warns via logger); gh CLI installed in all template Dockerfiles
 - Sidecar architecture: Proxy sidecars use compose project name as ParentRef (from com.docker.compose.project label); both app and proxy containers share this label automatically via Docker Compose
 - Network isolation via mitmproxy: Proxy uses mitmproxy/mitmproxy:latest image; filter.py (from template) controls traffic with hardcoded allowlist and passthrough domains via the filter script's `load()` hook using `ctx.options.ignore_hosts`; CA cert mounted and installed in devcontainer via CertInstallCommand in postCreateCommand
 - GitHub PR merge blocking: When BLOCK_GITHUB_PR_MERGE enabled in filter.py, filter script blocks PUT to /repos/.*/pulls/\d+/merge and POST /graphql with mergePullRequest
@@ -43,7 +45,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 ## Key Files
 - `manager.go` - Manager struct, compose-based lifecycle operations (CreateWithCompose, StartWithCompose, StopWithCompose, DestroyWithCompose), session management, sidecar lifecycle, GetContainerIsolationInfo()
 - `runtime.go` - RuntimeInterface impl for Docker/Podman CLI, ExecAs for user-specific commands, CreateNetwork, RemoveNetwork, RunContainer, InspectContainer(), GetIsolationInfo(), GetMounts(), ComposeUp/Start/Stop/Down
-- `compose.go` - ComposeGenerator with processComposeTemplate(), TemplateData (ProjectPath, ProjectName, WorkspaceFolder, ClaudeTokenPath, TemplateName, ContainerName, CertInstallCommand, ProxyImage, ProxyPort, RemoteUser, ProxyLogPath), ComposeResult (ComposeYAML only), ComposeOptions; processes docker-compose.yml.tmpl for compose-based orchestration
+- `compose.go` - ComposeGenerator with processComposeTemplate(), TemplateData (ProjectPath, ProjectName, WorkspaceFolder, ClaudeTokenPath, GitHubTokenPath, TemplateName, ContainerName, CertInstallCommand, ProxyImage, ProxyPort, RemoteUser, ProxyLogPath), ComposeResult (ComposeYAML only), ComposeOptions; processes docker-compose.yml.tmpl for compose-based orchestration
 - `devcontainer.go` - DevcontainerGenerator, GenerateResult, DevcontainerCLI, ProcessDevcontainerTemplate; proxy env injection, CA cert mount; WriteToProject() copies proxy/, .gitignore, home/ from template; WriteComposeFiles() writes docker-compose.yml and creates proxy/logs/ directory; WriteAll() orchestrates WriteToProject + WriteComposeFiles
 - `proxy.go` - Mitmproxy utility functions: proxy cert directory management (GetProxyCertDir, GetProxyCACertPath, ProxyCertExists), allowlist parsing from filter script (ReadAllowlistFromFilterScript, parseAllowlistFromScript), CleanupProxyConfigs
 - `types.go` - Container, Session, Sidecar, CreateOptions (UseCompose flag), IsolationInfo, MountInfo (with JSON tags for external tool output), DevcontainerJSON (DockerComposeFile, Service, RemoteUser fields), BuildConfig, ProgressStep, ProgressCallback, HashTruncLen, state constants, label constants
@@ -54,6 +56,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - RuntimePath() returns full binary path to bypass shell aliases
 - Session.AttachCommand(runtime, user) requires both runtime and user parameters
 - Claude auth token is auto-provisioned via `claude setup-token` if not present; token stored in `~/.claude/.devagent-claude-token` (XDG-aware)
+- GitHub token is NOT auto-provisioned; user must manually create `~/.config/github/token` (XDG-aware); missing token is non-fatal (gh CLI will be unauthenticated)
 - Sidecar ParentRef is compose project name (from com.docker.compose.project label), not container ID or hash
 - Proxy health check waits for container to be running (30s timeout)
 - Container names are auto-generated by Docker Compose (e.g., myproject-app-1, myproject-proxy-1); no hardcoded container_name in templates
