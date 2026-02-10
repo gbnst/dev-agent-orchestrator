@@ -28,6 +28,7 @@ services:
       - {{.ProjectPath}}/.devcontainer/home/vscode/.tmux.conf:/home/vscode/.tmux.conf:cached
       - {{.ProjectPath}}/.devcontainer/home/vscode/.claude:/home/vscode/.claude:cached
       - {{.ClaudeTokenPath}}:/run/secrets/claude-token:ro
+      - {{.GitHubTokenPath}}:/run/secrets/github-token:ro
     cap_drop:
       - NET_RAW
       - SYS_ADMIN

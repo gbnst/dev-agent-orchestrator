@@ -74,7 +74,7 @@ func NewManagerWithDeps(runtime RuntimeInterface, generator *DevcontainerGenerat
 // This is used by tests that need to verify compose-based operations.
 func NewManagerWithAllDeps(cfg *config.Config, templates []config.Template, runtime RuntimeInterface, devCLI *DevcontainerCLI) *Manager {
 	generator := NewDevcontainerGenerator(cfg, templates)
-	composeGenerator := NewComposeGenerator(templates)
+	composeGenerator := NewComposeGenerator(templates, logging.NopLogger())
 
 	return &Manager{
 		cfg:              cfg,
@@ -112,7 +112,7 @@ func NewManagerWithConfigAndLogger(cfg *config.Config, templates []config.Templa
 	runtimePath := cfg.DetectedRuntimePath()
 	runtime := NewRuntime(runtimeName)
 	generator := NewDevcontainerGenerator(cfg, templates)
-	composeGenerator := NewComposeGenerator(templates)
+	composeGenerator := NewComposeGenerator(templates, logManager.For("compose"))
 
 	// Use explicit runtime for devcontainer CLI if configured
 	var devCLI *DevcontainerCLI
