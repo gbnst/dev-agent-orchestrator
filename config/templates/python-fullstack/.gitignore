@@ -1,8 +1,0 @@
-# Generated compose files
-docker-compose.yml
-
-# Proxy runtime data
-proxy/logs/
-
-# Proxy log files
-*.jsonl

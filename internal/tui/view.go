@@ -1045,12 +1045,21 @@ func (m Model) renderIsolationInfo(info *container.IsolationInfo) []string {
 		if info.NetworkName != "" {
 			lines = append(lines, fmt.Sprintf("  Network:   %s", info.NetworkName))
 		}
+		if info.ContainerIP != "" {
+			lines = append(lines, fmt.Sprintf("  Container: %s", info.ContainerIP))
+		}
+		if info.Gateway != "" {
+			lines = append(lines, fmt.Sprintf("  Gateway:   %s", info.Gateway))
+		}
+		if info.ProxyAddress != "" {
+			lines = append(lines, fmt.Sprintf("  Proxy:     %s", info.ProxyAddress))
+		}
 		if info.ProxySidecar != nil {
 			status := "running"
 			if info.ProxySidecar.State != container.StateRunning {
 				status = string(info.ProxySidecar.State)
 			}
-			lines = append(lines, fmt.Sprintf("  Proxy:     %s", status))
+			lines = append(lines, fmt.Sprintf("  Sidecar:   %s", status))
 		}
 		if len(info.AllowedDomains) > 0 {
 			lines = append(lines, "", "  Allowed Domains:")

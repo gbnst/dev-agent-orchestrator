@@ -611,9 +611,14 @@ func (m *Model) updateLogViewportContent() {
 }
 
 // updateDetailViewportContent updates the detail viewport with the current detail content.
-// This caches the content and sets it in the viewport.
+// Skips the viewport SetContent call if the rendered content is unchanged,
+// avoiding visual jitter from unnecessary re-renders during periodic refreshes.
 func (m *Model) updateDetailViewportContent() {
-	m.detailContent = m.renderDetailContent()
+	content := m.renderDetailContent()
+	if content == m.detailContent {
+		return
+	}
+	m.detailContent = content
 	m.detailViewport.SetContent(m.detailContent)
 }
 
@@ -705,6 +710,9 @@ func (m *Model) syncSelectionFromTree() {
 		prevContainerID = m.selectedContainer.ID
 	}
 
+	// Track previous session index to detect session changes
+	prevSessionIdx := m.selectedSessionIdx
+
 	if m.selectedIdx < 0 || m.selectedIdx >= len(m.treeItems) {
 		m.selectedContainer = nil
 		m.selectedSessionIdx = 0
@@ -714,6 +722,9 @@ func (m *Model) syncSelectionFromTree() {
 		}
 		m.setLogFilterFromContext()
 		m.refreshDetailViewport()
+		if prevContainerID != "" {
+			m.detailViewport.GotoTop()
+		}
 		return
 	}
 
@@ -728,6 +739,9 @@ func (m *Model) syncSelectionFromTree() {
 		}
 		m.setLogFilterFromContext()
 		m.refreshDetailViewport()
+		if prevContainerID != "" {
+			m.detailViewport.GotoTop()
+		}
 		return
 	}
 
@@ -737,8 +751,9 @@ func (m *Model) syncSelectionFromTree() {
 			if ci.container.ID == item.ContainerID {
 				m.selectedContainer = ci.container
 
+				containerChanged := ci.container.ID != prevContainerID
 				// Clear cache only if container changed
-				if ci.container.ID != prevContainerID {
+				if containerChanged {
 					m.cachedIsolationInfo = nil
 				}
 
@@ -749,6 +764,9 @@ func (m *Model) syncSelectionFromTree() {
 							m.selectedSessionIdx = i
 							m.setLogFilterFromContext()
 							m.refreshDetailViewport()
+							if containerChanged || i != prevSessionIdx {
+								m.detailViewport.GotoTop()
+							}
 							return
 						}
 					}
@@ -757,6 +775,9 @@ func (m *Model) syncSelectionFromTree() {
 				}
 				m.setLogFilterFromContext()
 				m.refreshDetailViewport()
+				if containerChanged {
+					m.detailViewport.GotoTop()
+				}
 				return
 			}
 		}
@@ -784,11 +805,11 @@ func (m *Model) initDetailViewport() {
 }
 
 // refreshDetailViewport updates the detail viewport content if it's ready.
+// Does not reset scroll position — callers must explicitly call GotoTop()
+// when the selected item changes (not on periodic content refreshes).
 func (m *Model) refreshDetailViewport() {
 	if m.detailReady && m.detailPanelOpen {
 		m.updateDetailViewportContent()
-		// Reset scroll position when selection changes
-		m.detailViewport.GotoTop()
 	}
 }
 

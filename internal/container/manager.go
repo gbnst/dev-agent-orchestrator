@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -45,7 +46,7 @@ type Manager struct {
 	sidecars         map[string]*Sidecar // Maps sidecar container ID to Sidecar
 	logger           *logging.ScopedLogger
 	logManager       interface{ For(string) *logging.ScopedLogger } // for per-container loggers
-	proxyLogCancels  map[string]context.CancelFunc               // containerID -> cancel func
+	proxyLogCancels  map[string]context.CancelFunc               // proxyLogPath -> cancel func
 }
 
 // NewManagerWithRuntime creates a Manager with a mock runtime for testing.
@@ -175,7 +176,7 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	return nil
 }
 
-// List returns all known containers.
+// List returns all known containers sorted by name for stable display order.
 func (m *Manager) List() []*Container {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -184,6 +185,9 @@ func (m *Manager) List() []*Container {
 	for _, c := range m.containers {
 		result = append(result, c)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
 	return result
 }
 
@@ -425,30 +429,6 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 		return nil, fmt.Errorf("container created but not found in refresh: %s", containerID)
 	}
 
-	// Start proxy log reader for this container
-	if m.logManager != nil {
-		proxyLogPath := filepath.Join(opts.ProjectPath, ".devcontainer", "proxy", "logs", "requests.jsonl")
-		reader, err := logging.NewProxyLogReader(proxyLogPath, container.Name, m.logManager.(interface{ GetChannelSink() *logging.ChannelSink }).GetChannelSink())
-		if err != nil {
-			logger.Warn("failed to create proxy log reader", "error", err)
-		} else {
-			ctx, cancel := context.WithCancel(context.Background())
-
-			// Protect proxyLogCancels map access with mutex
-			m.mu.Lock()
-			m.proxyLogCancels[container.ID] = cancel
-			m.mu.Unlock()
-
-			go func() {
-				if err := reader.Start(ctx); err != nil && err != context.Canceled {
-					logger.Warn("proxy log reader stopped", "error", err)
-				}
-			}()
-
-			logger.Info("started proxy log reader", "container", container.Name, "path", proxyLogPath)
-		}
-	}
-
 	return container, nil
 }
 
@@ -475,18 +455,19 @@ func (m *Manager) startMissingProxyLogReaders() {
 	}
 
 	for _, c := range m.containers {
-		// Skip if already have a reader for this container
-		if _, hasReader := m.proxyLogCancels[c.ID]; hasReader {
-			continue
-		}
-
 		// Skip containers without project path
 		if c.ProjectPath == "" {
 			continue
 		}
 
+		// Key by log file path to prevent duplicate readers when multiple
+		// containers share the same project path (e.g., exited + running)
+		proxyLogPath := filepath.Join(c.ProjectPath, ".devcontainer", "containers", "proxy", "opt", "devagent-proxy", "logs", "requests.jsonl")
+		if _, hasReader := m.proxyLogCancels[proxyLogPath]; hasReader {
+			continue
+		}
+
 		// Start proxy log reader
-		proxyLogPath := filepath.Join(c.ProjectPath, ".devcontainer", "proxy", "logs", "requests.jsonl")
 		reader, err := logging.NewProxyLogReader(proxyLogPath, c.Name, sink.GetChannelSink())
 		if err != nil {
 			m.logger.Debug("failed to create proxy log reader", "container", c.Name, "error", err)
@@ -494,7 +475,7 @@ func (m *Manager) startMissingProxyLogReaders() {
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
-		m.proxyLogCancels[c.ID] = cancel
+		m.proxyLogCancels[proxyLogPath] = cancel
 
 		go func(r *logging.ProxyLogReader, containerName string) {
 			if err := r.Start(ctx); err != nil && err != context.Canceled {
@@ -589,9 +570,10 @@ func (m *Manager) DestroyWithCompose(ctx context.Context, containerID string) er
 	}
 
 	// Stop proxy log reader if running (mutex already held)
-	if cancel, ok := m.proxyLogCancels[containerID]; ok {
+	proxyLogPath := filepath.Join(c.ProjectPath, ".devcontainer", "containers", "proxy", "opt", "devagent-proxy", "logs", "requests.jsonl")
+	if cancel, ok := m.proxyLogCancels[proxyLogPath]; ok {
 		cancel()
-		delete(m.proxyLogCancels, containerID)
+		delete(m.proxyLogCancels, proxyLogPath)
 	}
 	m.mu.Unlock()
 

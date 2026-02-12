@@ -15,6 +15,10 @@ import (
 	"devagent/internal/config"
 )
 
+// processTemplate is imported from compose.go - declared here for documentation
+// It processes a template file with the given data and returns the rendered content
+// This is used by copyTemplateDir for .tmpl file processing
+
 // getDataDir returns the XDG-compliant data directory for devagent.
 // Uses $XDG_DATA_HOME/devagent or ~/.local/share/devagent
 func getDataDir() string {
@@ -156,10 +160,7 @@ func NewDevcontainerGenerator(cfg *config.Config, templates []config.Template) *
 
 // GenerateResult holds the generated devcontainer config and template metadata.
 type GenerateResult struct {
-	Config               *DevcontainerJSON
-	TemplatePath         string // Path to template directory for copying additional files
-	CopyDockerfile       string // Dockerfile to copy (relative to TemplatePath), independent of Config.Build
-	DevcontainerTemplate string // Processed devcontainer.json.tmpl content (template-driven mode)
+	TemplatePath string // Path to template directory for copying additional files
 }
 
 // GetTemplate retrieves a template by name.
@@ -188,167 +189,13 @@ func (g *DevcontainerGenerator) Generate(opts CreateOptions) (*GenerateResult, e
 		return nil, fmt.Errorf("template not found: %s", opts.Template)
 	}
 
-	// All templates have a Dockerfile in their template directory.
-	// It is copied to .devcontainer/ separately because devcontainer CLI
-	// ignores dockerComposeFile when build is present in devcontainer.json.
-	copyDockerfile := "Dockerfile"
-
-	return g.generateFromTemplate(tmpl, opts, copyDockerfile)
+	return &GenerateResult{TemplatePath: tmpl.Path}, nil
 }
 
-// generateFromTemplate processes devcontainer.json.tmpl and returns the result.
-func (g *DevcontainerGenerator) generateFromTemplate(tmpl *config.Template, opts CreateOptions, copyDockerfile string) (*GenerateResult, error) {
-	// Build template data (same data used for docker-compose.yml.tmpl)
-	projectName := filepath.Base(opts.ProjectPath)
-
-	data := TemplateData{
-		ProjectPath:        opts.ProjectPath,
-		ProjectName:        projectName,
-		WorkspaceFolder:    fmt.Sprintf("/workspaces/%s", projectName),
-		TemplateName:       tmpl.Name,
-		ContainerName:      opts.Name,
-		CertInstallCommand: certInstallCommand,
-		ProxyImage:         "mitmproxy/mitmproxy:latest",
-		ProxyPort:          "8080",
-		RemoteUser:         DefaultRemoteUser,
-		ProxyLogPath:       "/opt/devagent-proxy/logs/requests.jsonl",
-		GitHubTokenPath:    "/dev/null", // Only resolved in buildTemplateData(); devcontainer.json.tmpl does not use this field
-	}
-
-	// Process the template
-	content, err := ProcessDevcontainerTemplate(tmpl.Path, data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process devcontainer.json.tmpl: %w", err)
-	}
-
-	return &GenerateResult{
-		Config:               nil, // No struct when using template
-		TemplatePath:         tmpl.Path,
-		CopyDockerfile:       copyDockerfile,
-		DevcontainerTemplate: content, // New field for template output
-	}, nil
-}
-
-// WriteToProject writes the devcontainer.json and any additional template files
-// (like Dockerfile and home directory) to the project's .devcontainer directory.
-func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *GenerateResult) error {
-	devcontainerDir := filepath.Join(projectPath, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
-		return err
-	}
-
-	// Copy Dockerfile if specified
-	// CopyDockerfile takes precedence (used for compose mode where Build shouldn't be serialized)
-	// Falls back to Config.Build.Dockerfile for backward compatibility (non-compose mode)
-	var dockerfileToCopy string
-	if result.CopyDockerfile != "" {
-		dockerfileToCopy = result.CopyDockerfile
-	} else if result.Config != nil && result.Config.Build != nil && result.Config.Build.Dockerfile != "" {
-		dockerfileToCopy = result.Config.Build.Dockerfile
-	}
-
-	if dockerfileToCopy != "" && result.TemplatePath != "" {
-		srcDockerfile := filepath.Join(result.TemplatePath, dockerfileToCopy)
-		dstDockerfile := filepath.Join(devcontainerDir, dockerfileToCopy)
-		if err := copyFile(srcDockerfile, dstDockerfile); err != nil {
-			return fmt.Errorf("failed to copy Dockerfile: %w", err)
-		}
-	}
-
-	// Copy home directory seed files if they exist (mounted as individual files at runtime)
-	if result.TemplatePath != "" {
-		srcHome := filepath.Join(result.TemplatePath, "home")
-		if info, err := os.Stat(srcHome); err == nil && info.IsDir() {
-			dstHome := filepath.Join(devcontainerDir, "home")
-			if err := copyDir(srcHome, dstHome); err != nil {
-				return fmt.Errorf("failed to copy home directory: %w", err)
-			}
-		}
-	}
-
-	// Copy proxy directory if it exists (for filter.py volume mount)
-	if result.TemplatePath != "" {
-		srcProxy := filepath.Join(result.TemplatePath, "proxy")
-		if info, err := os.Stat(srcProxy); err == nil && info.IsDir() {
-			dstProxy := filepath.Join(devcontainerDir, "proxy")
-			if err := copyDir(srcProxy, dstProxy); err != nil {
-				return fmt.Errorf("failed to copy proxy directory: %w", err)
-			}
-		}
-	}
-
-	// Copy .gitignore if it exists
-	if result.TemplatePath != "" {
-		srcGitignore := filepath.Join(result.TemplatePath, ".gitignore")
-		if _, err := os.Stat(srcGitignore); err == nil {
-			dstGitignore := filepath.Join(devcontainerDir, ".gitignore")
-			if err := copyFile(srcGitignore, dstGitignore); err != nil {
-				return fmt.Errorf("failed to copy .gitignore: %w", err)
-			}
-		}
-	}
-
-	jsonPath := filepath.Join(devcontainerDir, "devcontainer.json")
-
-	if result.DevcontainerTemplate == "" {
-		return fmt.Errorf("no devcontainer template content generated")
-	}
-
-	return os.WriteFile(jsonPath, []byte(result.DevcontainerTemplate), 0644)
-}
-
-// WriteComposeFiles writes docker-compose.yml to the project's .devcontainer
-// directory and creates the proxy/logs/ directory for runtime proxy logs.
-func (g *DevcontainerGenerator) WriteComposeFiles(projectPath string, composeResult *ComposeResult) error {
-	devcontainerDir := filepath.Join(projectPath, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
-		return fmt.Errorf("failed to create .devcontainer directory: %w", err)
-	}
-
-	// Create proxy/logs directory for JSONL request logging
-	proxyLogsDir := filepath.Join(devcontainerDir, "proxy", "logs")
-	if err := os.MkdirAll(proxyLogsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create proxy/logs directory: %w", err)
-	}
-
-	// Write docker-compose.yml
-	composePath := filepath.Join(devcontainerDir, "docker-compose.yml")
-	if err := os.WriteFile(composePath, []byte(composeResult.ComposeYAML), 0644); err != nil {
-		return fmt.Errorf("failed to write docker-compose.yml: %w", err)
-	}
-
-	return nil
-}
-
-// WriteAll writes all generated files to the project's .devcontainer directory.
-// This includes devcontainer.json and optionally compose files if composeResult is provided.
-func (g *DevcontainerGenerator) WriteAll(projectPath string, devcontainerResult *GenerateResult, composeResult *ComposeResult) error {
-	// Write devcontainer.json and template files
-	if err := g.WriteToProject(projectPath, devcontainerResult); err != nil {
-		return fmt.Errorf("failed to write devcontainer files: %w", err)
-	}
-
-	// Write compose files if provided
-	if composeResult != nil {
-		if err := g.WriteComposeFiles(projectPath, composeResult); err != nil {
-			return fmt.Errorf("failed to write compose files: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, 0644)
-}
-
-// copyDir recursively copies a directory from src to dst.
-func copyDir(src, dst string) error {
+// copyTemplateDir copies a directory tree from src to dst, processing .tmpl files with templateData.
+// Non-.tmpl files are copied as-is. Directories are created as needed.
+// The .gitkeep files are copied to preserve empty directories.
+func copyTemplateDir(src, dst string, data TemplateData) error {
 	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -361,12 +208,56 @@ func copyDir(src, dst string) error {
 
 		destPath := filepath.Join(dst, relPath)
 
+		// Create directories
 		if d.IsDir() {
 			return os.MkdirAll(destPath, 0755)
 		}
 
+		// Process .tmpl files
+		if strings.HasSuffix(relPath, ".tmpl") {
+			content, err := processTemplate(path, data)
+			if err != nil {
+				return fmt.Errorf("failed to process template %s: %w", relPath, err)
+			}
+			// Write without .tmpl extension
+			outputPath := strings.TrimSuffix(destPath, ".tmpl")
+			return os.WriteFile(outputPath, []byte(content), 0644)
+		}
+
+		// Copy other files as-is
 		return copyFile(path, destPath)
 	})
+}
+
+// WriteToProject writes the devcontainer.json and any additional template files
+// from the template's .devcontainer directory to the project's .devcontainer directory.
+func (g *DevcontainerGenerator) WriteToProject(projectPath string, result *GenerateResult, templateData TemplateData) error {
+	if result.TemplatePath == "" {
+		return fmt.Errorf("no template path specified")
+	}
+
+	src := filepath.Join(result.TemplatePath, ".devcontainer")
+	dst := filepath.Join(projectPath, ".devcontainer")
+
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+
+	return copyTemplateDir(src, dst, templateData)
+}
+
+// WriteAll writes all generated files to the project's .devcontainer directory.
+func (g *DevcontainerGenerator) WriteAll(projectPath string, devResult *GenerateResult, composeResult *ComposeResult) error {
+	return g.WriteToProject(projectPath, devResult, composeResult.TemplateData)
+}
+
+// copyFile copies a file from src to dst.
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0644)
 }
 
 // DevcontainerCLI wraps the devcontainer CLI.

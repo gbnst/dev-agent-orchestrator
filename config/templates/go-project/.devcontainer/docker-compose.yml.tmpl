@@ -23,10 +23,10 @@ services:
       - {{.ProjectPath}}:{{.WorkspaceFolder}}:cached
       - proxy-certs:/tmp/mitmproxy-certs:ro
       # Persistent dotfiles (from template seed files)
-      - {{.ProjectPath}}/.devcontainer/home/vscode/.bashrc:/home/vscode/.bashrc:cached
-      - {{.ProjectPath}}/.devcontainer/home/vscode/.zshrc:/home/vscode/.zshrc:cached
-      - {{.ProjectPath}}/.devcontainer/home/vscode/.tmux.conf:/home/vscode/.tmux.conf:cached
-      - {{.ProjectPath}}/.devcontainer/home/vscode/.claude:/home/vscode/.claude:cached
+      - {{.ProjectPath}}/.devcontainer/containers/app/home/vscode/.bashrc:/home/vscode/.bashrc:cached
+      - {{.ProjectPath}}/.devcontainer/containers/app/home/vscode/.zshrc:/home/vscode/.zshrc:cached
+      - {{.ProjectPath}}/.devcontainer/containers/app/home/vscode/.tmux.conf:/home/vscode/.tmux.conf:cached
+      - {{.ProjectPath}}/.devcontainer/containers/app/home/vscode/.claude:/home/vscode/.claude:cached
       - {{.ClaudeTokenPath}}:/run/secrets/claude-token:ro
       - {{.GitHubTokenPath}}:/run/secrets/github-token:ro
     cap_drop:
@@ -47,7 +47,7 @@ services:
       devagent.managed: "true"
       devagent.project_path: "{{.ProjectPath}}"
       devagent.template: "{{.TemplateName}}"
-    command: sleep infinity
+    command: ["sleep", "infinity"]
 
   proxy:
     image: mitmproxy/mitmproxy:latest
@@ -55,7 +55,7 @@ services:
       - isolated
     volumes:
       - proxy-certs:/home/mitmproxy/.mitmproxy
-      - {{.ProjectPath}}/.devcontainer/proxy:/opt/devagent-proxy
+      - {{.ProjectPath}}/.devcontainer/containers/proxy/opt/devagent-proxy:/opt/devagent-proxy
     command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "{{.ProxyPort}}", "-s", "/opt/devagent-proxy/filter.py"]
     labels:
       devagent.managed: "true"

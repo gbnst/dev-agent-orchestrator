@@ -5,5 +5,5 @@
   "runServices": ["app", "proxy"],
   "workspaceFolder": "{{.WorkspaceFolder}}",
   "remoteUser": "{{.RemoteUser}}",
-  "postCreateCommand": "{{.CertInstallCommand}}"
+  "postCreateCommand": "bash {{.WorkspaceFolder}}/.devcontainer/post-create.sh"
 }

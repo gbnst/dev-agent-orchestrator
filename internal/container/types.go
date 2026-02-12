@@ -152,6 +152,9 @@ type IsolationInfo struct {
 	// Network isolation
 	NetworkIsolated bool     // True if container is on an isolated network
 	NetworkName     string   // Name of the isolated network (if any)
+	ContainerIP     string   // Container's IP on the isolated network
+	Gateway         string   // Network gateway address
+	ProxyAddress    string   // Proxy address from http_proxy env var
 	ProxySidecar    *Sidecar // Proxy sidecar (if network isolation enabled)
 	AllowedDomains  []string // Domains allowed through the proxy
 }
