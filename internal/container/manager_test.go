@@ -127,6 +127,33 @@ func TestList_AfterRefresh(t *testing.T) {
 	}
 }
 
+func TestList_ReturnsDeterministicOrder(t *testing.T) {
+	mock := &mockRuntime{
+		containers: []Container{
+			{ID: "ccc", Name: "charlie", State: StateRunning},
+			{ID: "aaa", Name: "alpha", State: StateRunning},
+			{ID: "bbb", Name: "bravo", State: StateStopped},
+		},
+	}
+	mgr := NewManagerWithRuntime(mock)
+	ctx := context.Background()
+	if err := mgr.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	// Call List() multiple times — order must be stable and sorted by Name
+	for i := 0; i < 20; i++ {
+		containers := mgr.List()
+		if len(containers) != 3 {
+			t.Fatalf("iteration %d: expected 3 containers, got %d", i, len(containers))
+		}
+		if containers[0].Name != "alpha" || containers[1].Name != "bravo" || containers[2].Name != "charlie" {
+			t.Fatalf("iteration %d: expected [alpha, bravo, charlie], got [%s, %s, %s]",
+				i, containers[0].Name, containers[1].Name, containers[2].Name)
+		}
+	}
+}
+
 func TestGet_Found(t *testing.T) {
 	mock := &mockRuntime{
 		containers: []Container{
@@ -293,12 +320,17 @@ func TestComposeGenerator_GeneratesAndWritesFiles(t *testing.T) {
 		},
 	}
 
-	// Create template files in the template directory
+	// Create template files in the template directory with .devcontainer structure
 	templateDir := t.TempDir()
+	devcontainerDir := filepath.Join(templateDir, ".devcontainer")
 	templates[0].Path = templateDir
 
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
 	dockerfileContent := "FROM ubuntu:22.04\n"
-	if err := os.WriteFile(filepath.Join(templateDir, "Dockerfile"), []byte(dockerfileContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "Dockerfile"), []byte(dockerfileContent), 0644); err != nil {
 		t.Fatalf("Failed to write Dockerfile: %v", err)
 	}
 
@@ -319,7 +351,7 @@ func TestComposeGenerator_GeneratesAndWritesFiles(t *testing.T) {
       devagent.managed: "true"
       devagent.project_path: "{{.ProjectPath}}"
       devagent.template: "{{.TemplateName}}"
-    command: sleep infinity
+    command: ["sleep", "infinity"]
 
   proxy:
     image: mitmproxy/mitmproxy:latest
@@ -338,7 +370,7 @@ networks:
 volumes:
   proxy-certs:
 `
-	if err := os.WriteFile(filepath.Join(templateDir, "docker-compose.yml.tmpl"), []byte(composeContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml.tmpl"), []byte(composeContent), 0644); err != nil {
 		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
 	}
 
@@ -378,27 +410,13 @@ volumes:
 		t.Fatalf("ComposeGenerator.Generate failed: %v", err)
 	}
 
-	// Verify compose files would be created correctly
-	if !strings.Contains(result.ComposeYAML, "services:") {
-		t.Error("ComposeYAML missing services section")
+	// Verify TemplateData was populated
+	if result.TemplateData.ProjectPath != projectDir {
+		t.Error("TemplateData.ProjectPath not set correctly")
 	}
-	if !strings.Contains(result.ComposeYAML, "app:") {
-		t.Error("ComposeYAML missing app service")
-	}
-	if !strings.Contains(result.ComposeYAML, "proxy:") {
-		t.Error("ComposeYAML missing proxy service")
-	}
-
-	// Test file writing via WriteComposeFiles
-	err = mgr.generator.WriteComposeFiles(projectDir, result)
-	if err != nil {
-		t.Fatalf("WriteComposeFiles failed: %v", err)
-	}
-
-	// Verify compose files exist
-	composeFile := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
-	if _, err := os.Stat(composeFile); os.IsNotExist(err) {
-		t.Error("docker-compose.yml was not created")
+	expectedProjectName := filepath.Base(projectDir)
+	if result.TemplateData.ProjectName != expectedProjectName {
+		t.Errorf("TemplateData.ProjectName = %q, want %q", result.TemplateData.ProjectName, expectedProjectName)
 	}
 }
 

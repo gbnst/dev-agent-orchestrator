@@ -13,13 +13,10 @@ import (
 	"devagent/internal/logging"
 )
 
-// certInstallCommand is the shell command that waits for the mitmproxy CA cert
-// to become available, then installs it into the system trust store.
-const certInstallCommand = "timeout=30; while [ ! -f /tmp/mitmproxy-certs/mitmproxy-ca-cert.pem ] && [ $timeout -gt 0 ]; do sleep 1; timeout=$((timeout-1)); done && sudo cp /tmp/mitmproxy-certs/mitmproxy-ca-cert.pem /usr/local/share/ca-certificates/mitmproxy-ca-cert.crt && sudo update-ca-certificates"
 
 // ComposeResult holds the generated compose configuration files.
 type ComposeResult struct {
-	ComposeYAML string // docker-compose.yml content
+	TemplateData TemplateData
 }
 
 // TemplateData holds all values for template placeholder substitution.
@@ -32,7 +29,6 @@ type TemplateData struct {
 	GitHubTokenPath    string // Host path to GitHub token file (absolute), /dev/null if missing
 	TemplateName       string // Template name (e.g., "basic")
 	ContainerName      string // Container name for devcontainer.json
-	CertInstallCommand string // Command to wait for, copy, and trust mitmproxy CA cert
 	ProxyImage         string // Docker image for mitmproxy sidecar (default: mitmproxy/mitmproxy:latest)
 	ProxyPort          string // Port mitmproxy listens on (default: 8080)
 	RemoteUser         string // User for devcontainer exec commands (default: vscode)
@@ -73,7 +69,7 @@ type ComposeOptions struct {
 }
 
 // Generate creates docker-compose.yml content.
-// Returns ComposeResult with generated compose configuration.
+// Returns ComposeResult with template data for file writing.
 func (g *ComposeGenerator) Generate(opts ComposeOptions) (*ComposeResult, error) {
 	// Find template
 	tmpl := g.GetTemplate(opts.Template)
@@ -81,17 +77,10 @@ func (g *ComposeGenerator) Generate(opts ComposeOptions) (*ComposeResult, error)
 		return nil, fmt.Errorf("template not found: %s", opts.Template)
 	}
 
-	// Build template data
+	// Build and return template data
 	data := g.buildTemplateData(opts, tmpl)
-
-	// Process docker-compose.yml.tmpl
-	composeYAML, err := g.processComposeTemplate(tmpl.Path, data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process docker-compose.yml.tmpl: %w", err)
-	}
-
 	return &ComposeResult{
-		ComposeYAML: composeYAML,
+		TemplateData: data,
 	}, nil
 }
 
@@ -117,25 +106,18 @@ func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.T
 	}
 
 	return TemplateData{
-		ProjectPath:        opts.ProjectPath,
-		ProjectName:        projectName,
-		WorkspaceFolder:    fmt.Sprintf("/workspaces/%s", projectName),
-		ClaudeTokenPath:    tokenPath,
-		GitHubTokenPath:    ghTokenPath,
-		TemplateName:       tmpl.Name,
-		ContainerName:      opts.Name,
-		CertInstallCommand: certInstallCommand,
-		ProxyImage:         "mitmproxy/mitmproxy:latest",
-		ProxyPort:          "8080",
-		RemoteUser:         DefaultRemoteUser,
-		ProxyLogPath:       "/opt/devagent-proxy/logs/requests.jsonl",
+		ProjectPath:     opts.ProjectPath,
+		ProjectName:     projectName,
+		WorkspaceFolder: fmt.Sprintf("/workspaces/%s", projectName),
+		ClaudeTokenPath: tokenPath,
+		GitHubTokenPath: ghTokenPath,
+		TemplateName:    tmpl.Name,
+		ContainerName:   opts.Name,
+		ProxyImage:      "mitmproxy/mitmproxy:latest",
+		ProxyPort:       "8080",
+		RemoteUser:      DefaultRemoteUser,
+		ProxyLogPath:    "/opt/devagent-proxy/logs/requests.jsonl",
 	}
-}
-
-// processComposeTemplate processes docker-compose.yml.tmpl with the given data.
-func (g *ComposeGenerator) processComposeTemplate(templatePath string, data TemplateData) (string, error) {
-	tmplFile := filepath.Join(templatePath, "docker-compose.yml.tmpl")
-	return processTemplate(tmplFile, data)
 }
 
 // processTemplate reads a template file and processes it with the given data.
@@ -158,9 +140,3 @@ func processTemplate(tmplPath string, data any) (string, error) {
 	return buf.String(), nil
 }
 
-// ProcessDevcontainerTemplate processes devcontainer.json.tmpl with the given data.
-// This is used by DevcontainerGenerator when writing compose mode files.
-func ProcessDevcontainerTemplate(templatePath string, data TemplateData) (string, error) {
-	tmplFile := filepath.Join(templatePath, "devcontainer.json.tmpl")
-	return processTemplate(tmplFile, data)
-}

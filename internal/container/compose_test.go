@@ -12,6 +12,8 @@ import (
 	"devagent/internal/logging"
 )
 
+// Import filepath for template processing (already imported above, documented here for clarity)
+
 // createTestTemplateDir creates a temporary template directory with template files.
 // Returns the template directory path.
 func createTestTemplateDir(t *testing.T, name string) string {
@@ -61,7 +63,7 @@ func createTestTemplateDir(t *testing.T, name string) string {
       devagent.managed: "true"
       devagent.project_path: "{{.ProjectPath}}"
       devagent.template: "{{.TemplateName}}"
-    command: sleep infinity
+    command: ["sleep", "infinity"]
 
   proxy:
     image: mitmproxy/mitmproxy:latest
@@ -111,49 +113,55 @@ func TestComposeGenerator_Generate_BasicTemplate(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
+	// Process the template to get rendered YAML
+	composeYAML, err := processTemplate(filepath.Join(templateDir, "docker-compose.yml.tmpl"), result.TemplateData)
+	if err != nil {
+		t.Fatalf("processTemplate failed: %v", err)
+	}
+
 	// Verify ComposeYAML contains expected services
-	if !strings.Contains(result.ComposeYAML, "services:") {
+	if !strings.Contains(composeYAML, "services:") {
 		t.Error("ComposeYAML missing services section")
 	}
-	if !strings.Contains(result.ComposeYAML, "app:") {
+	if !strings.Contains(composeYAML, "app:") {
 		t.Error("ComposeYAML missing app service")
 	}
-	if !strings.Contains(result.ComposeYAML, "proxy:") {
+	if !strings.Contains(composeYAML, "proxy:") {
 		t.Error("ComposeYAML missing proxy service")
 	}
 
 	// Verify network definition
-	if !strings.Contains(result.ComposeYAML, "networks:") {
+	if !strings.Contains(composeYAML, "networks:") {
 		t.Error("ComposeYAML missing networks section")
 	}
-	if !strings.Contains(result.ComposeYAML, "isolated:") {
+	if !strings.Contains(composeYAML, "isolated:") {
 		t.Error("ComposeYAML missing isolated network")
 	}
 
 	// Verify volumes
-	if !strings.Contains(result.ComposeYAML, "volumes:") {
+	if !strings.Contains(composeYAML, "volumes:") {
 		t.Error("ComposeYAML missing volumes section")
 	}
-	if !strings.Contains(result.ComposeYAML, "proxy-certs:") {
+	if !strings.Contains(composeYAML, "proxy-certs:") {
 		t.Error("ComposeYAML missing proxy-certs volume")
 	}
 
 	// Verify volume mounts
-	if !strings.Contains(result.ComposeYAML, "/home/vscode:cached") {
+	if !strings.Contains(composeYAML, "/home/vscode:cached") {
 		t.Error("ComposeYAML missing home/vscode volume mount")
 	}
-	if !strings.Contains(result.ComposeYAML, "/run/secrets/claude-token:ro") {
+	if !strings.Contains(composeYAML, "/run/secrets/claude-token:ro") {
 		t.Error("ComposeYAML missing oauth token volume mount")
 	}
-	if !strings.Contains(result.ComposeYAML, "/run/secrets/github-token:ro") {
+	if !strings.Contains(composeYAML, "/run/secrets/github-token:ro") {
 		t.Error("ComposeYAML missing GitHub token volume mount")
 	}
 
 	// Verify proxy uses image instead of build
-	if !strings.Contains(result.ComposeYAML, "image: mitmproxy/mitmproxy:latest") {
+	if !strings.Contains(composeYAML, "image: mitmproxy/mitmproxy:latest") {
 		t.Error("ComposeYAML missing proxy image directive")
 	}
-	if strings.Contains(result.ComposeYAML, "dockerfile: Dockerfile.proxy") {
+	if strings.Contains(composeYAML, "dockerfile: Dockerfile.proxy") {
 		t.Error("ComposeYAML should not reference Dockerfile.proxy")
 	}
 }
@@ -177,13 +185,19 @@ func TestComposeGenerator_Generate_NoHardcodedContainerNames(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
+	// Process the template to get rendered YAML
+	composeYAML, err := processTemplate(filepath.Join(templateDir, "docker-compose.yml.tmpl"), result.TemplateData)
+	if err != nil {
+		t.Fatalf("processTemplate failed: %v", err)
+	}
+
 	// Verify no hardcoded container_name directives
-	if strings.Contains(result.ComposeYAML, "container_name:") {
+	if strings.Contains(composeYAML, "container_name:") {
 		t.Error("ComposeYAML should not contain hardcoded container_name directives")
 	}
 
 	// Verify proxy hostname uses compose service name, not hash-based name
-	if !strings.Contains(result.ComposeYAML, "http_proxy=http://proxy:") {
+	if !strings.Contains(composeYAML, "http_proxy=http://proxy:") {
 		t.Error("Proxy hostname should use compose service name 'proxy'")
 	}
 }
@@ -207,13 +221,19 @@ func TestComposeGenerator_Generate_ProxyEnvironment(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if !strings.Contains(result.ComposeYAML, "http_proxy=") {
+	// Process the template to get rendered YAML
+	composeYAML, err := processTemplate(filepath.Join(templateDir, "docker-compose.yml.tmpl"), result.TemplateData)
+	if err != nil {
+		t.Fatalf("processTemplate failed: %v", err)
+	}
+
+	if !strings.Contains(composeYAML, "http_proxy=") {
 		t.Error("ComposeYAML missing http_proxy env var")
 	}
-	if !strings.Contains(result.ComposeYAML, "https_proxy=") {
+	if !strings.Contains(composeYAML, "https_proxy=") {
 		t.Error("ComposeYAML missing https_proxy env var")
 	}
-	if !strings.Contains(result.ComposeYAML, "SSL_CERT_FILE=") {
+	if !strings.Contains(composeYAML, "SSL_CERT_FILE=") {
 		t.Error("ComposeYAML missing SSL_CERT_FILE env var")
 	}
 }
@@ -237,13 +257,19 @@ func TestComposeGenerator_Generate_Labels(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if !strings.Contains(result.ComposeYAML, LabelManagedBy+": \"true\"") {
+	// Process the template to get rendered YAML
+	composeYAML, err := processTemplate(filepath.Join(templateDir, "docker-compose.yml.tmpl"), result.TemplateData)
+	if err != nil {
+		t.Fatalf("processTemplate failed: %v", err)
+	}
+
+	if !strings.Contains(composeYAML, LabelManagedBy+": \"true\"") {
 		t.Error("ComposeYAML missing devagent.managed label")
 	}
-	if !strings.Contains(result.ComposeYAML, LabelTemplate+": \"go-project\"") {
+	if !strings.Contains(composeYAML, LabelTemplate+": \"go-project\"") {
 		t.Error("ComposeYAML missing devagent.template label")
 	}
-	if !strings.Contains(result.ComposeYAML, LabelSidecarType) {
+	if !strings.Contains(composeYAML, LabelSidecarType) {
 		t.Error("ComposeYAML missing devagent.sidecar_type label")
 	}
 }
@@ -284,10 +310,16 @@ func TestComposeGenerator_Generate_DependsOn(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	if !strings.Contains(result.ComposeYAML, "depends_on:") {
+	// Process the template to get rendered YAML
+	composeYAML, err := processTemplate(filepath.Join(templateDir, "docker-compose.yml.tmpl"), result.TemplateData)
+	if err != nil {
+		t.Fatalf("processTemplate failed: %v", err)
+	}
+
+	if !strings.Contains(composeYAML, "depends_on:") {
 		t.Error("ComposeYAML missing depends_on section")
 	}
-	if !strings.Contains(result.ComposeYAML, "condition: service_started") {
+	if !strings.Contains(composeYAML, "condition: service_started") {
 		t.Error("ComposeYAML missing condition: service_started")
 	}
 }
@@ -308,25 +340,32 @@ func TestComposeGenerator_BasicTemplate(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
+	// Process the template to get rendered YAML
+	tmpl := templates[0]
+	composeYAML, err := processTemplate(filepath.Join(tmpl.Path, ".devcontainer", "docker-compose.yml.tmpl"), result.TemplateData)
+	if err != nil {
+		t.Fatalf("processTemplate failed: %v", err)
+	}
+
 	// Verify compose YAML has expected structure
-	if !strings.Contains(result.ComposeYAML, "services:") {
+	if !strings.Contains(composeYAML, "services:") {
 		t.Error("Missing services section")
 	}
-	if !strings.Contains(result.ComposeYAML, "app:") {
+	if !strings.Contains(composeYAML, "app:") {
 		t.Error("Missing app service")
 	}
-	if !strings.Contains(result.ComposeYAML, "proxy:") {
+	if !strings.Contains(composeYAML, "proxy:") {
 		t.Error("Missing proxy service")
 	}
 
 	// Verify isolation settings from template (hardcoded in docker-compose.yml.tmpl)
-	if !strings.Contains(result.ComposeYAML, "mem_limit: 4g") {
+	if !strings.Contains(composeYAML, "mem_limit: 4g") {
 		t.Error("Missing memory limit from template")
 	}
-	if !strings.Contains(result.ComposeYAML, `cpus: "2"`) {
+	if !strings.Contains(composeYAML, `cpus: "2"`) {
 		t.Error("Missing CPU limit from template")
 	}
-	if !strings.Contains(result.ComposeYAML, "cap_drop:") {
+	if !strings.Contains(composeYAML, "cap_drop:") {
 		t.Error("Missing capability drops from template")
 	}
 }
@@ -347,16 +386,23 @@ func TestComposeGenerator_GoProjectTemplate(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
+	// Process the template to get rendered YAML
+	tmpl := templates[0]
+	composeYAML, err := processTemplate(filepath.Join(tmpl.Path, ".devcontainer", "docker-compose.yml.tmpl"), result.TemplateData)
+	if err != nil {
+		t.Fatalf("processTemplate failed: %v", err)
+	}
+
 	// Verify compose YAML has expected structure
-	if !strings.Contains(result.ComposeYAML, "services:") {
+	if !strings.Contains(composeYAML, "services:") {
 		t.Error("Missing services section")
 	}
 
 	// Verify template isolation from docker-compose.yml.tmpl
-	if !strings.Contains(result.ComposeYAML, "mem_limit:") {
+	if !strings.Contains(composeYAML, "mem_limit:") {
 		t.Error("Missing memory limit from template")
 	}
-	if !strings.Contains(result.ComposeYAML, "cpus:") {
+	if !strings.Contains(composeYAML, "cpus:") {
 		t.Error("Missing CPU limit from template")
 	}
 }

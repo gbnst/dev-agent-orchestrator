@@ -287,7 +287,7 @@ func TestGetIsolationInfo(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name: "parses full isolation config",
+			name: "parses full isolation config with proxy env vars",
 			inspectOut: `[{
 				"HostConfig": {
 					"CapDrop": ["NET_RAW", "SYS_ADMIN"],
@@ -296,9 +296,20 @@ func TestGetIsolationInfo(t *testing.T) {
 					"NanoCpus": 2000000000,
 					"PidsLimit": 512
 				},
+				"Config": {
+					"Env": [
+						"http_proxy=http://proxy:8080",
+						"https_proxy=http://proxy:8080",
+						"PATH=/usr/local/bin:/usr/bin"
+					]
+				},
 				"NetworkSettings": {
 					"Networks": {
-						"devagent-abc123-net": {}
+						"myproject_isolated": {
+							"IPAddress": "172.20.0.2",
+							"Gateway": "172.20.0.1",
+							"MacAddress": "02:42:ac:14:00:02"
+						}
 					}
 				}
 			}]`,
@@ -309,11 +320,52 @@ func TestGetIsolationInfo(t *testing.T) {
 				CPULimit:        "2",
 				PidsLimit:       512,
 				NetworkIsolated: true,
-				NetworkName:     "devagent-abc123-net",
+				NetworkName:     "myproject_isolated",
+				ContainerIP:     "172.20.0.2",
+				Gateway:         "172.20.0.1",
+				ProxyAddress:    "http://proxy:8080",
 			},
 		},
 		{
-			name: "parses container without network isolation",
+			name: "detects isolation via proxy env on non-isolated-named network",
+			inspectOut: `[{
+				"HostConfig": {
+					"CapDrop": ["NET_RAW"],
+					"CapAdd": null,
+					"Memory": 4294967296,
+					"NanoCpus": 2000000000,
+					"PidsLimit": 512
+				},
+				"Config": {
+					"Env": [
+						"https_proxy=http://mitmproxy:8080",
+						"PATH=/usr/bin"
+					]
+				},
+				"NetworkSettings": {
+					"Networks": {
+						"myproject_internal": {
+							"IPAddress": "10.0.0.5",
+							"Gateway": "10.0.0.1",
+							"MacAddress": ""
+						}
+					}
+				}
+			}]`,
+			wantInfo: &IsolationInfo{
+				DroppedCaps:     []string{"NET_RAW"},
+				MemoryLimit:     "4g",
+				CPULimit:        "2",
+				PidsLimit:       512,
+				NetworkIsolated: true,
+				NetworkName:     "myproject_internal",
+				ContainerIP:     "10.0.0.5",
+				Gateway:         "10.0.0.1",
+				ProxyAddress:    "http://mitmproxy:8080",
+			},
+		},
+		{
+			name: "not isolated without proxy env vars",
 			inspectOut: `[{
 				"HostConfig": {
 					"CapDrop": ["NET_RAW"],
@@ -322,9 +374,19 @@ func TestGetIsolationInfo(t *testing.T) {
 					"NanoCpus": 500000000,
 					"PidsLimit": 0
 				},
+				"Config": {
+					"Env": [
+						"PATH=/usr/local/bin:/usr/bin",
+						"HOME=/home/vscode"
+					]
+				},
 				"NetworkSettings": {
 					"Networks": {
-						"bridge": {}
+						"bridge": {
+							"IPAddress": "172.17.0.2",
+							"Gateway": "172.17.0.1",
+							"MacAddress": ""
+						}
 					}
 				}
 			}]`,
@@ -336,10 +398,12 @@ func TestGetIsolationInfo(t *testing.T) {
 				PidsLimit:       0,
 				NetworkIsolated: false,
 				NetworkName:     "",
+				ContainerIP:     "",
+				Gateway:         "",
 			},
 		},
 		{
-			name: "parses container with no limits",
+			name: "parses container with no limits and no env",
 			inspectOut: `[{
 				"HostConfig": {
 					"CapDrop": null,
@@ -413,6 +477,15 @@ func TestGetIsolationInfo(t *testing.T) {
 			}
 			if info.NetworkName != tt.wantInfo.NetworkName {
 				t.Errorf("NetworkName: got %q, want %q", info.NetworkName, tt.wantInfo.NetworkName)
+			}
+			if info.ContainerIP != tt.wantInfo.ContainerIP {
+				t.Errorf("ContainerIP: got %q, want %q", info.ContainerIP, tt.wantInfo.ContainerIP)
+			}
+			if info.Gateway != tt.wantInfo.Gateway {
+				t.Errorf("Gateway: got %q, want %q", info.Gateway, tt.wantInfo.Gateway)
+			}
+			if info.ProxyAddress != tt.wantInfo.ProxyAddress {
+				t.Errorf("ProxyAddress: got %q, want %q", info.ProxyAddress, tt.wantInfo.ProxyAddress)
 			}
 		})
 	}

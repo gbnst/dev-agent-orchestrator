@@ -286,9 +286,19 @@ type inspectJSON struct {
 		NanoCpus  int64    `json:"NanoCpus"`
 		PidsLimit int64    `json:"PidsLimit"`
 	} `json:"HostConfig"`
+	Config struct {
+		Env []string `json:"Env"`
+	} `json:"Config"`
 	NetworkSettings struct {
-		Networks map[string]interface{} `json:"Networks"`
+		Networks map[string]networkJSON `json:"Networks"`
 	} `json:"NetworkSettings"`
+}
+
+// networkJSON represents a single network entry from docker/podman inspect.
+type networkJSON struct {
+	IPAddress  string `json:"IPAddress"`
+	Gateway    string `json:"Gateway"`
+	MacAddress string `json:"MacAddress"`
 }
 
 // GetIsolationInfo returns isolation details for a container by inspecting its runtime config.
@@ -329,13 +339,31 @@ func (r *Runtime) GetIsolationInfo(ctx context.Context, id string) (*IsolationIn
 		}
 	}
 
-	// Check for network isolation (devagent-*-net pattern)
-	for netName := range inspect.NetworkSettings.Networks {
-		if strings.HasPrefix(netName, "devagent-") && strings.HasSuffix(netName, "-net") {
-			info.NetworkIsolated = true
-			info.NetworkName = netName
-			break
+	// Detect network isolation by checking for proxy env vars.
+	// Our compose templates set http_proxy/https_proxy when isolation is enabled.
+	for _, env := range inspect.Config.Env {
+		kv := strings.SplitN(env, "=", 2)
+		if len(kv) != 2 {
+			continue
 		}
+		key := strings.ToLower(kv[0])
+		if key == "http_proxy" || key == "https_proxy" {
+			info.NetworkIsolated = true
+			if info.ProxyAddress == "" {
+				info.ProxyAddress = kv[1]
+			}
+		}
+	}
+
+	// Record network name, IP, and gateway from the first non-default network.
+	for netName, netInfo := range inspect.NetworkSettings.Networks {
+		if netName == "bridge" || netName == "host" || netName == "none" {
+			continue
+		}
+		info.NetworkName = netName
+		info.ContainerIP = netInfo.IPAddress
+		info.Gateway = netInfo.Gateway
+		break
 	}
 
 	return info, nil

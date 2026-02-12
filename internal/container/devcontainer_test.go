@@ -36,18 +36,34 @@ func TestGenerate_TemplateNotFound(t *testing.T) {
 func TestWriteToProject_CreatesDirectory(t *testing.T) {
 	tempDir := t.TempDir()
 	projectPath := filepath.Join(tempDir, "myproject")
+	templateDir := filepath.Join(tempDir, "template")
 
-	// Project dir doesn't exist yet - should be created
+	// Create project directory
 	if err := os.MkdirAll(projectPath, 0755); err != nil {
 		t.Fatalf("Failed to create project dir: %v", err)
 	}
 
-	g := NewDevcontainerGenerator(nil, nil)
-	result := &GenerateResult{
-		DevcontainerTemplate: `{"name": "test", "image": "ubuntu:22.04"}`,
+	// Create template directory with .devcontainer structure
+	if err := os.MkdirAll(filepath.Join(templateDir, ".devcontainer"), 0755); err != nil {
+		t.Fatalf("Failed to create template dir: %v", err)
 	}
 
-	err := g.WriteToProject(projectPath, result)
+	// Create a minimal devcontainer.json.tmpl
+	templateContent := `{"name": "{{.ProjectName}}", "image": "ubuntu:22.04"}`
+	if err := os.WriteFile(filepath.Join(templateDir, ".devcontainer", "devcontainer.json.tmpl"), []byte(templateContent), 0644); err != nil {
+		t.Fatalf("Failed to write template: %v", err)
+	}
+
+	g := NewDevcontainerGenerator(nil, nil)
+	result := &GenerateResult{
+		TemplatePath: templateDir,
+	}
+	data := TemplateData{
+		ProjectPath: projectPath,
+		ProjectName: "test-project",
+	}
+
+	err := g.WriteToProject(projectPath, result, data)
 	if err != nil {
 		t.Fatalf("WriteToProject failed: %v", err)
 	}
@@ -62,7 +78,7 @@ func TestWriteToProject_CreatesDirectory(t *testing.T) {
 		t.Error(".devcontainer is not a directory")
 	}
 
-	// Check devcontainer.json exists
+	// Check devcontainer.json exists (processed from .tmpl)
 	jsonPath := filepath.Join(devcontainerDir, "devcontainer.json")
 	if _, err := os.Stat(jsonPath); err != nil {
 		t.Fatalf("devcontainer.json not created: %v", err)
@@ -72,36 +88,52 @@ func TestWriteToProject_CreatesDirectory(t *testing.T) {
 func TestWriteToProject_ValidJSON(t *testing.T) {
 	tempDir := t.TempDir()
 	projectPath := filepath.Join(tempDir, "myproject")
+	templateDir := filepath.Join(tempDir, "template")
+
 	if err := os.MkdirAll(projectPath, 0755); err != nil {
 		t.Fatalf("Failed to create project dir: %v", err)
 	}
 
-	g := NewDevcontainerGenerator(nil, nil)
+	// Create template directory with .devcontainer structure
+	if err := os.MkdirAll(filepath.Join(templateDir, ".devcontainer"), 0755); err != nil {
+		t.Fatalf("Failed to create template dir: %v", err)
+	}
+
+	// Create a devcontainer.json.tmpl with template substitution
 	templateContent := `{
-  "name": "test-container",
+  "name": "test-{{.ProjectName}}",
   "image": "ubuntu:22.04",
   "containerEnv": {
     "FOO": "bar"
   }
 }`
-	result := &GenerateResult{
-		DevcontainerTemplate: templateContent,
+	if err := os.WriteFile(filepath.Join(templateDir, ".devcontainer", "devcontainer.json.tmpl"), []byte(templateContent), 0644); err != nil {
+		t.Fatalf("Failed to write template: %v", err)
 	}
 
-	err := g.WriteToProject(projectPath, result)
+	g := NewDevcontainerGenerator(nil, nil)
+	result := &GenerateResult{
+		TemplatePath: templateDir,
+	}
+	data := TemplateData{
+		ProjectPath: projectPath,
+		ProjectName: "container",
+	}
+
+	err := g.WriteToProject(projectPath, result, data)
 	if err != nil {
 		t.Fatalf("WriteToProject failed: %v", err)
 	}
 
 	// Read back and verify
 	jsonPath := filepath.Join(projectPath, ".devcontainer", "devcontainer.json")
-	data, err := os.ReadFile(jsonPath)
+	readData, err := os.ReadFile(jsonPath)
 	if err != nil {
 		t.Fatalf("Failed to read devcontainer.json: %v", err)
 	}
 
 	var readBack DevcontainerJSON
-	if err := json.Unmarshal(data, &readBack); err != nil {
+	if err := json.Unmarshal(readData, &readBack); err != nil {
 		t.Fatalf("Invalid JSON: %v", err)
 	}
 
@@ -125,16 +157,17 @@ func TestWriteToProject_EmptyTemplate(t *testing.T) {
 
 	g := NewDevcontainerGenerator(nil, nil)
 	result := &GenerateResult{
-		DevcontainerTemplate: "",
+		TemplatePath: "",
 	}
+	data := TemplateData{}
 
-	err := g.WriteToProject(projectPath, result)
+	err := g.WriteToProject(projectPath, result, data)
 	if err == nil {
-		t.Fatal("Expected error when DevcontainerTemplate is empty")
+		t.Fatal("Expected error when TemplatePath is empty")
 	}
 
-	if !strings.Contains(err.Error(), "no devcontainer template content generated") {
-		t.Errorf("Error message: got %q, want substring %q", err.Error(), "no devcontainer template content generated")
+	if !strings.Contains(err.Error(), "no template path specified") {
+		t.Errorf("Error message: got %q, want substring %q", err.Error(), "no template path specified")
 	}
 }
 
@@ -379,18 +412,23 @@ func TestEnsureClaudeToken_TokenWithWhitespace(t *testing.T) {
 
 
 func TestGenerate_TemplateMode_UsesTemplateFiles(t *testing.T) {
-	// Generate() now requires actual template files on disk.
-	// Set up a minimal template directory with devcontainer.json.tmpl.
+	// Generate() now just returns TemplatePath for file copying.
+	// Set up a minimal template directory.
 	tmpDir := t.TempDir()
+	devcontainerDir := filepath.Join(tmpDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create devcontainer dir: %v", err)
+	}
+
 	tmplContent := `{
   "name": "test-{{.ProjectName}}",
   "dockerComposeFile": "docker-compose.yml",
   "service": "app",
   "workspaceFolder": "{{.WorkspaceFolder}}",
   "remoteUser": "vscode",
-  "postCreateCommand": "{{.CertInstallCommand}}"
+  "postCreateCommand": "bash {{.WorkspaceFolder}}/.devcontainer/post-create.sh"
 }`
-	if err := os.WriteFile(filepath.Join(tmpDir, "devcontainer.json.tmpl"), []byte(tmplContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json.tmpl"), []byte(tmplContent), 0644); err != nil {
 		t.Fatalf("Failed to write template: %v", err)
 	}
 
@@ -415,36 +453,22 @@ func TestGenerate_TemplateMode_UsesTemplateFiles(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	// Config should be nil when using templates
-	if result.Config != nil {
-		t.Error("Config should be nil when using template mode")
-	}
-
-	// DevcontainerTemplate should contain processed template output
-	if result.DevcontainerTemplate == "" {
-		t.Fatal("DevcontainerTemplate should not be empty")
-	}
-
-	if !strings.Contains(result.DevcontainerTemplate, `"name": "test-myproject"`) {
-		t.Errorf("Template should substitute ProjectName, got: %s", result.DevcontainerTemplate)
-	}
-	if !strings.Contains(result.DevcontainerTemplate, `"workspaceFolder": "/workspaces/myproject"`) {
-		t.Errorf("Template should substitute WorkspaceFolder, got: %s", result.DevcontainerTemplate)
-	}
-	if !strings.Contains(result.DevcontainerTemplate, "update-ca-certificates") {
-		t.Error("CertInstallCommand should include cert installation")
+	// TemplatePath should point to the template directory
+	if result.TemplatePath != tmpDir {
+		t.Errorf("Expected TemplatePath=%q, got %q", tmpDir, result.TemplatePath)
 	}
 }
 
-func TestGenerate_TemplateMode_SetsCopyDockerfile(t *testing.T) {
+func TestGenerate_ReturnsTemplatePath(t *testing.T) {
 	tmpDir := t.TempDir()
-	tmplContent := `{"name": "test", "dockerComposeFile": "docker-compose.yml", "service": "app", "postCreateCommand": "{{.CertInstallCommand}}"}`
-	if err := os.WriteFile(filepath.Join(tmpDir, "devcontainer.json.tmpl"), []byte(tmplContent), 0644); err != nil {
-		t.Fatalf("Failed to write template: %v", err)
+	devcontainerDir := filepath.Join(tmpDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create devcontainer dir: %v", err)
 	}
-	// Also create a Dockerfile so copy would work
-	if err := os.WriteFile(filepath.Join(tmpDir, "Dockerfile"), []byte("FROM ubuntu"), 0644); err != nil {
-		t.Fatalf("Failed to write Dockerfile: %v", err)
+
+	tmplContent := `{"name": "test", "dockerComposeFile": "docker-compose.yml", "service": "app", "postCreateCommand": "bash {{.WorkspaceFolder}}/.devcontainer/post-create.sh"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write template: %v", err)
 	}
 
 	cfg := &config.Config{}
@@ -468,219 +492,107 @@ func TestGenerate_TemplateMode_SetsCopyDockerfile(t *testing.T) {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
-	// CopyDockerfile should be set to track which Dockerfile to copy
-	if result.CopyDockerfile != "Dockerfile" {
-		t.Errorf("Expected CopyDockerfile='Dockerfile', got %q", result.CopyDockerfile)
-	}
-
 	// TemplatePath should be set for WriteToProject to find the source
 	if result.TemplatePath != tmpDir {
 		t.Errorf("Expected TemplatePath=%q, got %q", tmpDir, result.TemplatePath)
 	}
 }
 
-func TestWriteComposeFiles_CreatesAllFiles(t *testing.T) {
+func TestWriteAll_WritesTemplateFiles(t *testing.T) {
 	projectDir := t.TempDir()
+	templateDir := filepath.Join(projectDir, "template")
+	devcontainerDir := filepath.Join(templateDir, ".devcontainer")
+
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template dir: %v", err)
+	}
+
+	// Create minimal template files
+	tmplContent := `{"name": "test-{{.ProjectName}}", "dockerComposeFile": "docker-compose.yml", "service": "app"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write template: %v", err)
+	}
+
+	composeContent := "services:\n  app:\n    image: {{.ProxyImage}}"
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml.tmpl"), []byte(composeContent), 0644); err != nil {
+		t.Fatalf("Failed to write compose template: %v", err)
+	}
+
 	cfg := &config.Config{}
 	gen := NewDevcontainerGenerator(cfg, nil)
 
-	composeResult := &ComposeResult{
-		ComposeYAML: `services:
-  app:
-    image: ubuntu
-  proxy:
-    image: mitmproxy/mitmproxy
-`,
-	}
-
-	err := gen.WriteComposeFiles(projectDir, composeResult)
-	if err != nil {
-		t.Fatalf("WriteComposeFiles failed: %v", err)
-	}
-
-	// Verify docker-compose.yml
-	composePath := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
-	if _, err := os.Stat(composePath); os.IsNotExist(err) {
-		t.Error("docker-compose.yml was not created")
-	}
-	composeContent, _ := os.ReadFile(composePath)
-	if !strings.Contains(string(composeContent), "services:") {
-		t.Error("docker-compose.yml content is incorrect")
-	}
-
-	// Verify Dockerfile.proxy is NOT created (now copied by WriteToProject from template)
-	dockerfilePath := filepath.Join(projectDir, ".devcontainer", "Dockerfile.proxy")
-	if _, err := os.Stat(dockerfilePath); !os.IsNotExist(err) {
-		t.Error("Dockerfile.proxy should not be created by WriteComposeFiles")
-	}
-
-	// Verify filter.py is NOT created (now copied by WriteToProject from template)
-	filterPath := filepath.Join(projectDir, ".devcontainer", "filter.py")
-	if _, err := os.Stat(filterPath); !os.IsNotExist(err) {
-		t.Error("filter.py should not be created by WriteComposeFiles")
-	}
-}
-
-func TestWriteComposeFiles_CreatesDevcontainerDir(t *testing.T) {
-	projectDir := t.TempDir()
-	cfg := &config.Config{}
-	gen := NewDevcontainerGenerator(cfg, nil)
-
-	composeResult := &ComposeResult{
-		ComposeYAML: "services: {}",
-	}
-
-	err := gen.WriteComposeFiles(projectDir, composeResult)
-	if err != nil {
-		t.Fatalf("WriteComposeFiles failed: %v", err)
-	}
-
-	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
-	info, err := os.Stat(devcontainerDir)
-	if os.IsNotExist(err) {
-		t.Error(".devcontainer directory was not created")
-	}
-	if !info.IsDir() {
-		t.Error(".devcontainer is not a directory")
-	}
-}
-
-func TestWriteAll_WritesDevcontainerAndComposeFiles(t *testing.T) {
-	projectDir := t.TempDir()
-	cfg := &config.Config{}
-	templates := []config.Template{
-		{Name: "basic"},
-	}
-	gen := NewDevcontainerGenerator(cfg, templates)
-
-	devcontainerResult := &GenerateResult{
-		DevcontainerTemplate: `{
-  "name": "test",
-  "dockerComposeFile": "docker-compose.yml",
-  "service": "app",
-  "workspaceFolder": "/workspaces/test"
-}`,
+	devResult := &GenerateResult{
+		TemplatePath: templateDir,
 	}
 
 	composeResult := &ComposeResult{
-		ComposeYAML: "services:\n  app:\n    image: ubuntu",
+		TemplateData: TemplateData{
+			ProjectPath: projectDir,
+			ProjectName: "test",
+			ProxyImage:  "mitmproxy/mitmproxy:latest",
+		},
 	}
 
-	err := gen.WriteAll(projectDir, devcontainerResult, composeResult)
+	err := gen.WriteAll(projectDir, devResult, composeResult)
 	if err != nil {
 		t.Fatalf("WriteAll failed: %v", err)
 	}
 
-	// Verify devcontainer.json
+	// Verify devcontainer.json was created from .tmpl
 	devcontainerPath := filepath.Join(projectDir, ".devcontainer", "devcontainer.json")
 	if _, err := os.Stat(devcontainerPath); os.IsNotExist(err) {
 		t.Error("devcontainer.json was not created")
 	}
 
-	// Verify compose files
+	// Verify compose files were created from .tmpl
 	composePath := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
 	if _, err := os.Stat(composePath); os.IsNotExist(err) {
 		t.Error("docker-compose.yml was not created")
 	}
 }
 
-func TestWriteAll_WithoutComposeResult(t *testing.T) {
-	projectDir := t.TempDir()
-	cfg := &config.Config{}
-	gen := NewDevcontainerGenerator(cfg, nil)
+func TestCopyTemplateDir_ProcessesTemplates(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
 
-	devcontainerResult := &GenerateResult{
-		DevcontainerTemplate: `{
-  "name": "test",
-  "image": "ubuntu"
-}`,
+	// Create source directory with .tmpl file and regular file
+	if err := os.WriteFile(filepath.Join(srcDir, "config.json.tmpl"), []byte(`{"name": "{{.ProjectName}}"}`), 0644); err != nil {
+		t.Fatalf("Failed to write template: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "regular.txt"), []byte("content"), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
 	}
 
-	// composeResult is nil - should only write devcontainer.json
-	err := gen.WriteAll(projectDir, devcontainerResult, nil)
-	if err != nil {
-		t.Fatalf("WriteAll failed: %v", err)
+	data := TemplateData{
+		ProjectName: "myproject",
 	}
 
-	// Verify devcontainer.json exists
-	devcontainerPath := filepath.Join(projectDir, ".devcontainer", "devcontainer.json")
-	if _, err := os.Stat(devcontainerPath); os.IsNotExist(err) {
-		t.Error("devcontainer.json was not created")
+	if err := copyTemplateDir(srcDir, dstDir, data); err != nil {
+		t.Fatalf("copyTemplateDir failed: %v", err)
 	}
 
-	// Verify compose files do NOT exist
-	composePath := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
-	if _, err := os.Stat(composePath); !os.IsNotExist(err) {
-		t.Error("docker-compose.yml should not be created when composeResult is nil")
-	}
-}
-
-func TestWriteComposeFiles_FileContentsMatch(t *testing.T) {
-	projectDir := t.TempDir()
-	cfg := &config.Config{}
-	gen := NewDevcontainerGenerator(cfg, nil)
-
-	expectedCompose := "services:\n  app:\n    build: .\n"
-
-	composeResult := &ComposeResult{
-		ComposeYAML: expectedCompose,
+	// Verify .tmpl was processed and removed extension
+	jsonPath := filepath.Join(dstDir, "config.json")
+	if _, err := os.Stat(jsonPath); os.IsNotExist(err) {
+		t.Error("config.json was not created from .tmpl")
 	}
 
-	err := gen.WriteComposeFiles(projectDir, composeResult)
-	if err != nil {
-		t.Fatalf("WriteComposeFiles failed: %v", err)
+	// Verify .tmpl file itself doesn't exist
+	tmplPath := filepath.Join(dstDir, "config.json.tmpl")
+	if _, err := os.Stat(tmplPath); !os.IsNotExist(err) {
+		t.Error("config.json.tmpl should not exist")
 	}
 
-	// Verify exact content match
-	composeContent, _ := os.ReadFile(filepath.Join(projectDir, ".devcontainer", "docker-compose.yml"))
-	if string(composeContent) != expectedCompose {
-		t.Errorf("docker-compose.yml content mismatch:\ngot: %q\nwant: %q", composeContent, expectedCompose)
-	}
-}
-
-func TestWriteComposeFiles_CreatesProxyLogsDirectory(t *testing.T) {
-	projectDir := t.TempDir()
-	cfg := &config.Config{}
-	gen := NewDevcontainerGenerator(cfg, nil)
-
-	composeResult := &ComposeResult{
-		ComposeYAML: "services: {}",
+	// Verify regular file was copied
+	txtPath := filepath.Join(dstDir, "regular.txt")
+	if _, err := os.Stat(txtPath); os.IsNotExist(err) {
+		t.Error("regular.txt was not copied")
 	}
 
-	err := gen.WriteComposeFiles(projectDir, composeResult)
-	if err != nil {
-		t.Fatalf("WriteComposeFiles failed: %v", err)
-	}
-
-	// Verify proxy/logs directory was created
-	proxyLogsDir := filepath.Join(projectDir, ".devcontainer", "proxy", "logs")
-	info, err := os.Stat(proxyLogsDir)
-	if os.IsNotExist(err) {
-		t.Error("proxy/logs directory was not created")
-	}
-	if err == nil && !info.IsDir() {
-		t.Error("proxy/logs is not a directory")
-	}
-}
-
-func TestWriteComposeFiles_DoesNotCreateGitignore(t *testing.T) {
-	projectDir := t.TempDir()
-	cfg := &config.Config{}
-	gen := NewDevcontainerGenerator(cfg, nil)
-
-	composeResult := &ComposeResult{
-		ComposeYAML: "services: {}",
-	}
-
-	err := gen.WriteComposeFiles(projectDir, composeResult)
-	if err != nil {
-		t.Fatalf("WriteComposeFiles failed: %v", err)
-	}
-
-	// Verify .gitignore is NOT created by WriteComposeFiles (now handled by WriteToProject)
-	gitignorePath := filepath.Join(projectDir, ".devcontainer", ".gitignore")
-	if _, err := os.Stat(gitignorePath); !os.IsNotExist(err) {
-		t.Error(".gitignore should not be created by WriteComposeFiles")
+	// Verify content
+	content, _ := os.ReadFile(jsonPath)
+	if !strings.Contains(string(content), `"name": "myproject"`) {
+		t.Error("Template substitution did not work")
 	}
 }
 

@@ -6,13 +6,20 @@ import re
 # Allowlist of permitted domains
 # Wildcards are supported: "*.github.com" matches "api.github.com"
 ALLOWED_DOMAINS = [
+    # Claude / Anthropic
     "api.anthropic.com",
+
+    # GitHub
     "github.com",
     "*.github.com",
     "raw.githubusercontent.com",
-    "proxy.golang.org",
-    "sum.golang.org",
-    "storage.googleapis.com",
+
+    # Python / uv / PyPI
+    "pypi.org",
+    "files.pythonhosted.org",
+
+    # Node.js / npm
+    "registry.npmjs.org",
 ]
 
 # Passthrough domains bypass TLS interception entirely (for certificate pinning).
@@ -76,6 +83,35 @@ def load(loader):
         ctx.options.ignore_hosts = patterns
 
 
+def _log_request(flow: http.HTTPFlow) -> None:
+    """Log an HTTP request/response to the JSONL file."""
+    if flow.response is None:
+        return
+
+    duration_ms = 0
+    if flow.request.timestamp_start and flow.response.timestamp_end:
+        duration_ms = int((flow.response.timestamp_end - flow.request.timestamp_start) * 1000)
+
+    entry = {
+        "ts": flow.response.timestamp_end or flow.request.timestamp_start or 0,
+        "method": flow.request.method,
+        "url": flow.request.url,
+        "status": flow.response.status_code,
+        "duration_ms": duration_ms,
+        "req_headers": dict(flow.request.headers),
+        "res_headers": dict(flow.response.headers),
+    }
+
+    try:
+        log_dir = os.path.dirname(LOG_FILE_PATH)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        with open(LOG_FILE_PATH, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        ctx.log.error(f"Failed to write proxy log: {e}")
+
+
 class AllowlistFilter:
     """Blocks requests to domains not in the allowlist and optionally blocks PR merges."""
 
@@ -113,6 +149,7 @@ class AllowlistFilter:
                 b"Merging pull requests is not allowed in this environment. Do not retry.\n",
                 {"Content-Type": "text/plain"}
             )
+            _log_request(flow)
             return
 
         host = flow.request.pretty_host
@@ -122,10 +159,10 @@ class AllowlistFilter:
                 f"Domain '{host}' is not in the allowlist\n".encode(),
                 {"Content-Type": "text/plain"}
             )
+            _log_request(flow)
 
     def response(self, flow: http.HTTPFlow) -> None:
         """Log completed HTTP request/response to JSONL file."""
-        # Skip if response was synthesized (blocked request)
         if flow.response is None:
             return
 
@@ -135,29 +172,6 @@ class AllowlistFilter:
         if config is None or not config.get("log", True):
             return
 
-        # Build log entry
-        duration_ms = 0
-        if flow.request.timestamp_start and flow.response.timestamp_end:
-            duration_ms = int((flow.response.timestamp_end - flow.request.timestamp_start) * 1000)
-
-        entry = {
-            "ts": flow.response.timestamp_end or 0,
-            "method": flow.request.method,
-            "url": flow.request.url,
-            "status": flow.response.status_code,
-            "duration_ms": duration_ms,
-            "req_headers": dict(flow.request.headers),
-            "res_headers": dict(flow.response.headers),
-        }
-
-        # Write to log file
-        try:
-            log_dir = os.path.dirname(LOG_FILE_PATH)
-            if log_dir:
-                os.makedirs(log_dir, exist_ok=True)
-            with open(LOG_FILE_PATH, "a") as f:
-                f.write(json.dumps(entry) + "\n")
-        except Exception as e:
-            ctx.log.error(f"Failed to write proxy log: {e}")
+        _log_request(flow)
 
 addons = [AllowlistFilter()]

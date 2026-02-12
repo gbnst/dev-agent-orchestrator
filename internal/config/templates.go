@@ -8,9 +8,9 @@ import (
 )
 
 // Template represents a loaded devcontainer template.
-// Templates are discovered by scanning directories for docker-compose.yml.tmpl marker files.
+// Templates are discovered by scanning directories for .devcontainer/docker-compose.yml.tmpl marker files.
 // All orchestration config (capabilities, resources, network allowlists) is hardcoded
-// directly in template files (docker-compose.yml.tmpl, proxy/filter.py, devcontainer.json.tmpl).
+// directly in template files (.devcontainer/docker-compose.yml.tmpl, .devcontainer/containers/proxy/opt/devagent-proxy/filter.py, .devcontainer/devcontainer.json.tmpl).
 type Template struct {
 	Name string // Template name (from directory name)
 	Path string // Absolute path to template directory
@@ -33,7 +33,7 @@ func LoadTemplates() ([]Template, error) {
 }
 
 // LoadTemplatesFrom loads all templates from the specified directory.
-// Each subdirectory containing a docker-compose.yml.tmpl file is treated as a template.
+// Each subdirectory containing a .devcontainer/docker-compose.yml.tmpl file is treated as a template.
 // The directory name is used as the template name.
 func LoadTemplatesFrom(dir string) ([]Template, error) {
 	entries, err := os.ReadDir(dir)
@@ -51,7 +51,7 @@ func LoadTemplatesFrom(dir string) ([]Template, error) {
 		}
 
 		templateDir := filepath.Join(dir, entry.Name())
-		markerPath := filepath.Join(templateDir, "docker-compose.yml.tmpl")
+		markerPath := filepath.Join(templateDir, ".devcontainer", "docker-compose.yml.tmpl")
 		if _, err := os.Stat(markerPath); err != nil {
 			if os.IsNotExist(err) {
 				continue // Not a template directory

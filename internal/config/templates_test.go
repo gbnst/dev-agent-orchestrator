@@ -20,13 +20,14 @@ func TestLoadTemplates_EmptyDir(t *testing.T) {
 func TestLoadTemplates_SingleTemplate(t *testing.T) {
 	tempDir := t.TempDir()
 	templateDir := filepath.Join(tempDir, "basic")
-	if err := os.Mkdir(templateDir, 0755); err != nil {
-		t.Fatalf("Failed to create template directory: %v", err)
+	devcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer directory: %v", err)
 	}
 
 	// Create marker file (docker-compose.yml.tmpl)
 	composeContent := "services:\n  app:\n    build:\n      context: .\n"
-	if err := os.WriteFile(filepath.Join(templateDir, "docker-compose.yml.tmpl"), []byte(composeContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml.tmpl"), []byte(composeContent), 0644); err != nil {
 		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
 	}
 
@@ -52,10 +53,11 @@ func TestLoadTemplates_MultipleTemplates(t *testing.T) {
 
 	for _, name := range []string{"basic", "go-project"} {
 		dir := filepath.Join(tempDir, name)
-		if err := os.Mkdir(dir, 0755); err != nil {
-			t.Fatalf("Failed to create %s directory: %v", name, err)
+		devcontainerDir := filepath.Join(dir, ".devcontainer")
+		if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+			t.Fatalf("Failed to create .devcontainer directory for %s: %v", name, err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, "docker-compose.yml.tmpl"), []byte("services:\n  app:\n"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml.tmpl"), []byte("services:\n  app:\n"), 0644); err != nil {
 			t.Fatalf("Failed to write docker-compose.yml.tmpl for %s: %v", name, err)
 		}
 	}
@@ -82,10 +84,11 @@ func TestLoadTemplates_IgnoresFilesAndDirsWithoutMarker(t *testing.T) {
 
 	// Create valid template directory (has docker-compose.yml.tmpl)
 	validDir := filepath.Join(tempDir, "valid")
-	if err := os.MkdirAll(validDir, 0755); err != nil {
-		t.Fatalf("Failed to create valid dir: %v", err)
+	validDevcontainerDir := filepath.Join(validDir, ".devcontainer")
+	if err := os.MkdirAll(validDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create valid .devcontainer dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(validDir, "docker-compose.yml.tmpl"), []byte("services:\n  app:\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(validDevcontainerDir, "docker-compose.yml.tmpl"), []byte("services:\n  app:\n"), 0644); err != nil {
 		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
 	}
 
@@ -123,10 +126,11 @@ func TestLoadTemplates_UsesDirectoryName(t *testing.T) {
 	tempDir := t.TempDir()
 
 	templateDir := filepath.Join(tempDir, "my-template")
-	if err := os.MkdirAll(templateDir, 0755); err != nil {
-		t.Fatalf("Failed to create template dir: %v", err)
+	devcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(templateDir, "docker-compose.yml.tmpl"), []byte("services:\n  app:\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml.tmpl"), []byte("services:\n  app:\n"), 0644); err != nil {
 		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
 	}
 
