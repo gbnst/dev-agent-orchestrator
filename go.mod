@@ -4,10 +4,10 @@ go 1.24.2
 
 require (
 	github.com/catppuccin/go v0.3.0
-	github.com/charmbracelet/bubbles v0.21.1
+	github.com/charmbracelet/bubbles v1.0.0
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/charmbracelet/x/ansi v0.11.5
+	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/fsnotify/fsnotify v1.7.0
 	go.uber.org/zap v1.27.1
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
