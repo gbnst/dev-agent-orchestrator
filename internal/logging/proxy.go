@@ -73,8 +73,8 @@ func (p *ProxyRequest) ToLogEntry(containerName string) LogEntry {
 		level = "ERROR"
 	}
 
-	// Format message: "GET https://api.example.com/path 200 45ms"
-	message := fmt.Sprintf("%s %s %d %dms", p.Method, p.URL, p.Status, p.DurationMs)
+	// Format message: "200 GET https://api.example.com/path 45ms"
+	message := fmt.Sprintf("%d %s %s %dms", p.Status, p.Method, p.URL, p.DurationMs)
 
 	// Store full ProxyRequest in Fields for details panel
 	return LogEntry{

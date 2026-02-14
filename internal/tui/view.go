@@ -583,7 +583,7 @@ func (m Model) renderContextualHelp() string {
 	case FocusDetail:
 		help = "tab: next panel • esc: tree • l: logs"
 	case FocusLogs:
-		help = "↑/↓: scroll • g/G: top/bottom • tab: next panel • esc: tree"
+		help = "↑/↓: scroll • 1-4: filter levels • g/G: top/bottom • tab: next panel • esc: tree"
 	default: // FocusTree
 		sessionSelected := m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) && m.treeItems[m.selectedIdx].Type == TreeItemSession
 		allSelected := m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) && m.treeItems[m.selectedIdx].Type == TreeItemAll
@@ -631,6 +631,24 @@ func (m Model) renderLogEntry(entry logging.LogEntry) string {
 	return fmt.Sprintf("%s %s %s %s", ts, level, scope, message)
 }
 
+// renderLogLevelCheckboxes returns the inline level filter checkboxes for the log panel header.
+func (m Model) renderLogLevelCheckboxes() string {
+	style := lipgloss.NewStyle().Foreground(lipgloss.Color(m.styles.flavor.Overlay0().Hex))
+	levels := []struct{ name, key string }{
+		{"DEBUG", "1"}, {"INFO", "2"}, {"WARN", "3"}, {"ERROR", "4"},
+	}
+
+	var parts []string
+	for _, l := range levels {
+		check := " "
+		if m.logLevelFilter[l.name] {
+			check = "x"
+		}
+		parts = append(parts, style.Render(fmt.Sprintf("[%s]%s(%s)", check, l.name, l.key)))
+	}
+	return strings.Join(parts, " ")
+}
+
 // renderLogPanel renders the log panel content.
 func (m Model) renderLogPanel(layout Layout) string {
 	// Calculate widths based on whether details panel is open
@@ -652,9 +670,16 @@ func (m Model) renderLogPanel(layout Layout) string {
 	// Build log list content
 	logListContent := m.renderLogListContent(logListWidth, layout.Logs.Height-1)
 
-	// Log list panel
-	header := headerStyle.Width(logListWidth).Render(fmt.Sprintf(" Logs (%s)", filterInfo))
-	logListPanel := lipgloss.JoinVertical(lipgloss.Left, header, logListContent)
+	// Build level filter checkboxes
+	levelCheckboxes := m.renderLogLevelCheckboxes()
+
+	// Log list panel (enforce height so status bar stays pinned to bottom)
+	header := headerStyle.Width(logListWidth).Render(fmt.Sprintf(" Logs (%s)  %s", filterInfo, levelCheckboxes))
+	logListBody := lipgloss.NewStyle().
+		Width(logListWidth).
+		Height(layout.Logs.Height - 1).
+		Render(logListContent)
+	logListPanel := lipgloss.JoinVertical(lipgloss.Left, header, logListBody)
 
 	if !m.logDetailsOpen || !m.logDetailsReady {
 		return logListPanel

@@ -233,6 +233,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Handle log panel navigation when log panel is focused
 		if m.panelFocus == FocusLogs && m.logPanelOpen && m.logReady {
+			// Log level toggle keys
+			switch msg.String() {
+			case "1":
+				m.toggleLogLevel("DEBUG")
+				return m, nil
+			case "2":
+				m.toggleLogLevel("INFO")
+				return m, nil
+			case "3":
+				m.toggleLogLevel("WARN")
+				return m, nil
+			case "4":
+				m.toggleLogLevel("ERROR")
+				return m, nil
+			}
+
 			// Right/Left arrow for opening/closing details panel
 			if !m.logDetailsOpen {
 				if msg.Type == tea.KeyRight {

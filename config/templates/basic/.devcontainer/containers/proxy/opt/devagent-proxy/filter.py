@@ -10,6 +10,15 @@ ALLOWED_DOMAINS = [
     "github.com",
     "*.github.com",
     "raw.githubusercontent.com",
+
+    # VS Code / Remote Development
+    "update.code.visualstudio.com",
+    "*.vscode-cdn.net",
+    "vscode.download.prss.microsoft.com",
+    "az764295.vo.msecnd.net",
+    "*.gallerycdn.vsassets.io",
+    "marketplace.visualstudio.com",
+    "*.vo.msecnd.net",
 ]
 
 # Passthrough domains bypass TLS interception entirely (for certificate pinning).

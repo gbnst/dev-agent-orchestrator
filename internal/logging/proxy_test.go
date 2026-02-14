@@ -166,7 +166,7 @@ func TestProxyRequest_ToLogEntry_Message(t *testing.T) {
 
 	entry := req.ToLogEntry("container")
 
-	expectedMsg := "POST https://api.example.com/data 201 250ms"
+	expectedMsg := "201 POST https://api.example.com/data 250ms"
 	if entry.Message != expectedMsg {
 		t.Errorf("Message = %v, want %v", entry.Message, expectedMsg)
 	}
