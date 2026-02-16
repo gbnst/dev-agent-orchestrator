@@ -33,7 +33,7 @@ func createTestTemplateDir(t *testing.T, name string) string {
       dockerfile: Dockerfile
     depends_on:
       proxy:
-        condition: service_started
+        condition: service_healthy
     networks:
       - isolated
     environment:
@@ -63,6 +63,7 @@ func createTestTemplateDir(t *testing.T, name string) string {
       devagent.managed: "true"
       devagent.project_path: "{{.ProjectPath}}"
       devagent.template: "{{.TemplateName}}"
+    entrypoint: ["sh", "{{.WorkspaceFolder}}/.devcontainer/entrypoint.sh"]
     command: ["sleep", "infinity"]
 
   proxy:
@@ -73,6 +74,12 @@ func createTestTemplateDir(t *testing.T, name string) string {
       - proxy-certs:/home/mitmproxy/.mitmproxy
       - {{.ProjectPath}}/.devcontainer/proxy:/opt/devagent-proxy
     command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/opt/devagent-proxy/filter.py"]
+    healthcheck:
+      test: ["CMD", "test", "-f", "/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem"]
+      interval: 2s
+      timeout: 1s
+      retries: 15
+      start_period: 5s
     labels:
       devagent.managed: "true"
       devagent.sidecar_type: "proxy"
@@ -319,8 +326,8 @@ func TestComposeGenerator_Generate_DependsOn(t *testing.T) {
 	if !strings.Contains(composeYAML, "depends_on:") {
 		t.Error("ComposeYAML missing depends_on section")
 	}
-	if !strings.Contains(composeYAML, "condition: service_started") {
-		t.Error("ComposeYAML missing condition: service_started")
+	if !strings.Contains(composeYAML, "condition: service_healthy") {
+		t.Error("ComposeYAML missing condition: service_healthy")
 	}
 }
 

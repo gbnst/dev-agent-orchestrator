@@ -480,3 +480,95 @@ func TestSyncSelectionFromTree_ClearsCacheOnInvalidIndex(t *testing.T) {
 		t.Error("cachedIsolationInfo should be nil after invalid selection")
 	}
 }
+
+func TestModel_LogLevelFilter_DefaultAllEnabled(t *testing.T) {
+	m := newTestModel(t)
+
+	for _, level := range []string{"DEBUG", "INFO", "WARN", "ERROR"} {
+		if !m.logLevelFilter[level] {
+			t.Errorf("logLevelFilter[%q] should be true by default", level)
+		}
+	}
+}
+
+func TestModel_ToggleLogLevel(t *testing.T) {
+	m := newTestModel(t)
+
+	// Add some entries so selectedLogIndex can be set
+	m.addLogEntry(logging.LogEntry{Level: "DEBUG", Message: "debug msg", Scope: "app"})
+	m.addLogEntry(logging.LogEntry{Level: "INFO", Message: "info msg", Scope: "app"})
+	m.addLogEntry(logging.LogEntry{Level: "WARN", Message: "warn msg", Scope: "app"})
+
+	// Toggle DEBUG off
+	m.toggleLogLevel("DEBUG")
+	if m.logLevelFilter["DEBUG"] {
+		t.Error("logLevelFilter[DEBUG] should be false after toggle")
+	}
+	// selectedLogIndex should be reset to end of filtered list
+	entries := m.filteredLogEntries()
+	if m.selectedLogIndex != len(entries)-1 {
+		t.Errorf("selectedLogIndex = %d, want %d", m.selectedLogIndex, len(entries)-1)
+	}
+
+	// Toggle DEBUG back on
+	m.toggleLogLevel("DEBUG")
+	if !m.logLevelFilter["DEBUG"] {
+		t.Error("logLevelFilter[DEBUG] should be true after second toggle")
+	}
+}
+
+func TestModel_FilteredLogEntries_WithLevelFilter(t *testing.T) {
+	m := newTestModel(t)
+
+	m.addLogEntry(logging.LogEntry{Level: "DEBUG", Message: "debug msg", Scope: "app"})
+	m.addLogEntry(logging.LogEntry{Level: "INFO", Message: "info msg", Scope: "app"})
+	m.addLogEntry(logging.LogEntry{Level: "WARN", Message: "warn msg", Scope: "app"})
+	m.addLogEntry(logging.LogEntry{Level: "ERROR", Message: "error msg", Scope: "app"})
+
+	// All levels enabled: should return all 4
+	if len(m.filteredLogEntries()) != 4 {
+		t.Errorf("all levels enabled: got %d entries, want 4", len(m.filteredLogEntries()))
+	}
+
+	// Disable DEBUG
+	m.logLevelFilter["DEBUG"] = false
+	filtered := m.filteredLogEntries()
+	if len(filtered) != 3 {
+		t.Errorf("DEBUG disabled: got %d entries, want 3", len(filtered))
+	}
+	for _, entry := range filtered {
+		if entry.Level == "DEBUG" {
+			t.Error("filtered entries should not contain DEBUG when disabled")
+		}
+	}
+
+	// Disable INFO too
+	m.logLevelFilter["INFO"] = false
+	filtered = m.filteredLogEntries()
+	if len(filtered) != 2 {
+		t.Errorf("DEBUG+INFO disabled: got %d entries, want 2", len(filtered))
+	}
+}
+
+func TestModel_FilteredLogEntries_LevelAndScopeFilter(t *testing.T) {
+	m := newTestModel(t)
+
+	m.addLogEntry(logging.LogEntry{Level: "DEBUG", Message: "debug", Scope: "container.myapp"})
+	m.addLogEntry(logging.LogEntry{Level: "INFO", Message: "info", Scope: "container.myapp"})
+	m.addLogEntry(logging.LogEntry{Level: "ERROR", Message: "error", Scope: "container.other"})
+	m.addLogEntry(logging.LogEntry{Level: "WARN", Message: "warn", Scope: "proxy.myapp"})
+
+	// Scope filter + level filter combined
+	m.logFilter = "myapp"
+	m.logLevelFilter["DEBUG"] = false
+
+	filtered := m.filteredLogEntries()
+	if len(filtered) != 2 {
+		t.Errorf("scope=myapp, DEBUG disabled: got %d entries, want 2", len(filtered))
+	}
+	for _, entry := range filtered {
+		if entry.Level == "DEBUG" {
+			t.Error("should not contain DEBUG entries")
+		}
+	}
+}

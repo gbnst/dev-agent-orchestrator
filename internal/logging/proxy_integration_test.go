@@ -65,7 +65,7 @@ func TestProxyLogReader_FileCreation(t *testing.T) {
 	// Wait for entry to be received (with timeout)
 	select {
 	case entry := <-sink.Entries():
-		if entry.Message != "GET https://api.example.com/test 200 45ms" {
+		if entry.Message != "200 GET https://api.example.com/test 45ms" {
 			t.Errorf("Unexpected message: %s", entry.Message)
 		}
 		if entry.Scope != "proxy.test-container" {

@@ -172,6 +172,7 @@ type Model struct {
 	logViewport    viewport.Model
 	logFilter      string
 	logFilterLabel string
+	logLevelFilter map[string]bool // Enabled log levels: "DEBUG", "INFO", "WARN", "ERROR"
 	logAutoScroll  bool
 	logReady       bool // viewport initialized
 	logManager     *logging.Manager
@@ -231,6 +232,7 @@ func NewModelWithTemplates(cfg *config.Config, templates []config.Template, logM
 		statusSpinner:     s,
 		pendingOperations: make(map[string]string),
 		logEntries:        make([]logging.LogEntry, 0, maxLogEntries),
+		logLevelFilter:    map[string]bool{"DEBUG": true, "INFO": true, "WARN": true, "ERROR": true},
 		logAutoScroll:     true,
 		logManager:        logManager,
 		logger:            logger,
@@ -518,22 +520,49 @@ func (m *Model) addLogEntry(entry logging.LogEntry) {
 	}
 }
 
-// filteredLogEntries returns entries matching the current filter.
+// filteredLogEntries returns entries matching the current scope and level filters.
 // When a container is selected, matches both container.<name> and proxy.<name> scopes.
 func (m Model) filteredLogEntries() []logging.LogEntry {
-	if m.logFilter == "" {
+	hasLevelFilter := m.logLevelFilter != nil
+	if m.logFilter == "" && !hasLevelFilter {
 		return m.logEntries
 	}
 
 	var filtered []logging.LogEntry
 	for _, entry := range m.logEntries {
-		// Match both container and proxy scopes for the selected container
-		if entry.MatchesScope("container."+m.logFilter) ||
-			entry.MatchesScope("proxy."+m.logFilter) {
-			filtered = append(filtered, entry)
+		// Apply scope filter
+		if m.logFilter != "" {
+			if !entry.MatchesScope("container."+m.logFilter) &&
+				!entry.MatchesScope("proxy."+m.logFilter) {
+				continue
+			}
 		}
+		// Apply level filter (entries with no level always pass)
+		if hasLevelFilter && entry.Level != "" && !m.logLevelFilter[entry.Level] {
+			continue
+		}
+		filtered = append(filtered, entry)
 	}
 	return filtered
+}
+
+// toggleLogLevel flips the enabled state for the given log level and resets the selected index.
+func (m *Model) toggleLogLevel(level string) {
+	if m.logLevelFilter == nil {
+		m.logLevelFilter = map[string]bool{"DEBUG": true, "INFO": true, "WARN": true, "ERROR": true}
+	}
+	m.logLevelFilter[level] = !m.logLevelFilter[level]
+
+	// Reset selectedLogIndex (same pattern as setLogFilterFromContext)
+	entries := m.filteredLogEntries()
+	if len(entries) > 0 {
+		m.selectedLogIndex = len(entries) - 1
+	} else {
+		m.selectedLogIndex = 0
+	}
+
+	// Update log viewport content
+	m.updateLogViewportContent()
 }
 
 // setLogFilterFromContext sets the log filter based on current UI state.

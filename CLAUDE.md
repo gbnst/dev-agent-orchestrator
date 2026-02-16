@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-02-10
+Last verified: 2026-02-14
 
 ## Tech Stack
 - Language: Go 1.21+
@@ -29,7 +29,7 @@ Last verified: 2026-02-10
 - `internal/config/` - Configuration loading and validation
 - `internal/e2e/` - E2E test utilities
 - `config/` - Development config (config.yaml + templates/)
-- `config/templates/<name>/` - Template directories (docker-compose.yml.tmpl, devcontainer.json.tmpl, Dockerfile, .gitignore, home/, proxy/)
+- `config/templates/<name>/` - Template directories (docker-compose.yml.tmpl, devcontainer.json.tmpl, Dockerfile, entrypoint.sh, post-create.sh, containers/)
 - `docs/` - Design plans and implementation phases
 - `docs/PODMAN.md` - Podman compatibility notes and workarounds
 

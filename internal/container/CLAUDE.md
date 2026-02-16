@@ -1,6 +1,6 @@
 # Container Domain
 
-Last verified: 2026-02-11
+Last verified: 2026-02-14
 
 ## Purpose
 Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker Compose, and tmux session management within containers. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking. Integrates proxy log tailing for real-time HTTP request visibility in TUI.
@@ -8,7 +8,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 ## Contracts
 - **Exposes**: `Manager`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `HashTruncLen`, `MountInfo`
 - **Note**: `NewComposeGenerator(templates, logger)` requires a `*logging.ScopedLogger` parameter (use `logging.NopLogger()` in tests)
-- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via post-create.sh. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on destroy. GitHub token injected into containers when available (non-blocking on missing token). Template files are copied via generic directory walk (`copyTemplateDir`) — adding new template files requires zero Go code changes.
+- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via entrypoint.sh (runs before VS Code connects). Proxy service healthcheck gates app startup on cert existence. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on destroy. GitHub token injected into containers when available (non-blocking on missing token). Template files are copied via generic directory walk (`copyTemplateDir`) — adding new template files requires zero Go code changes.
 - **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation. For compose mode: docker-compose or podman-compose available. LogManager must implement GetChannelSink() for proxy log integration.
 
 ## Dependencies
@@ -27,7 +27,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Token injection via bind mount: Token file mounted read-only to `/run/secrets/claude-token`, shell profiles export CLAUDE_CODE_OAUTH_TOKEN from mounted file (not via containerEnv)
 - GitHub CLI authentication: `ensureGitHubToken()` reads `{XDG_CONFIG_HOME}/github/token` (or `~/.config/github/token`); token file mounted read-only to `/run/secrets/github-token`; shell profiles export GH_TOKEN (with `-s` file-size check to avoid exporting empty string); falls back to /dev/null mount if token file missing (non-blocking, warns via logger); gh CLI installed in all template Dockerfiles
 - Sidecar architecture: Proxy sidecars use compose project name as ParentRef (from com.docker.compose.project label); both app and proxy containers share this label automatically via Docker Compose
-- Network isolation via mitmproxy: Proxy uses mitmproxy/mitmproxy:latest image; filter.py (from template) controls traffic with hardcoded allowlist and passthrough domains via the filter script's `load()` hook using `ctx.options.ignore_hosts`; CA cert installed in devcontainer via post-create.sh (waits for cert, copies to trust store)
+- Network isolation via mitmproxy: Proxy uses mitmproxy/mitmproxy:latest image; filter.py (from template) controls traffic with hardcoded allowlist and passthrough domains via the filter script's `load()` hook using `ctx.options.ignore_hosts`; CA cert installed in devcontainer via entrypoint.sh (runs before VS Code connects, installs to system trust store)
 - GitHub PR merge blocking: When BLOCK_GITHUB_PR_MERGE enabled in filter.py, filter script blocks PUT to /repos/.*/pulls/\d+/merge and POST /graphql with mergePullRequest
 - Proxy environment variables: http_proxy, https_proxy, and cert paths (REQUESTS_CA_BUNDLE, NODE_EXTRA_CA_CERTS, SSL_CERT_FILE) auto-injected when isolation enabled
 
@@ -67,4 +67,5 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Proxy log reader requires LogManager with GetChannelSink(); uses type assertion at runtime
 - Proxy logs directory created via .gitkeep at .devcontainer/containers/proxy/opt/devagent-proxy/logs/
 - Template directory layout: all template files live under `.devcontainer/`; `containers/app/` mirrors app container filesystem; `containers/proxy/` mirrors proxy container filesystem; `.tmpl` files are processed, others copied as-is
-- post-create.sh handles mitmproxy CA cert installation and project-specific setup (go mod download, uv sync, etc.); called via `bash` (not execute bit) from devcontainer.json postCreateCommand
+- entrypoint.sh handles mitmproxy CA cert installation (runs as root before VS Code connects); uses `sh` invocation in compose entrypoint since copyTemplateDir writes files with 0644
+- post-create.sh handles project-specific setup only (go mod download, uv sync, etc.); called via `bash` from devcontainer.json postCreateCommand

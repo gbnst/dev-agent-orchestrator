@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     depends_on:
       proxy:
-        condition: service_started
+        condition: service_healthy
     networks:
       - isolated
     environment:
@@ -47,6 +47,7 @@ services:
       devagent.managed: "true"
       devagent.project_path: "{{.ProjectPath}}"
       devagent.template: "{{.TemplateName}}"
+    entrypoint: ["sh", "{{.WorkspaceFolder}}/.devcontainer/entrypoint.sh"]
     command: ["sleep", "infinity"]
 
   proxy:
@@ -57,6 +58,12 @@ services:
       - proxy-certs:/home/mitmproxy/.mitmproxy
       - {{.ProjectPath}}/.devcontainer/containers/proxy/opt/devagent-proxy:/opt/devagent-proxy
     command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "{{.ProxyPort}}", "-s", "/opt/devagent-proxy/filter.py"]
+    healthcheck:
+      test: ["CMD", "test", "-f", "/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem"]
+      interval: 2s
+      timeout: 1s
+      retries: 15
+      start_period: 5s
     labels:
       devagent.managed: "true"
       devagent.sidecar_type: "proxy"

@@ -7,8 +7,8 @@ require (
 	github.com/charmbracelet/bubbles v0.21.1
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/charmbracelet/x/ansi v0.11.5
-	github.com/fsnotify/fsnotify v1.9.0
+	github.com/charmbracelet/x/ansi v0.11.6
+	github.com/fsnotify/fsnotify v1.7.0
 	go.uber.org/zap v1.27.1
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
