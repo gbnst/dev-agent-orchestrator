@@ -55,6 +55,12 @@ type isolationInfoMsg struct {
 	containerID string
 }
 
+// WebSessionActionMsg is sent by the web server after session mutations.
+// It triggers a session refresh to keep the TUI tree in sync.
+type WebSessionActionMsg struct {
+	ContainerID string
+}
+
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -564,6 +570,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Refresh sessions after action
 		return m, m.refreshSessions()
+
+	case WebSessionActionMsg:
+		return m, m.refreshAllSessions()
 
 	case sessionsRefreshedMsg:
 		// Update sessions for the container

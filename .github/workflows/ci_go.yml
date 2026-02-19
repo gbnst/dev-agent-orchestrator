@@ -10,6 +10,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: internal/web/frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: internal/web/frontend
+        run: npm ci && npm run build
+
       - uses: actions/setup-go@v6
         with:
           go-version: "1.24"
@@ -25,6 +35,16 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: internal/web/frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: internal/web/frontend
+        run: npm ci && npm run build
+
       - uses: actions/setup-go@v6
         with:
           go-version: "1.24"
@@ -38,6 +58,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: internal/web/frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: internal/web/frontend
+        run: npm ci && npm run build
 
       - uses: actions/setup-go@v6
         with:

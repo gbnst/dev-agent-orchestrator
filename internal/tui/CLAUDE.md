@@ -1,18 +1,18 @@
 # TUI Domain
 
-Last verified: 2026-02-06
+Last verified: 2026-02-19
 
 ## Purpose
 Provides terminal UI for orchestrating development containers. Tree-based navigation showing containers with nested sessions, optional detail panel, live log panel with selectable entries, and log details panel for HTTP request inspection.
 
 ## Contracts
-- **Exposes**: `Model`, `NewModel()`, `NewModelWithTemplates()`, `StatusLevel`, `TreeItemType`, `TreeItem`, `PanelFocus`, `ActionCommand`, `GenerateContainerActions`, `GenerateVSCodeCommand`
+- **Exposes**: `Model`, `NewModel()`, `NewModelWithTemplates()`, `StatusLevel`, `TreeItemType`, `TreeItem`, `PanelFocus`, `ActionCommand`, `GenerateContainerActions`, `GenerateVSCodeCommand`, `WebSessionActionMsg`
 - **Guarantees**: Operations show immediate visual feedback (spinners). Log panel filters by current context (both container.* and proxy.* scopes). Log entries are selectable with details panel for HTTP request inspection. Forms are modal overlays. Destructive operations require confirmation. Container creation shows real-time progress steps.
 - **Expects**: Valid config and LogManager. Container runtime available for operations.
 
 ## Dependencies
 - **Uses**: logging.Manager (required), container.Manager, config.Config
-- **Used by**: main.go only
+- **Used by**: main.go, web.Server (via WebSessionActionMsg)
 - **Boundary**: UI layer; delegates all business logic to container/tmux packages
 
 ## Key Decisions

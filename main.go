@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"devagent/internal/container"
 	"devagent/internal/logging"
 	"devagent/internal/tui"
+	"devagent/internal/web"
 )
 
 func main() {
@@ -195,6 +197,28 @@ func runTUI(configDir string) {
 	model := tui.NewModel(&cfg, logManager)
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
+
+	if cfg.Web.Port > 0 {
+		webServer := web.New(
+			web.Config{Bind: cfg.Web.Bind, Port: cfg.Web.Port},
+			model.Manager(),
+			p.Send,
+			logManager,
+		)
+		go func() {
+			if err := webServer.Start(); err != nil && err != http.ErrServerClosed {
+				appLogger.Error("web server error", "error", err)
+			}
+		}()
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := webServer.Shutdown(ctx); err != nil {
+				appLogger.Error("web server shutdown error", "error", err)
+			}
+		}()
+	}
+
 	if _, err := p.Run(); err != nil {
 		appLogger.Error("application exited with error", "error", err)
 		fmt.Fprintf(os.Stderr, "Error running program: %v\n", err)

@@ -5,6 +5,7 @@ package e2e
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,8 +15,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/config"
+	"devagent/internal/container"
 	"devagent/internal/logging"
 	"devagent/internal/tui"
+	"devagent/internal/web"
 )
 
 // SkipIfRuntimeMissing skips the test if the specified runtime is not available.
@@ -122,6 +125,40 @@ func TestLogManager(t *testing.T) *logging.Manager {
 	})
 
 	return logMgr
+}
+
+// TestWebServer creates and starts a web server on an ephemeral port.
+// Returns the server and the base URL (e.g., "http://127.0.0.1:12345").
+// The server is automatically shut down via t.Cleanup.
+// Uses Listen() + Serve() pattern to avoid race condition with port 0.
+func TestWebServer(t *testing.T, mgr *container.Manager, logMgr *logging.Manager) (*web.Server, string) {
+	t.Helper()
+
+	// Use port 0 for OS-assigned ephemeral port
+	srv := web.New(web.Config{Bind: "127.0.0.1", Port: 0}, mgr, func(tea.Msg) {}, logMgr)
+
+	// Listen synchronously to get the actual bound address before serving
+	ln, err := srv.Listen()
+	if err != nil {
+		t.Fatalf("web server listen: %v", err)
+	}
+
+	baseURL := "http://" + ln.Addr().String()
+
+	// Serve in background
+	go func() {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			t.Logf("web server error: %v", err)
+		}
+	}()
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx) //nolint:errcheck
+	})
+
+	return srv, baseURL
 }
 
 // CleanupContainer removes a container after test.

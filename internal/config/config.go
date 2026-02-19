@@ -16,12 +16,18 @@ type Config struct {
 	Runtime     string                 `yaml:"runtime"`
 	LogLevel    string                 `yaml:"log_level"`
 	OTEL        OTELConfig             `yaml:"otel"`
+	Web         WebConfig              `yaml:"web"`
 	Credentials map[string]string      `yaml:"credentials"`
 	Agents      map[string]AgentConfig `yaml:"agents"`
 }
 
 type OTELConfig struct {
 	GRPCPort int `yaml:"grpc_port"`
+}
+
+type WebConfig struct {
+	Bind string `yaml:"bind"`
+	Port int    `yaml:"port"`
 }
 
 type AgentConfig struct {
@@ -44,6 +50,10 @@ func DefaultConfig() Config {
 	return Config{
 		Theme:    "mocha",
 		LogLevel: "info",
+		Web: WebConfig{
+			Bind: "127.0.0.1",
+			Port: 0, // disabled by default
+		},
 	}
 }
 

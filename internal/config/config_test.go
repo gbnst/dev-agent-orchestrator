@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadFullConfig(t *testing.T) {
@@ -335,5 +337,95 @@ func TestLoadFrom_LogLevel_EmptyUsesDefault(t *testing.T) {
 	}
 	if cfg.LogLevel != "info" {
 		t.Errorf("cfg.LogLevel = %q, want %q (default)", cfg.LogLevel, "info")
+	}
+}
+
+func TestDefaultConfig_WebConfig(t *testing.T) {
+	cfg := DefaultConfig()
+
+	t.Run("bind defaults to 127.0.0.1", func(t *testing.T) {
+		if cfg.Web.Bind != "127.0.0.1" {
+			t.Errorf("Web.Bind = %q, want %q", cfg.Web.Bind, "127.0.0.1")
+		}
+	})
+
+	t.Run("port defaults to 0 (disabled)", func(t *testing.T) {
+		if cfg.Web.Port != 0 {
+			t.Errorf("Web.Port = %d, want 0", cfg.Web.Port)
+		}
+	})
+}
+
+func TestWebConfig_UnmarshalYAML(t *testing.T) {
+	t.Run("parses web section with port and bind", func(t *testing.T) {
+		input := []byte(`
+web:
+  port: 8080
+  bind: "0.0.0.0"
+`)
+		var cfg Config
+		if err := yaml.Unmarshal(input, &cfg); err != nil {
+			t.Fatalf("yaml.Unmarshal() error = %v", err)
+		}
+		if cfg.Web.Port != 8080 {
+			t.Errorf("Web.Port = %d, want 8080", cfg.Web.Port)
+		}
+		if cfg.Web.Bind != "0.0.0.0" {
+			t.Errorf("Web.Bind = %q, want %q", cfg.Web.Bind, "0.0.0.0")
+		}
+	})
+
+	t.Run("missing web section leaves zero values", func(t *testing.T) {
+		input := []byte("theme: latte\n")
+		var cfg Config
+		if err := yaml.Unmarshal(input, &cfg); err != nil {
+			t.Fatalf("yaml.Unmarshal() error = %v", err)
+		}
+		if cfg.Web.Port != 0 {
+			t.Errorf("Web.Port = %d, want 0 when web section absent", cfg.Web.Port)
+		}
+		if cfg.Web.Bind != "" {
+			t.Errorf("Web.Bind = %q, want empty string when web section absent", cfg.Web.Bind)
+		}
+	})
+}
+
+func TestLoadFrom_WebConfig_ExplicitValues(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	content := []byte("web:\n  port: 8080\n  bind: \"0.0.0.0\"\n")
+	if err := os.WriteFile(configPath, content, 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadFrom(configPath)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if cfg.Web.Port != 8080 {
+		t.Errorf("Web.Port = %d, want 8080", cfg.Web.Port)
+	}
+	if cfg.Web.Bind != "0.0.0.0" {
+		t.Errorf("Web.Bind = %q, want %q", cfg.Web.Bind, "0.0.0.0")
+	}
+}
+
+func TestLoadFrom_WebConfig_NoSection_UsesDefaults(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	content := []byte("theme: latte\n") // no web section
+	if err := os.WriteFile(configPath, content, 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	cfg, err := LoadFrom(configPath)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if cfg.Web.Bind != "127.0.0.1" {
+		t.Errorf("Web.Bind = %q, want %q (default)", cfg.Web.Bind, "127.0.0.1")
+	}
+	if cfg.Web.Port != 0 {
+		t.Errorf("Web.Port = %d, want 0 (default)", cfg.Web.Port)
 	}
 }

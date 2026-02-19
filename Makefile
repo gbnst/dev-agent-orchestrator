@@ -1,10 +1,19 @@
-.PHONY: deps build run dev test test-race test-e2e test-e2e-docker test-e2e-podman lint clean
+.PHONY: deps build run dev test test-race test-e2e test-e2e-docker test-e2e-podman lint clean frontend-install frontend-build frontend-dev
 
 deps:
 	go mod download
 	go mod verify
 
-build:
+frontend-install:
+	cd internal/web/frontend && npm install
+
+frontend-build: frontend-install
+	cd internal/web/frontend && npm run build
+
+frontend-dev:
+	cd internal/web/frontend && npm run dev
+
+build: frontend-build
 	go build -o bin/devagent .
 
 run:
