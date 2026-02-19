@@ -501,9 +501,9 @@ func TestFormatBytes(t *testing.T) {
 		{512 * 1024 * 1024, "512m"},
 		{1024 * 1024 * 1024, "1g"},
 		{4 * 1024 * 1024 * 1024, "4g"},
-		{1536 * 1024 * 1024, "1536m"},        // 1.5 GB shows as MB since not evenly divisible by GB
-		{100 * 1024 * 1024, "100m"},          // 100 MB
-		{1024*1024 + 512*1024, "1.5m"},       // 1.5 MB (non-round)
+		{1536 * 1024 * 1024, "1536m"},  // 1.5 GB shows as MB since not evenly divisible by GB
+		{100 * 1024 * 1024, "100m"},    // 100 MB
+		{1024*1024 + 512*1024, "1.5m"}, // 1.5 MB (non-round)
 	}
 
 	for _, tt := range tests {

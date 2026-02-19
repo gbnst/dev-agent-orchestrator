@@ -52,4 +52,3 @@ func TestLogManagerInitialization(t *testing.T) {
 		t.Error("no log entry received on channel")
 	}
 }
-

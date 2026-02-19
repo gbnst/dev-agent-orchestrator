@@ -61,9 +61,9 @@ func (c *Container) SessionCount() int {
 // Sidecar represents an auxiliary container that provides services to a devcontainer.
 // ParentRef contains the compose project name, which groups the app and sidecar containers.
 type Sidecar struct {
-	ID        string         // Container ID
-	Type      string         // Sidecar type (e.g., "proxy")
-	ParentRef string         // Compose project name linking sidecar to devcontainer
+	ID        string // Container ID
+	Type      string // Sidecar type (e.g., "proxy")
+	ParentRef string // Compose project name linking sidecar to devcontainer
 	State     ContainerState
 }
 
@@ -75,21 +75,21 @@ type BuildConfig struct {
 
 // DevcontainerJSON represents the structure of a devcontainer.json file.
 type DevcontainerJSON struct {
-	Name              string                            `json:"name"`
-	Image             string                            `json:"image,omitempty"`
-	Build             *BuildConfig                      `json:"build,omitempty"`
-	DockerComposeFile string                            `json:"dockerComposeFile,omitempty"`
-	Service           string                            `json:"service,omitempty"`
-	Features          map[string]map[string]interface{} `json:"features,omitempty"`
-	Customizations    map[string]interface{}            `json:"customizations,omitempty"`
-	PostCreateCommand string                            `json:"postCreateCommand,omitempty"`
-	ContainerEnv      map[string]string                 `json:"containerEnv,omitempty"`
-	RunArgs           []string                          `json:"runArgs,omitempty"`
-	Mounts            []string                          `json:"mounts,omitempty"`
-	CapAdd            []string                          `json:"capAdd,omitempty"`
-	SecurityOpt       []string                          `json:"securityOpt,omitempty"`
-	WorkspaceFolder   string                            `json:"workspaceFolder,omitempty"`
-	RemoteUser        string                            `json:"remoteUser,omitempty"`
+	Name              string                    `json:"name"`
+	Image             string                    `json:"image,omitempty"`
+	Build             *BuildConfig              `json:"build,omitempty"`
+	DockerComposeFile string                    `json:"dockerComposeFile,omitempty"`
+	Service           string                    `json:"service,omitempty"`
+	Features          map[string]map[string]any `json:"features,omitempty"`
+	Customizations    map[string]any            `json:"customizations,omitempty"`
+	PostCreateCommand string                    `json:"postCreateCommand,omitempty"`
+	ContainerEnv      map[string]string         `json:"containerEnv,omitempty"`
+	RunArgs           []string                  `json:"runArgs,omitempty"`
+	Mounts            []string                  `json:"mounts,omitempty"`
+	CapAdd            []string                  `json:"capAdd,omitempty"`
+	SecurityOpt       []string                  `json:"securityOpt,omitempty"`
+	WorkspaceFolder   string                    `json:"workspaceFolder,omitempty"`
+	RemoteUser        string                    `json:"remoteUser,omitempty"`
 }
 
 // ProgressStep represents a step during container creation.

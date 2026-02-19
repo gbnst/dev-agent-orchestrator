@@ -31,6 +31,7 @@
       packages = [
         pkgs.go_1_24
         pkgs.gopls
+        (pkgs.delve.override { buildGoModule = pkgs.buildGo124Module; })
         pkgs.golangci-lint
       ];
     };

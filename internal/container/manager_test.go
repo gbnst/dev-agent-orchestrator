@@ -17,18 +17,18 @@ type mockRuntime struct {
 	listErr    error
 
 	// Compose operations
-	composeUpCalled    string // projectDir
-	composeUpProject   string // projectName
-	composeUpErr       error
-	composeStartCalled string
+	composeUpCalled     string // projectDir
+	composeUpProject    string // projectName
+	composeUpErr        error
+	composeStartCalled  string
 	composeStartProject string
-	composeStartErr    error
-	composeStopCalled  string
-	composeStopProject string
-	composeStopErr     error
-	composeDownCalled  string
-	composeDownProject string
-	composeDownErr     error
+	composeStartErr     error
+	composeStopCalled   string
+	composeStopProject  string
+	composeStopErr      error
+	composeDownCalled   string
+	composeDownProject  string
+	composeDownErr      error
 }
 
 func (m *mockRuntime) ListContainers(ctx context.Context) ([]Container, error) {

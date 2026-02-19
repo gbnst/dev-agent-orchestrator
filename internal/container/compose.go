@@ -13,7 +13,6 @@ import (
 	"devagent/internal/logging"
 )
 
-
 // ComposeResult holds the generated compose configuration files.
 type ComposeResult struct {
 	TemplateData TemplateData
@@ -22,17 +21,17 @@ type ComposeResult struct {
 // TemplateData holds all values for template placeholder substitution.
 // Only instance-specific values are substituted - everything else is hardcoded in templates.
 type TemplateData struct {
-	ProjectPath        string // Absolute path to project
-	ProjectName        string // Base name of project directory
-	WorkspaceFolder    string // /workspaces/{{.ProjectName}}
-	ClaudeTokenPath    string // Host path to Claude OAuth token file (absolute)
-	GitHubTokenPath    string // Host path to GitHub token file (absolute), /dev/null if missing
-	TemplateName       string // Template name (e.g., "basic")
-	ContainerName      string // Container name for devcontainer.json
-	ProxyImage         string // Docker image for mitmproxy sidecar (default: mitmproxy/mitmproxy:latest)
-	ProxyPort          string // Port mitmproxy listens on (default: 8080)
-	RemoteUser         string // User for devcontainer exec commands (default: vscode)
-	ProxyLogPath       string // Container path for proxy request logs (default: /opt/devagent-proxy/logs/requests.jsonl)
+	ProjectPath     string // Absolute path to project
+	ProjectName     string // Base name of project directory
+	WorkspaceFolder string // /workspaces/{{.ProjectName}}
+	ClaudeTokenPath string // Host path to Claude OAuth token file (absolute)
+	GitHubTokenPath string // Host path to GitHub token file (absolute), /dev/null if missing
+	TemplateName    string // Template name (e.g., "basic")
+	ContainerName   string // Container name for devcontainer.json
+	ProxyImage      string // Docker image for mitmproxy sidecar (default: mitmproxy/mitmproxy:latest)
+	ProxyPort       string // Port mitmproxy listens on (default: 8080)
+	RemoteUser      string // User for devcontainer exec commands (default: vscode)
+	ProxyLogPath    string // Container path for proxy request logs (default: /opt/devagent-proxy/logs/requests.jsonl)
 }
 
 // ComposeGenerator creates docker-compose.yml and related files for container orchestration.
@@ -139,4 +138,3 @@ func processTemplate(tmplPath string, data any) (string, error) {
 
 	return buf.String(), nil
 }
-

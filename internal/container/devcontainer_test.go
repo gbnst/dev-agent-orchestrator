@@ -32,7 +32,6 @@ func TestGenerate_TemplateNotFound(t *testing.T) {
 	}
 }
 
-
 func TestWriteToProject_CreatesDirectory(t *testing.T) {
 	tempDir := t.TempDir()
 	projectPath := filepath.Join(tempDir, "myproject")
@@ -269,7 +268,6 @@ func TestDevcontainerCLI_Up_WithoutDockerPath(t *testing.T) {
 	}
 }
 
-
 func TestNewDevcontainerCLIWithRuntime(t *testing.T) {
 	cli := NewDevcontainerCLIWithRuntime("docker")
 	if cli.dockerPath != "docker" {
@@ -409,7 +407,6 @@ func TestEnsureClaudeToken_TokenWithWhitespace(t *testing.T) {
 		t.Errorf("ensureClaudeToken() token = %q, want %q", gotToken, "test-token")
 	}
 }
-
 
 func TestGenerate_TemplateMode_UsesTemplateFiles(t *testing.T) {
 	// Generate() now just returns TemplatePath for file copying.
@@ -660,4 +657,3 @@ func TestEnsureGitHubToken_TokenWithWhitespace(t *testing.T) {
 		t.Errorf("ensureGitHubToken() token = %q, want %q", gotToken, "ghp_testtoken")
 	}
 }
-

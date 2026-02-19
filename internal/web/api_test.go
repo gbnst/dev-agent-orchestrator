@@ -59,17 +59,17 @@ func (m *apiMockRuntime) ComposeDown(_ context.Context, _ string, _ string) erro
 // It maps tmux subcommands to canned outputs, allowing different responses for
 // list-sessions, new-session, and kill-session calls.
 type mutationMockRuntime struct {
-	containers     []container.Container
+	containers []container.Container
 	// outputsByCmd maps tmux subcommand (e.g. "list-sessions", "new-session") to output.
-	outputsByCmd   map[string]string
+	outputsByCmd map[string]string
 }
 
 func (m *mutationMockRuntime) ListContainers(_ context.Context) ([]container.Container, error) {
 	return m.containers, nil
 }
 
-func (m *mutationMockRuntime) StartContainer(_ context.Context, _ string) error { return nil }
-func (m *mutationMockRuntime) StopContainer(_ context.Context, _ string) error  { return nil }
+func (m *mutationMockRuntime) StartContainer(_ context.Context, _ string) error  { return nil }
+func (m *mutationMockRuntime) StopContainer(_ context.Context, _ string) error   { return nil }
 func (m *mutationMockRuntime) RemoveContainer(_ context.Context, _ string) error { return nil }
 
 func (m *mutationMockRuntime) Exec(_ context.Context, _ string, _ []string) (string, error) {

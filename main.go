@@ -64,10 +64,10 @@ type SidecarInfo struct {
 
 // ProjectInfo represents a project with its devcontainer and optional sidecar.
 type ProjectInfo struct {
-	ProjectPath  string       `json:"project_path"`
-	Template     string       `json:"template"`
+	ProjectPath  string        `json:"project_path"`
+	Template     string        `json:"template"`
 	Devcontainer ContainerInfo `json:"devcontainer"`
-	ProxySidecar *SidecarInfo `json:"proxy_sidecar,omitempty"`
+	ProxySidecar *SidecarInfo  `json:"proxy_sidecar,omitempty"`
 }
 
 // runListCommand outputs JSON data about all managed containers grouped by project.
