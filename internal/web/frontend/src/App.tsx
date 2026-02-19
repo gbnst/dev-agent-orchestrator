@@ -30,7 +30,7 @@ function App() {
   }, [])
 
   return (
-    <div className="h-screen bg-base flex flex-col">
+    <div className="bg-base flex flex-col" style={{ height: '100dvh' }}>
       {view === 'containers' && (
         <div className="w-full md:w-80 md:min-h-screen md:border-r md:border-surface-1 flex flex-col">
           <header className="px-4 py-3 border-b border-surface-1 bg-mantle shrink-0">

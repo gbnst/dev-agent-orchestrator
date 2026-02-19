@@ -19,7 +19,7 @@ build: frontend-build
 run:
 	go run .
 
-dev:
+dev: frontend-build
 	go run . --config-dir=./config
 
 test:

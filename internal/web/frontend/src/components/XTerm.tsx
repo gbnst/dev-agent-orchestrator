@@ -82,29 +82,35 @@ export function XTerm({ containerId, sessionName, onDisconnect }: XTermProps) {
     term.loadAddon(fitAddon)
     term.loadAddon(webLinksAddon)
     term.open(el)
-    fitAddon.fit()
+
+    // Defer initial fit to the next frame so the browser has completed layout
+    // and the container element has measurable dimensions. Mobile Safari does
+    // not report correct sizes synchronously after open().
+    requestAnimationFrame(() => {
+      fitAddon.fit()
+    })
 
     const wsUrl = buildWsUrl(containerId, sessionName)
     const ws = new WebSocket(wsUrl)
     ws.binaryType = 'arraybuffer'
 
-    ws.onopen = () => {
+    ws.addEventListener('open', () => {
       // Send initial dimensions as a JSON text resize frame.
       const dims = fitAddon.proposeDimensions()
       if (dims) {
         ws.send(buildResizeMessage(dims.cols, dims.rows))
       }
-    }
+    })
 
-    ws.onmessage = (event: MessageEvent) => {
+    ws.addEventListener('message', (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(event.data))
       }
-    }
+    })
 
-    ws.onclose = () => {
+    ws.addEventListener('close', () => {
       onDisconnectRef.current?.()
-    }
+    })
 
     // User keystrokes → binary WebSocket frame (raw PTY input).
     const dataDispose = term.onData((data: string) => {
