@@ -38,3 +38,7 @@ devagent
 
 # UAT
 work/
+
+# Frontend
+internal/web/frontend/node_modules/
+internal/web/frontend/dist/

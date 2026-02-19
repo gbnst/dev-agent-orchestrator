@@ -4,6 +4,11 @@
 theme: macchiato  # Catppuccin theme: mocha, macchiato, frappe, latte
 log_level: info  # debug, info, warn, error
 
+# Web UI (disabled when port is 0 or omitted)
+web:
+  bind: "127.0.0.1"
+  port: 9001
+
 # Container runtime (auto-detected if not specified)
 # runtime: docker  # or podman
 

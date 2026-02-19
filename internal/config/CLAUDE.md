@@ -1,18 +1,18 @@
 # Config Domain
 
-Last verified: 2026-02-05
+Last verified: 2026-02-19
 
 ## Purpose
 Loads and validates application configuration (config.yaml) and devcontainer templates.
 
 ## Contracts
-- **Exposes**: `Config`, `Template`, `LoadTemplates`, `LoadTemplatesFrom`, `SetTemplatesPath`
+- **Exposes**: `Config`, `WebConfig`, `Template`, `LoadTemplates`, `LoadTemplatesFrom`, `SetTemplatesPath`
 - **Guarantees**: Templates loaded from `~/.config/devagent/templates/` (XDG-compliant). Templates discovered by presence of `docker-compose.yml.tmpl` marker file. Template struct contains only `Name` and `Path`.
 - **Expects**: Valid YAML in config files. Template directories contain `docker-compose.yml.tmpl`.
 
 ## Dependencies
 - **Uses**: os, path/filepath (stdlib only)
-- **Used by**: container.Manager, container.ComposeGenerator, container.DevcontainerGenerator, TUI
+- **Used by**: container.Manager, container.ComposeGenerator, container.DevcontainerGenerator, TUI, web.Server
 - **Boundary**: Configuration loading only; no container operations
 
 ## Key Decisions
