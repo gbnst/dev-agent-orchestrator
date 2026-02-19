@@ -1211,7 +1211,7 @@ func (m Model) renderLogEntryDetails(entry logging.LogEntry) string {
 				continue // Skip internal fields
 			}
 			sb.WriteString(m.styles.LabelStyle().Render(k + ": "))
-			sb.WriteString(fmt.Sprintf("%v", v))
+			fmt.Fprintf(&sb, "%v", v)
 			sb.WriteString("\n")
 		}
 	}
@@ -1235,11 +1235,11 @@ func (m Model) renderProxyRequestDetails(req *logging.ProxyRequest) string {
 	sb.WriteString("\n")
 
 	sb.WriteString(m.styles.LabelStyle().Render("Status: "))
-	sb.WriteString(fmt.Sprintf("%d", req.Status))
+	fmt.Fprintf(&sb, "%d", req.Status)
 	sb.WriteString("\n")
 
 	sb.WriteString(m.styles.LabelStyle().Render("Duration: "))
-	sb.WriteString(fmt.Sprintf("%dms", req.DurationMs))
+	fmt.Fprintf(&sb, "%dms", req.DurationMs)
 	sb.WriteString("\n\n")
 
 	// Request headers
