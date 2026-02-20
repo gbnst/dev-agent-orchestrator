@@ -8,8 +8,11 @@
 //   - Tab bar at top (fixed height)
 //   - Terminal fills remaining space (flex-1 min-h-0 overflow-hidden)
 
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { TerminalTabs, type Tab } from './TerminalTabs'
+import { SmartActionOverlay } from './SmartActionOverlay'
+import type { XTermHandle } from '../lib/smartActions'
+import { useSmartActions } from '../lib/useSmartActions'
 
 // Lazy-load XTerm so xterm.js is only bundled in a separate chunk and
 // downloaded when the user first opens a terminal view.
@@ -29,6 +32,7 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
   }
 
   function handleClose(key: string) {
+    handlesRef.current.delete(key)
     const remaining = tabs.filter(t => t.key !== key)
     onTabsChange(remaining)
 
@@ -46,10 +50,34 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
     }
   }
 
-  // Sync activeKey when tabs change from outside (e.g. new tab added).
-  // If activeKey is no longer in the list, fall back to the first tab.
+  // When a new tab is added, activate it automatically.
+  const prevTabCount = useRef(tabs.length)
+  useEffect(() => {
+    if (tabs.length > prevTabCount.current) {
+      // A tab was added — activate the newest one (last in the list).
+      setActiveKey(tabs[tabs.length - 1].key)
+    }
+    prevTabCount.current = tabs.length
+  }, [tabs])
+
+  // If activeKey is no longer valid (tab was closed externally), fall back.
   const activeKeyIsValid = tabs.some(t => t.key === activeKey)
   const resolvedActiveKey = activeKeyIsValid ? activeKey : (tabs[0]?.key ?? '')
+
+  // Smart actions: detect patterns in terminal output and offer one-click actions.
+  const handlesRef = useRef<Map<string, XTermHandle>>(new Map())
+  const { results, dismiss, execute, notifyDataReceived } = useSmartActions(
+    resolvedActiveKey,
+    handlesRef.current,
+  )
+
+  const handleXTermReady = useCallback((tabKey: string, handle: XTermHandle) => {
+    handlesRef.current.set(tabKey, handle)
+  }, [])
+
+  const handleXTermData = useCallback((tabKey: string) => {
+    notifyDataReceived(tabKey)
+  }, [notifyDataReceived])
 
   return (
     <div className="flex flex-col h-full">
@@ -78,21 +106,34 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
             Loading terminal…
           </div>
         }>
-          {tabs.map(tab => (
-            <div
-              key={tab.key}
-              style={{
-                display: tab.key === resolvedActiveKey ? 'block' : 'none',
-                width: '100%',
-                height: '100%',
-              }}
-            >
-              <XTerm
-                containerId={tab.containerId}
-                sessionName={tab.sessionName}
-              />
-            </div>
-          ))}
+          {tabs.map(tab => {
+            const isActive = tab.key === resolvedActiveKey
+            return (
+              <div
+                key={tab.key}
+                style={{
+                  display: isActive ? 'block' : 'none',
+                  width: '100%',
+                  height: '100%',
+                  position: 'relative',
+                }}
+              >
+                <XTerm
+                  containerId={tab.containerId}
+                  sessionName={tab.sessionName}
+                  onReady={handle => handleXTermReady(tab.key, handle)}
+                  onData={() => handleXTermData(tab.key)}
+                />
+                {isActive && (
+                  <SmartActionOverlay
+                    results={results}
+                    onDismiss={dismiss}
+                    onExecute={action => execute(action, tab.key)}
+                  />
+                )}
+              </div>
+            )
+          })}
         </Suspense>
       </div>
     </div>

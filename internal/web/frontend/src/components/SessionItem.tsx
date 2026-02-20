@@ -21,7 +21,7 @@ export function SessionItem({ containerId, session, onDestroy, onAttach }: Sessi
   }
 
   return (
-    <div className="flex items-center justify-between px-3 py-2 bg-surface-0 rounded">
+    <div className="flex flex-wrap items-center gap-y-1 justify-between px-3 py-2 bg-surface-0 rounded">
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-text font-mono text-sm truncate">{session.name}</span>
         <span className="text-subtext-0 text-xs shrink-0">
@@ -31,7 +31,7 @@ export function SessionItem({ containerId, session, onDestroy, onAttach }: Sessi
           <span className="text-green text-xs shrink-0">attached</span>
         )}
       </div>
-      <div className="flex items-center gap-2 shrink-0 ml-2">
+      <div className="flex items-center gap-2 shrink-0">
         <button
           onClick={handleAttach}
           className="text-xs px-2 py-1 rounded bg-surface-1 text-blue hover:bg-surface-2 transition-colors"

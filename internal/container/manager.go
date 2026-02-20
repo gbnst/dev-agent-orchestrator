@@ -49,6 +49,20 @@ type Manager struct {
 		For(string) *logging.ScopedLogger
 	} // for per-container loggers
 	proxyLogCancels map[string]context.CancelFunc // proxyLogPath -> cancel func
+	onChange        func()                         // called after state changes (e.g. to notify SSE clients)
+}
+
+// OnChange registers a callback invoked after container/session state changes.
+// Must be set before any concurrent access to Manager (e.g. before goroutines call Refresh).
+func (m *Manager) OnChange(fn func()) {
+	m.onChange = fn
+}
+
+// notifyChange calls the onChange callback if set.
+func (m *Manager) notifyChange() {
+	if m.onChange != nil {
+		m.onChange()
+	}
 }
 
 // NewManagerWithRuntime creates a Manager with a mock runtime for testing.
@@ -179,6 +193,7 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	m.startMissingProxyLogReaders()
 
 	m.mu.Unlock()
+	m.notifyChange()
 	return nil
 }
 
@@ -523,6 +538,7 @@ func (m *Manager) StartWithCompose(ctx context.Context, containerID string) erro
 	m.mu.Unlock()
 
 	logger.Info("compose container started")
+	m.notifyChange()
 	return nil
 }
 
@@ -556,6 +572,7 @@ func (m *Manager) StopWithCompose(ctx context.Context, containerID string) error
 	m.mu.Unlock()
 
 	logger.Info("compose container stopped")
+	m.notifyChange()
 	return nil
 }
 
@@ -605,6 +622,7 @@ func (m *Manager) DestroyWithCompose(ctx context.Context, containerID string) er
 	m.mu.Unlock()
 
 	logger.Info("compose container destroyed")
+	m.notifyChange()
 	return nil
 }
 
@@ -644,6 +662,7 @@ func (m *Manager) CreateSession(ctx context.Context, containerID, sessionName st
 	}
 
 	scopedLogger.Info("session created", "user", user)
+	m.notifyChange()
 	return nil
 }
 
@@ -661,6 +680,7 @@ func (m *Manager) KillSession(ctx context.Context, containerID, sessionName stri
 	}
 
 	scopedLogger.Info("session killed")
+	m.notifyChange()
 	return nil
 }
 

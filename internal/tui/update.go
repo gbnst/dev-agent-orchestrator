@@ -393,38 +393,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.selectedContainer == nil {
 				break
 			}
-			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
-				m.logger.Info("starting container", "containerID", item.container.ID, "name", item.container.Name)
-				m.setPending(item.container.ID, "start")
-				cmd := m.setLoading("Starting " + item.container.Name + "...")
-				return m, tea.Batch(cmd, m.startContainer(item.container.ID))
-			}
+			c := m.selectedContainer
+			m.logger.Info("starting container", "containerID", c.ID, "name", c.Name)
+			m.setPending(c.ID, "start")
+			cmd := m.setLoading("Starting " + c.Name + "...")
+			return m, tea.Batch(cmd, m.startContainer(c.ID))
 
 		case "x":
 			// Stop selected container (no-op when All Containers is selected)
 			if m.selectedContainer == nil {
 				break
 			}
-			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
-				m.logger.Info("stopping container", "containerID", item.container.ID, "name", item.container.Name)
-				m.setPending(item.container.ID, "stop")
-				cmd := m.setLoading("Stopping " + item.container.Name + "...")
-				return m, tea.Batch(cmd, m.stopContainer(item.container.ID))
-			}
+			c := m.selectedContainer
+			m.logger.Info("stopping container", "containerID", c.ID, "name", c.Name)
+			m.setPending(c.ID, "stop")
+			cmd := m.setLoading("Stopping " + c.Name + "...")
+			return m, tea.Batch(cmd, m.stopContainer(c.ID))
 
 		case "d":
 			// Destroy selected container (no-op when All Containers is selected)
 			if m.selectedContainer == nil {
 				break
 			}
-			if item, ok := m.containerList.SelectedItem().(containerItem); ok {
-				// Show confirmation dialog
-				m.confirmOpen = true
-				m.confirmAction = "destroy_container"
-				m.confirmTarget = item.container.ID
-				m.confirmMessage = fmt.Sprintf("Destroy container '%s'?", item.container.Name)
-				return m, nil
-			}
+			c := m.selectedContainer
+			m.confirmOpen = true
+			m.confirmAction = "destroy_container"
+			m.confirmTarget = c.ID
+			m.confirmMessage = fmt.Sprintf("Destroy container '%s'?", c.Name)
+			return m, nil
 
 		case "t":
 			// Open action menu for selected container

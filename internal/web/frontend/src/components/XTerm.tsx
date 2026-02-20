@@ -12,11 +12,14 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
+import type { XTermHandle } from '../lib/smartActions'
 
 type XTermProps = {
   readonly containerId: string
   readonly sessionName: string
   readonly onDisconnect?: () => void
+  readonly onReady?: (handle: XTermHandle) => void
+  readonly onData?: () => void
 }
 
 // buildWsUrl constructs the WebSocket URL for the terminal endpoint.
@@ -55,13 +58,17 @@ const catppuccinMochaTheme = {
   brightWhite: '#a6adc8',
 }
 
-export function XTerm({ containerId, sessionName, onDisconnect }: XTermProps) {
+export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData }: XTermProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  // Keep onDisconnect in a ref so the useEffect does not need it as a
-  // dependency. Including a prop callback in deps would cause the terminal
+  // Keep callbacks in refs so the useEffect does not need them as
+  // dependencies. Including prop callbacks in deps would cause the terminal
   // to tear down and rebuild on every parent render.
   const onDisconnectRef = useRef(onDisconnect)
   onDisconnectRef.current = onDisconnect
+  const onReadyRef = useRef(onReady)
+  onReadyRef.current = onReady
+  const onDataRef = useRef(onData)
+  onDataRef.current = onData
 
   useEffect(() => {
     const el = containerRef.current
@@ -94,18 +101,39 @@ export function XTerm({ containerId, sessionName, onDisconnect }: XTermProps) {
     const ws = new WebSocket(wsUrl)
     ws.binaryType = 'arraybuffer'
 
+    // Closures for smart actions: read terminal buffer and send input.
+    function getBufferText(): string {
+      const buf = term.buffer.active
+      const totalRows = buf.length
+      const startRow = Math.max(0, totalRows - 200)
+      const lines: string[] = []
+      for (let i = startRow; i < totalRows; i++) {
+        const line = buf.getLine(i)
+        if (line) lines.push(line.translateToString(true))
+      }
+      return lines.join('\n')
+    }
+
+    function sendInput(text: string): void {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(new TextEncoder().encode(text))
+      }
+    }
+
     ws.addEventListener('open', () => {
       // Send initial dimensions as a JSON text resize frame.
       const dims = fitAddon.proposeDimensions()
       if (dims) {
         ws.send(buildResizeMessage(dims.cols, dims.rows))
       }
+      onReadyRef.current?.({ sendInput, getBufferText })
     })
 
     ws.addEventListener('message', (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
         term.write(new Uint8Array(event.data))
       }
+      onDataRef.current?.()
     })
 
     ws.addEventListener('close', () => {

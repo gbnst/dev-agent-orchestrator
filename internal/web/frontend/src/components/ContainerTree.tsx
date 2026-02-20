@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { type Container, fetchContainers } from '../api'
+import { useServerEvents } from '../lib/useServerEvents'
 import { ContainerCard } from './ContainerCard'
 
 type ContainerTreeProps = {
@@ -26,6 +27,8 @@ export function ContainerTree({ onAttach }: ContainerTreeProps) {
   useEffect(() => {
     load()
   }, [load])
+
+  useServerEvents(load)
 
   if (loading) {
     return (

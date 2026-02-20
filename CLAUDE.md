@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-02-19
+Last verified: 2026-02-20
 
 ## Tech Stack
 - Language: Go 1.21+
@@ -23,7 +23,8 @@ Last verified: 2026-02-19
 - `make frontend-install` - Install frontend npm dependencies
 - `make frontend-build` - Build frontend (required before `make build`)
 - `make frontend-dev` - Run frontend dev server (hot reload)
-- `make lint` - Run linter
+- `make frontend-test` - Run frontend tests (vitest)
+- `make lint` - Run linter (golangci-lint, configured via `.golangci.yml`)
 - `devagent list` - Output JSON data about all managed containers (for external tool integration)
 
 ## Project Structure

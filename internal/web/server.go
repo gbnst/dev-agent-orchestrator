@@ -26,6 +26,7 @@ type Server struct {
 	logger     *logging.ScopedLogger
 	addr       string
 	listener   net.Listener
+	events     *eventBroker
 }
 
 // Config holds web server configuration.
@@ -44,6 +45,11 @@ func New(cfg Config, manager *container.Manager, notifyTUI func(tea.Msg), logPro
 
 	mux := http.NewServeMux()
 
+	events := newEventBroker()
+	if manager != nil {
+		manager.OnChange(events.Notify)
+	}
+
 	s := &Server{
 		httpServer: &http.Server{
 			Addr:              addr,
@@ -54,9 +60,11 @@ func New(cfg Config, manager *container.Manager, notifyTUI func(tea.Msg), logPro
 		notifyTUI: notifyTUI,
 		logger:    logger,
 		addr:      addr,
+		events:    events,
 	}
 
 	mux.HandleFunc("GET /api/health", s.handleHealth)
+	mux.HandleFunc("GET /api/events", s.handleEvents)
 	mux.HandleFunc("GET /api/containers", s.handleListContainers)
 	mux.HandleFunc("GET /api/containers/{id}", s.handleGetContainer)
 	mux.HandleFunc("GET /api/containers/{id}/sessions", s.handleListSessions)
