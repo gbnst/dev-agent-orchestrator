@@ -45,6 +45,10 @@ jobs:
         working-directory: internal/web/frontend
         run: npm ci && npm run build
 
+      - name: Run frontend tests
+        working-directory: internal/web/frontend
+        run: npm test
+
       - uses: actions/setup-go@v6
         with:
           go-version: "1.24"

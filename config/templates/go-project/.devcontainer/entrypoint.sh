@@ -17,8 +17,8 @@ while [ ! -f "$CERT_SRC" ] && [ "$timeout" -gt 0 ]; do
 done
 
 if [ -f "$CERT_SRC" ]; then
-    cp "$CERT_SRC" "$CERT_DST"
-    update-ca-certificates
+    sudo cp "$CERT_SRC" "$CERT_DST"
+    sudo update-ca-certificates --fresh > /dev/null 2>&1
 fi
 
 exec "$@"

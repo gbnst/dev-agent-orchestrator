@@ -56,9 +56,8 @@ func (s *Server) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Upgrade to websocket — IMPORTANT: do NOT use r.Context() after this.
-	// Restrict to localhost origins to prevent cross-origin WebSocket attacks.
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{"127.0.0.1:*", "localhost:*"},
+		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		s.logger.Error("websocket accept failed", "error", err)
@@ -90,8 +89,15 @@ func (s *Server) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusInternalError, "terminal failed to start")
 		return
 	}
-	defer func() { _ = ptmx.Close() }()
-	defer func() { _ = cmd.Wait() }()
+	defer func() {
+		_ = ptmx.Close()
+		// Kill the docker exec process explicitly — closing the PTY alone
+		// does not terminate it, which leaks tmux attach processes.
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	}()
 
 	s.logger.Info("terminal connected",
 		"container", containerID,

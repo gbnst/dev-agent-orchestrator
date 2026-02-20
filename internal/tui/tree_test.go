@@ -425,8 +425,8 @@ func TestTreeNavigation_SelectionOnSessionSyncsSession(t *testing.T) {
 func TestRenderTree_ShowsContainers(t *testing.T) {
 	m := newTreeTestModel(t)
 	c := &container.Container{
-		ID:     "c1",
-		Name:   "my-container",
+		ID:    "c1",
+		Name:  "my-container",
 		State: container.StateRunning,
 	}
 	m.containerList.SetItems([]list.Item{containerItem{container: c}})

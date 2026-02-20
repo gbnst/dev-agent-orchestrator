@@ -179,14 +179,14 @@ type Model struct {
 	logger         *logging.ScopedLogger
 
 	// Log details panel
-	logDetailsOpen    bool            // whether the log details panel is shown
-	selectedLogIndex  int             // index into filteredLogEntries()
+	logDetailsOpen     bool // whether the log details panel is shown
+	selectedLogIndex   int  // index into filteredLogEntries()
 	logDetailsViewport viewport.Model
-	logDetailsReady   bool            // viewport initialized
+	logDetailsReady    bool // viewport initialized
 
 	// Quit tracking
 	lastCtrlCTime time.Time // for double ctrl+c detection
-	quitHintCount int // consecutive esc/q presses with nothing to close
+	quitHintCount int       // consecutive esc/q presses with nothing to close
 
 	err error
 }

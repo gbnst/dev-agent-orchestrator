@@ -45,8 +45,24 @@ type Manager struct {
 	containers       map[string]*Container
 	sidecars         map[string]*Sidecar // Maps sidecar container ID to Sidecar
 	logger           *logging.ScopedLogger
-	logManager       interface{ For(string) *logging.ScopedLogger } // for per-container loggers
-	proxyLogCancels  map[string]context.CancelFunc               // proxyLogPath -> cancel func
+	logManager       interface {
+		For(string) *logging.ScopedLogger
+	} // for per-container loggers
+	proxyLogCancels map[string]context.CancelFunc // proxyLogPath -> cancel func
+	onChange        func()                        // called after state changes (e.g. to notify SSE clients)
+}
+
+// OnChange registers a callback invoked after container/session state changes.
+// Must be set before any concurrent access to Manager (e.g. before goroutines call Refresh).
+func (m *Manager) OnChange(fn func()) {
+	m.onChange = fn
+}
+
+// notifyChange calls the onChange callback if set.
+func (m *Manager) notifyChange() {
+	if m.onChange != nil {
+		m.onChange()
+	}
 }
 
 // NewManagerWithRuntime creates a Manager with a mock runtime for testing.
@@ -93,7 +109,9 @@ func NewManagerWithAllDeps(cfg *config.Config, templates []config.Template, runt
 
 // NewManagerWithRuntimeAndLogger creates a Manager with a mock runtime and logger for testing.
 // Accepts any type with a For(scope string) -> *ScopedLogger method.
-func NewManagerWithRuntimeAndLogger(runtime RuntimeInterface, logManager interface{ For(string) *logging.ScopedLogger }) *Manager {
+func NewManagerWithRuntimeAndLogger(runtime RuntimeInterface, logManager interface {
+	For(string) *logging.ScopedLogger
+}) *Manager {
 	logger := logManager.For("container")
 	logger.Debug("container manager initialized")
 
@@ -108,7 +126,9 @@ func NewManagerWithRuntimeAndLogger(runtime RuntimeInterface, logManager interfa
 
 // NewManagerWithConfigAndLogger creates a Manager with config, templates, and logger.
 // Used by TUI to create a fully-initialized manager with logging.
-func NewManagerWithConfigAndLogger(cfg *config.Config, templates []config.Template, logManager interface{ For(string) *logging.ScopedLogger }) *Manager {
+func NewManagerWithConfigAndLogger(cfg *config.Config, templates []config.Template, logManager interface {
+	For(string) *logging.ScopedLogger
+}) *Manager {
 	runtimeName := cfg.DetectedRuntime()
 	runtimePath := cfg.DetectedRuntimePath()
 	runtime := NewRuntime(runtimeName)
@@ -173,6 +193,7 @@ func (m *Manager) Refresh(ctx context.Context) error {
 	m.startMissingProxyLogReaders()
 
 	m.mu.Unlock()
+	m.notifyChange()
 	return nil
 }
 
@@ -296,7 +317,6 @@ func (m *Manager) GetContainerIsolationInfo(ctx context.Context, c *Container) (
 
 	return info, nil
 }
-
 
 // RuntimeName returns the container runtime name ("docker" or "podman").
 func (m *Manager) RuntimeName() string {
@@ -518,6 +538,7 @@ func (m *Manager) StartWithCompose(ctx context.Context, containerID string) erro
 	m.mu.Unlock()
 
 	logger.Info("compose container started")
+	m.notifyChange()
 	return nil
 }
 
@@ -551,6 +572,7 @@ func (m *Manager) StopWithCompose(ctx context.Context, containerID string) error
 	m.mu.Unlock()
 
 	logger.Info("compose container stopped")
+	m.notifyChange()
 	return nil
 }
 
@@ -600,6 +622,7 @@ func (m *Manager) DestroyWithCompose(ctx context.Context, containerID string) er
 	m.mu.Unlock()
 
 	logger.Info("compose container destroyed")
+	m.notifyChange()
 	return nil
 }
 
@@ -639,6 +662,7 @@ func (m *Manager) CreateSession(ctx context.Context, containerID, sessionName st
 	}
 
 	scopedLogger.Info("session created", "user", user)
+	m.notifyChange()
 	return nil
 }
 
@@ -656,6 +680,7 @@ func (m *Manager) KillSession(ctx context.Context, containerID, sessionName stri
 	}
 
 	scopedLogger.Info("session killed")
+	m.notifyChange()
 	return nil
 }
 

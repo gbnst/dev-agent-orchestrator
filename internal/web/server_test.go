@@ -20,8 +20,8 @@ func newTestServer(t *testing.T) *web.Server {
 	t.Cleanup(func() { _ = lm.Close() })
 	return web.New(
 		web.Config{Bind: "127.0.0.1", Port: 0},
-		nil,  // *container.Manager not needed for health endpoint
-		nil,  // notifyTUI not needed for health endpoint
+		nil, // *container.Manager not needed for health endpoint
+		nil, // notifyTUI not needed for health endpoint
 		lm,
 	)
 }

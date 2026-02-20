@@ -1,7 +1,8 @@
 FROM mcr.microsoft.com/devcontainers/go:1.25
 
-# Install gh CLI for GitHub operations
+# Install tmux for terminal session management and gh CLI for GitHub operations
 RUN apt-get update \
+    && apt-get install -y tmux \
     && mkdir -p -m 755 /etc/apt/keyrings \
     && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
     && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \

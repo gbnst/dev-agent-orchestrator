@@ -6,8 +6,22 @@
 	],
 	"settings": {
 		"go.useLanguageServer": true,
+		"go.alternateTools": {
+			"go": "${workspaceFolder}/.direnv/bin/go",
+			"gopls": "${workspaceFolder}/.direnv/bin/gopls",
+			"dlv": "${workspaceFolder}/.direnv/bin/dlv"
+		},
 		"go.lintTool": "golangci-lint",
 		"go.lintFlags": ["--fast"],
+		"gopls": {
+			"ui.diagnostic.analyses": {
+				"composites": false,
+				"simplifycompositelit": false,
+				"unusedparams": false,
+				"unusedfunc": false,
+				"QF1003": false
+			}
+		},
 		"editor.formatOnSave": true,
 		"editor.defaultFormatter": "golang.go",
 		"[go]": {

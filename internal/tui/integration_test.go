@@ -4,9 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"devagent/internal/config"
 	"devagent/internal/logging"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestIntegration_LogPanelToggle(t *testing.T) {

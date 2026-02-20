@@ -1,19 +1,19 @@
 # Container Domain
 
-Last verified: 2026-02-14
+Last verified: 2026-02-20
 
 ## Purpose
 Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker Compose, and tmux session management within containers. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking. Integrates proxy log tailing for real-time HTTP request visibility in TUI.
 
 ## Contracts
-- **Exposes**: `Manager`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `HashTruncLen`, `MountInfo`
+- **Exposes**: `Manager`, `Manager.OnChange()`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `HashTruncLen`, `MountInfo`
 - **Note**: `NewComposeGenerator(templates, logger)` requires a `*logging.ScopedLogger` parameter (use `logging.NopLogger()` in tests)
-- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via entrypoint.sh (runs before VS Code connects). Proxy service healthcheck gates app startup on cert existence. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on destroy. GitHub token injected into containers when available (non-blocking on missing token). Template files are copied via generic directory walk (`copyTemplateDir`) — adding new template files requires zero Go code changes.
+- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via entrypoint.sh (runs before VS Code connects). Proxy service healthcheck gates app startup on cert existence. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on destroy. GitHub token injected into containers when available (non-blocking on missing token). Template files are copied via generic directory walk (`copyTemplateDir`) — adding new template files requires zero Go code changes. State-change callback (`OnChange`) fires after Refresh, Start, Stop, Destroy, CreateSession, and KillSession to enable push notifications (e.g., SSE).
 - **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation. For compose mode: docker-compose or podman-compose available. LogManager must implement GetChannelSink() for proxy log integration.
 
 ## Dependencies
 - **Uses**: config.Config, config.Template, logging.Manager (optional), logging.ScopedLogger, logging.ProxyLogReader, @devcontainers/cli (external), mitmproxy/mitmproxy (external image), gh CLI (external, installed in Dockerfiles)
-- **Used by**: TUI (Model), main.go
+- **Used by**: TUI (Model), web.Server, main.go
 - **Boundary**: Container operations only; no UI concerns
 
 ## Key Decisions
@@ -26,6 +26,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Auth token auto-provisioning: Checks for `{XDG_CONFIG_HOME}/claude/.devagent-claude-token` (or `~/.claude/.devagent-claude-token`), runs `claude setup-token` if missing (non-blocking on error)
 - Token injection via bind mount: Token file mounted read-only to `/run/secrets/claude-token`, shell profiles export CLAUDE_CODE_OAUTH_TOKEN from mounted file (not via containerEnv)
 - GitHub CLI authentication: `ensureGitHubToken()` reads `{XDG_CONFIG_HOME}/github/token` (or `~/.config/github/token`); token file mounted read-only to `/run/secrets/github-token`; shell profiles export GH_TOKEN (with `-s` file-size check to avoid exporting empty string); falls back to /dev/null mount if token file missing (non-blocking, warns via logger); gh CLI installed in all template Dockerfiles
+- OnChange callback: `Manager.OnChange(fn func())` registers a single callback invoked after any state mutation (Refresh, Start, Stop, Destroy, CreateSession, KillSession); must be set before concurrent access; used by web.Server to drive SSE event broker
 - Sidecar architecture: Proxy sidecars use compose project name as ParentRef (from com.docker.compose.project label); both app and proxy containers share this label automatically via Docker Compose
 - Network isolation via mitmproxy: Proxy uses mitmproxy/mitmproxy:latest image; filter.py (from template) controls traffic with hardcoded allowlist and passthrough domains via the filter script's `load()` hook using `ctx.options.ignore_hosts`; CA cert installed in devcontainer via entrypoint.sh (runs before VS Code connects, installs to system trust store)
 - GitHub PR merge blocking: When BLOCK_GITHUB_PR_MERGE enabled in filter.py, filter script blocks PUT to /repos/.*/pulls/\d+/merge and POST /graphql with mergePullRequest

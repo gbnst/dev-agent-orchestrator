@@ -1,4 +1,4 @@
-.PHONY: deps build run dev test test-race test-e2e test-e2e-docker test-e2e-podman lint clean frontend-install frontend-build frontend-dev
+.PHONY: deps build run dev test test-race test-e2e test-e2e-docker test-e2e-podman lint clean frontend-install frontend-build frontend-dev frontend-test
 
 deps:
 	go mod download
@@ -13,13 +13,16 @@ frontend-build: frontend-install
 frontend-dev:
 	cd internal/web/frontend && npm run dev
 
+frontend-test:
+	cd internal/web/frontend && npm test
+
 build: frontend-build
 	go build -o bin/devagent .
 
 run:
 	go run .
 
-dev:
+dev: frontend-build
 	go run . --config-dir=./config
 
 test:

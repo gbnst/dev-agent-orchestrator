@@ -123,11 +123,11 @@ type containerJSON struct {
 	ID string `json:"ID"`
 	Id string `json:"Id"`
 	// Docker uses string, Podman uses array
-	Names     interface{} `json:"Names"`
-	State     string      `json:"State"`
-	Labels    interface{} `json:"Labels"` // Docker: string, Podman: map
-	CreatedAt string      `json:"CreatedAt"`
-	Created   int64       `json:"Created"` // Podman uses unix timestamp
+	Names     any    `json:"Names"`
+	State     string `json:"State"`
+	Labels    any    `json:"Labels"` // Docker: string, Podman: map
+	CreatedAt string `json:"CreatedAt"`
+	Created   int64  `json:"Created"` // Podman uses unix timestamp
 }
 
 func (cj *containerJSON) getID() string {
@@ -141,7 +141,7 @@ func (cj *containerJSON) getName() string {
 	switch v := cj.Names.(type) {
 	case string:
 		return v
-	case []interface{}:
+	case []any:
 		if len(v) > 0 {
 			if s, ok := v[0].(string); ok {
 				return s
@@ -157,7 +157,7 @@ func (cj *containerJSON) getLabels() map[string]string {
 	case string:
 		// Docker format: comma-separated key=value
 		return parseLabels(v)
-	case map[string]interface{}:
+	case map[string]any:
 		// Podman format: actual map
 		for k, val := range v {
 			if s, ok := val.(string); ok {
@@ -450,7 +450,7 @@ func (r *Runtime) ComposeDown(ctx context.Context, projectDir string, projectNam
 type mountJSON struct {
 	Type        string `json:"Type"`
 	Source      string `json:"Source"`
-	Name        string `json:"Name"`        // For volumes
+	Name        string `json:"Name"` // For volumes
 	Destination string `json:"Destination"`
 	RW          bool   `json:"RW"`
 }
