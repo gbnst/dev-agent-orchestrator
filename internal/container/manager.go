@@ -49,7 +49,7 @@ type Manager struct {
 		For(string) *logging.ScopedLogger
 	} // for per-container loggers
 	proxyLogCancels map[string]context.CancelFunc // proxyLogPath -> cancel func
-	onChange        func()                         // called after state changes (e.g. to notify SSE clients)
+	onChange        func()                        // called after state changes (e.g. to notify SSE clients)
 }
 
 // OnChange registers a callback invoked after container/session state changes.

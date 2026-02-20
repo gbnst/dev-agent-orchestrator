@@ -33,6 +33,7 @@
         pkgs.gopls
         (pkgs.delve.override { buildGoModule = pkgs.buildGo124Module; })
         pkgs.golangci-lint
+        pkgs.lefthook
       ];
     };
   };
