@@ -25,6 +25,12 @@
   --color-rosewater: #f5e0dc;
 }
 
-body {
+html, body {
   @apply bg-base text-text;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+html, body, #root {
+  height: 100%;
 }

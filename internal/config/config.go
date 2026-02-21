@@ -7,40 +7,23 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Theme       string                 `yaml:"theme"`
-	Runtime     string                 `yaml:"runtime"`
-	LogLevel    string                 `yaml:"log_level"`
-	OTEL        OTELConfig             `yaml:"otel"`
-	Web         WebConfig              `yaml:"web"`
-	Credentials map[string]string      `yaml:"credentials"`
-	Agents      map[string]AgentConfig `yaml:"agents"`
-}
-
-type OTELConfig struct {
-	GRPCPort int `yaml:"grpc_port"`
+	Theme           string    `yaml:"theme"`
+	Runtime         string    `yaml:"runtime"`
+	LogLevel        string    `yaml:"log_level"`
+	Web             WebConfig `yaml:"web"`
+	ClaudeTokenPath string    `yaml:"claude_token_path"`
+	GitHubTokenPath string    `yaml:"github_token_path"`
 }
 
 type WebConfig struct {
 	Bind string `yaml:"bind"`
 	Port int    `yaml:"port"`
-}
-
-type AgentConfig struct {
-	DisplayName  string            `yaml:"display_name"`
-	OTELEnv      map[string]string `yaml:"otel_env"`
-	StateSources []StateSource     `yaml:"state_sources"`
-}
-
-type StateSource struct {
-	Type     string              `yaml:"type"`
-	Events   []string            `yaml:"events"`
-	Patterns map[string][]string `yaml:"patterns"`
-	Paths    []string            `yaml:"paths"`
 }
 
 // LookPathFunc is the function signature for looking up executables.
@@ -175,20 +158,20 @@ func (c *Config) ValidateRuntimeWith(lookPath LookPathFunc) error {
 	return nil
 }
 
-// GetCredentialValue looks up a credential by name and returns its value
-// from the host environment.
-func (c *Config) GetCredentialValue(name string) (string, bool) {
-	envVar, ok := c.Credentials[name]
-	if !ok {
-		return "", false
+// ResolveTokenPath expands a token path, resolving ~/... to the user's home directory.
+// Returns empty string if path is empty.
+func (c *Config) ResolveTokenPath(path string) string {
+	if path == "" {
+		return ""
 	}
-
-	value := os.Getenv(envVar)
-	if value == "" {
-		return "", false
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(home, path[2:])
 	}
-
-	return value, true
+	return path
 }
 
 func getConfigDir() string {

@@ -17,6 +17,10 @@ export type DetectorResult = {
   readonly detectorId: string
   readonly banner: string
   readonly actions: ReadonlyArray<SmartAction>
+  /** Optional text displayed in a read-only textarea below action buttons. */
+  readonly detail?: string
+  /** When true, overlay shows only the first action's label but executes all actions in sequence. */
+  readonly autoChain?: boolean
 }
 
 /** A detector scans terminal text for a specific pattern. */

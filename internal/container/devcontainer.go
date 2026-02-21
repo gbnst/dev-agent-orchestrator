@@ -32,19 +32,6 @@ func getDataDir() string {
 	return filepath.Join(home, ".local", "share", "devagent")
 }
 
-// getClaudeConfigDir returns the XDG-compliant Claude config directory.
-// Uses $XDG_CONFIG_HOME/claude or ~/.claude as fallback.
-func getClaudeConfigDir() string {
-	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
-		return filepath.Join(xdgConfig, "claude")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".claude")
-	}
-	return filepath.Join(home, ".claude")
-}
-
 // claudeSetupTokenFunc is the function used to run claude setup-token.
 // It's a package-level variable so tests can override it.
 var claudeSetupTokenFunc = func() (string, error) {
@@ -56,12 +43,14 @@ var claudeSetupTokenFunc = func() (string, error) {
 	return string(output), nil
 }
 
-// ensureClaudeToken ensures a Claude OAuth token exists for devagent use.
-// Returns the token file path and token content, or empty strings on error.
-// Errors are non-blocking - logged but don't prevent container creation.
-func ensureClaudeToken() (tokenPath string, token string) {
-	claudeDir := getClaudeConfigDir()
-	tokenPath = filepath.Join(claudeDir, ".devagent-claude-token")
+// ensureClaudeToken ensures a Claude OAuth token exists at the given path.
+// tokenPath must be an already-resolved absolute path.
+// If empty, returns ("", ""). If file exists, reads it.
+// If file doesn't exist, runs claude setup-token and saves to that path.
+func ensureClaudeToken(tokenPath string) (string, string) {
+	if tokenPath == "" {
+		return "", ""
+	}
 
 	// Check if token file already exists
 	if data, err := os.ReadFile(tokenPath); err == nil {
@@ -71,7 +60,6 @@ func ensureClaudeToken() (tokenPath string, token string) {
 	// Token doesn't exist, try to create it via claude setup-token
 	output, err := claudeSetupTokenFunc()
 	if err != nil {
-		// Non-blocking: log would go here, but we just return empty
 		return "", ""
 	}
 
@@ -82,10 +70,10 @@ func ensureClaudeToken() (tokenPath string, token string) {
 	if match == "" {
 		return "", ""
 	}
-	token = strings.TrimSpace(match)
+	token := strings.TrimSpace(match)
 
-	// Ensure claude config directory exists
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(tokenPath), 0755); err != nil {
 		return "", ""
 	}
 
@@ -97,19 +85,13 @@ func ensureClaudeToken() (tokenPath string, token string) {
 	return tokenPath, token
 }
 
-// ensureGitHubToken reads a GitHub Personal Access Token from the host filesystem.
-// Returns the token file path and token content, or empty strings if the file is missing.
-// Unlike ensureClaudeToken(), this does not auto-provision — the user must create the token file.
-func ensureGitHubToken() (tokenPath string, token string) {
-	configDir := os.Getenv("XDG_CONFIG_HOME")
-	if configDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", ""
-		}
-		configDir = filepath.Join(home, ".config")
+// ensureGitHubToken reads a GitHub Personal Access Token from the given path.
+// tokenPath must be an already-resolved absolute path.
+// If empty or file doesn't exist, returns ("", "").
+func ensureGitHubToken(tokenPath string) (string, string) {
+	if tokenPath == "" {
+		return "", ""
 	}
-	tokenPath = filepath.Join(configDir, "github", "token")
 
 	data, err := os.ReadFile(tokenPath)
 	if err != nil {

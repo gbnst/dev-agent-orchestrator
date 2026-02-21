@@ -11,8 +11,11 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { TerminalTabs, type Tab } from './TerminalTabs'
 import { SmartActionOverlay } from './SmartActionOverlay'
+import { ScrollButtons } from './ScrollButtons'
+import { ExtraKeysBar } from './ExtraKeysBar'
 import type { XTermHandle } from '../lib/smartActions'
 import { useSmartActions } from '../lib/useSmartActions'
+import { useExtraKeys } from '../lib/useExtraKeys'
 
 // Lazy-load XTerm so xterm.js is only bundled in a separate chunk and
 // downloaded when the user first opens a terminal view.
@@ -66,10 +69,14 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
 
   // Smart actions: detect patterns in terminal output and offer one-click actions.
   const handlesRef = useRef<Map<string, XTermHandle>>(new Map())
-  const { results, dismiss, execute, notifyDataReceived } = useSmartActions(
+  const { results, dismiss, execute, executeAll, notifyDataReceived } = useSmartActions(
     resolvedActiveKey,
     handlesRef.current,
   )
+
+  // Extra keys bar for mobile: provides Esc, Tab, Ctrl, Alt, arrows.
+  const activeHandle = handlesRef.current.get(resolvedActiveKey)
+  const extraKeys = useExtraKeys(activeHandle)
 
   const handleXTermReady = useCallback((tabKey: string, handle: XTermHandle) => {
     handlesRef.current.set(tabKey, handle)
@@ -99,6 +106,9 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
         </div>
       </div>
 
+      {/* Extra keys bar — visible on mobile only, between tab bar and terminal */}
+      <ExtraKeysBar state={extraKeys} />
+
       {/* Terminal panels — all mounted, inactive hidden via display:none */}
       <div className="flex-1 min-h-0 overflow-hidden relative">
         <Suspense fallback={
@@ -123,13 +133,18 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
                   sessionName={tab.sessionName}
                   onReady={handle => handleXTermReady(tab.key, handle)}
                   onData={() => handleXTermData(tab.key)}
+                  customKeyHandler={extraKeys.customKeyHandler}
                 />
                 {isActive && (
-                  <SmartActionOverlay
-                    results={results}
-                    onDismiss={dismiss}
-                    onExecute={action => execute(action, tab.key)}
-                  />
+                  <>
+                    <ScrollButtons handles={handlesRef.current} tabKey={tab.key} />
+                    <SmartActionOverlay
+                      results={results}
+                      onDismiss={dismiss}
+                      onExecute={action => execute(action, tab.key)}
+                      onExecuteAll={actions => executeAll(actions, tab.key)}
+                    />
+                  </>
                 )}
               </div>
             )

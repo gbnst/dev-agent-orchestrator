@@ -22,9 +22,11 @@ describe('handoffDetector', () => {
     expect(result).not.toBeNull()
     expect(result!.detectorId).toBe('handoff')
     expect(result!.banner).toBe('Workflow handoff detected')
+    expect(result!.detail).toBe('/execute-implementation-plan /Users/ed/project/docs/plan/')
+    expect(result!.autoChain).toBe(true)
     expect(result!.actions).toEqual([
-      { label: '(1) /clear', input: '/clear' },
-      { label: '(2) Run command', input: '/execute-implementation-plan /Users/ed/project/docs/plan/' },
+      { label: 'Clear & Run', input: '/clear' },
+      { label: 'Run command', input: '/execute-implementation-plan /Users/ed/project/docs/plan/' },
     ])
   })
 
@@ -144,6 +146,29 @@ describe('handoffDetector', () => {
 
     expect(result).not.toBeNull()
     expect(result!.actions[1].input).toBe('/compact-command')
+  })
+
+  test('handles command wrapped across multiple lines (narrow terminal)', () => {
+    // Simulates what happens on a narrow mobile terminal where the command
+    // wraps at the column boundary, producing newlines mid-command.
+    // Claude Code indents content with 2 spaces.
+    const text = [
+      '  (1) Copy this command now:',
+      '  /ed3d-plan-and-execute:start-implementatio',
+      '  n-plan @docs/fake/fake.md .',
+      '  (the . at the end is necessary or else',
+      '  Claude Code will eat the command and do',
+      '  the wrong thing.)',
+      '',
+      '  (2) Clear your context:',
+    ].join('\n')
+
+    const result = handoffDetector.detect(text)
+
+    expect(result).not.toBeNull()
+    expect(result!.actions[1].input).toBe(
+      '/ed3d-plan-and-execute:start-implementation-plan @docs/fake/fake.md .',
+    )
   })
 
   test('ignores incomplete last match when step (2) only follows earlier match', () => {
