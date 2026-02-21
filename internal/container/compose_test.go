@@ -107,7 +107,7 @@ func TestComposeGenerator_Generate_BasicTemplate(t *testing.T) {
 		},
 	}
 
-	gen := NewComposeGenerator(templates, logging.NopLogger())
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
 
 	opts := ComposeOptions{
 		ProjectPath: "/home/user/myproject",
@@ -180,7 +180,7 @@ func TestComposeGenerator_Generate_NoHardcodedContainerNames(t *testing.T) {
 		{Name: "basic", Path: templateDir},
 	}
 
-	gen := NewComposeGenerator(templates, logging.NopLogger())
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
 
 	opts := ComposeOptions{
 		ProjectPath: "/home/user/myproject",
@@ -216,7 +216,7 @@ func TestComposeGenerator_Generate_ProxyEnvironment(t *testing.T) {
 		{Name: "basic", Path: templateDir},
 	}
 
-	gen := NewComposeGenerator(templates, logging.NopLogger())
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
 
 	opts := ComposeOptions{
 		ProjectPath: "/test",
@@ -252,7 +252,7 @@ func TestComposeGenerator_Generate_Labels(t *testing.T) {
 		{Name: "go-project", Path: templateDir},
 	}
 
-	gen := NewComposeGenerator(templates, logging.NopLogger())
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
 
 	opts := ComposeOptions{
 		ProjectPath: "/home/user/goapp",
@@ -282,7 +282,7 @@ func TestComposeGenerator_Generate_Labels(t *testing.T) {
 }
 
 func TestComposeGenerator_Generate_TemplateNotFound(t *testing.T) {
-	gen := NewComposeGenerator([]config.Template{}, logging.NopLogger())
+	gen := NewComposeGenerator(&config.Config{}, []config.Template{}, logging.NopLogger())
 
 	opts := ComposeOptions{
 		ProjectPath: "/test",
@@ -305,7 +305,7 @@ func TestComposeGenerator_Generate_DependsOn(t *testing.T) {
 		{Name: "basic", Path: templateDir},
 	}
 
-	gen := NewComposeGenerator(templates, logging.NopLogger())
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
 
 	opts := ComposeOptions{
 		ProjectPath: "/test",
@@ -334,7 +334,7 @@ func TestComposeGenerator_Generate_DependsOn(t *testing.T) {
 func TestComposeGenerator_BasicTemplate(t *testing.T) {
 	templates := loadTestTemplates(t, "basic")
 
-	gen := NewComposeGenerator(templates, logging.NopLogger())
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
 
 	opts := ComposeOptions{
 		ProjectPath: "/home/user/test-project",
@@ -380,7 +380,7 @@ func TestComposeGenerator_BasicTemplate(t *testing.T) {
 func TestComposeGenerator_GoProjectTemplate(t *testing.T) {
 	templates := loadTestTemplates(t, "go-project")
 
-	gen := NewComposeGenerator(templates, logging.NopLogger())
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
 
 	opts := ComposeOptions{
 		ProjectPath: "/home/user/go-app",

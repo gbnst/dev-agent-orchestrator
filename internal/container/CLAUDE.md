@@ -1,13 +1,13 @@
 # Container Domain
 
-Last verified: 2026-02-20
+Last verified: 2026-02-21
 
 ## Purpose
 Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker Compose, and tmux session management within containers. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking. Integrates proxy log tailing for real-time HTTP request visibility in TUI.
 
 ## Contracts
 - **Exposes**: `Manager`, `Manager.OnChange()`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `HashTruncLen`, `MountInfo`
-- **Note**: `NewComposeGenerator(templates, logger)` requires a `*logging.ScopedLogger` parameter (use `logging.NopLogger()` in tests)
+- **Note**: `NewComposeGenerator(cfg, templates, logger)` requires a `*config.Config` and `*logging.ScopedLogger` parameter (use `&config.Config{}` and `logging.NopLogger()` in tests)
 - **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via entrypoint.sh (runs before VS Code connects). Proxy service healthcheck gates app startup on cert existence. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on destroy. GitHub token injected into containers when available (non-blocking on missing token). Template files are copied via generic directory walk (`copyTemplateDir`) — adding new template files requires zero Go code changes. State-change callback (`OnChange`) fires after Refresh, Start, Stop, Destroy, CreateSession, and KillSession to enable push notifications (e.g., SSE).
 - **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation. For compose mode: docker-compose or podman-compose available. LogManager must implement GetChannelSink() for proxy log integration.
 
@@ -23,9 +23,10 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Compose file generation: ComposeGenerator.Generate() returns TemplateData; DevcontainerGenerator.WriteToProject() walks template's `.devcontainer/` subtree via `copyTemplateDir()`, processing `.tmpl` files and copying all others; WriteAll() delegates to WriteToProject with TemplateData from ComposeResult
 - Labels for metadata: devagent.managed, devagent.project_path, devagent.template, devagent.remote_user, devagent.sidecar_type; sidecar-to-devcontainer correlation uses com.docker.compose.project label (set automatically by Docker Compose)
 - RemoteUser defaults to "vscode" per devcontainer spec; all exec operations use ExecAs with this user
-- Auth token auto-provisioning: Checks for `{XDG_CONFIG_HOME}/claude/.devagent-claude-token` (or `~/.claude/.devagent-claude-token`), runs `claude setup-token` if missing (non-blocking on error)
+- Auth token paths configurable: `Config.ClaudeTokenPath` and `Config.GitHubTokenPath` set in config.yaml; `Config.ResolveTokenPath()` expands `~/` prefix; if path is empty/omitted, that token is skipped entirely (no auto-detection)
+- Auth token auto-provisioning: `ensureClaudeToken(path)` reads existing token or runs `claude setup-token` if missing (non-blocking on error); `ensureGitHubToken(path)` reads token or returns empty (no auto-provisioning)
 - Token injection via bind mount: Token file mounted read-only to `/run/secrets/claude-token`, shell profiles export CLAUDE_CODE_OAUTH_TOKEN from mounted file (not via containerEnv)
-- GitHub CLI authentication: `ensureGitHubToken()` reads `{XDG_CONFIG_HOME}/github/token` (or `~/.config/github/token`); token file mounted read-only to `/run/secrets/github-token`; shell profiles export GH_TOKEN (with `-s` file-size check to avoid exporting empty string); falls back to /dev/null mount if token file missing (non-blocking, warns via logger); gh CLI installed in all template Dockerfiles
+- GitHub CLI authentication: Token file mounted read-only to `/run/secrets/github-token`; shell profiles export GH_TOKEN (with `-s` file-size check to avoid exporting empty string); falls back to /dev/null mount if token file missing (non-blocking, warns via logger); gh CLI installed in all template Dockerfiles
 - OnChange callback: `Manager.OnChange(fn func())` registers a single callback invoked after any state mutation (Refresh, Start, Stop, Destroy, CreateSession, KillSession); must be set before concurrent access; used by web.Server to drive SSE event broker
 - Sidecar architecture: Proxy sidecars use compose project name as ParentRef (from com.docker.compose.project label); both app and proxy containers share this label automatically via Docker Compose
 - Network isolation via mitmproxy: Proxy uses mitmproxy/mitmproxy:latest image; filter.py (from template) controls traffic with hardcoded allowlist and passthrough domains via the filter script's `load()` hook using `ctx.options.ignore_hosts`; CA cert installed in devcontainer via entrypoint.sh (runs before VS Code connects, installs to system trust store)
@@ -56,8 +57,9 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Session is duplicated from tmux package to avoid import cycles
 - RuntimePath() returns full binary path to bypass shell aliases
 - Session.AttachCommand(runtime, user) requires both runtime and user parameters
-- Claude auth token is auto-provisioned via `claude setup-token` if not present; token stored in `~/.claude/.devagent-claude-token` (XDG-aware)
-- GitHub token is NOT auto-provisioned; user must manually create `~/.config/github/token` (XDG-aware); missing token is non-fatal (gh CLI will be unauthenticated)
+- Token paths are configured via `config.yaml` (`claude_token_path`, `github_token_path`); omitting a path skips that token entirely
+- Claude auth token is auto-provisioned via `claude setup-token` if configured path doesn't exist
+- GitHub token is NOT auto-provisioned; user must manually create the file at the configured path; missing token is non-fatal (gh CLI will be unauthenticated)
 - Sidecar ParentRef is compose project name (from com.docker.compose.project label), not container ID or hash
 - Proxy health check waits for container to be running (30s timeout)
 - Container names are auto-generated by Docker Compose (e.g., myproject-app-1, myproject-proxy-1); no hardcoded container_name in templates

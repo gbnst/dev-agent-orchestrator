@@ -12,37 +12,6 @@ web:
 # Container runtime (auto-detected if not specified)
 # runtime: docker  # or podman
 
-# OTEL receiver settings
-otel:
-  grpc_port: 4317
-
-# Credential references (env var names to inject into containers)
-# Values are read from host environment at container start time
-credentials:
-  anthropic: ANTHROPIC_API_KEY
-  openai: OPENAI_API_KEY
-  github: GITHUB_TOKEN
-
-# Agent definitions
-agents:
-  claude:
-    display_name: "Claude Code"
-    otel_env:
-      CLAUDE_CODE_ENABLE_TELEMETRY: "1"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "host.docker.internal:4317"
-    state_sources:
-      - type: otel
-        events: [user_prompt, tool_result, tool_decision]
-      - type: terminal
-        patterns:
-          waiting: ["^>", "\\? "]
-      - type: filesystem
-        paths: ["~/.claude/projects/*/session.jsonl"]
-
-  codex:
-    display_name: "OpenAI Codex CLI"
-    otel_env: {}
-    state_sources:
-      - type: terminal
-        patterns:
-          waiting: ["^>>> "]
+# Token file paths for container injection (omit to skip)
+claude_token_path: ~/.claude/.devagent-claude-token
+github_token_path: ~/.config/github/token

@@ -36,13 +36,15 @@ type TemplateData struct {
 
 // ComposeGenerator creates docker-compose.yml and related files for container orchestration.
 type ComposeGenerator struct {
+	cfg       *config.Config
 	templates []config.Template
 	logger    *logging.ScopedLogger
 }
 
-// NewComposeGenerator creates a new generator with the given templates.
-func NewComposeGenerator(templates []config.Template, logger *logging.ScopedLogger) *ComposeGenerator {
+// NewComposeGenerator creates a new generator with the given config and templates.
+func NewComposeGenerator(cfg *config.Config, templates []config.Template, logger *logging.ScopedLogger) *ComposeGenerator {
 	return &ComposeGenerator{
+		cfg:       cfg,
 		templates: templates,
 		logger:    logger,
 	}
@@ -87,19 +89,19 @@ func (g *ComposeGenerator) Generate(opts ComposeOptions) (*ComposeResult, error)
 func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.Template) TemplateData {
 	projectName := filepath.Base(opts.ProjectPath)
 
-	// Ensure Claude token exists (non-blocking on error).
+	// Resolve and ensure Claude token (non-blocking on error).
 	// Falls back to /dev/null so Docker doesn't create an empty directory.
-	tokenPath, _ := ensureClaudeToken()
+	tokenPath, _ := ensureClaudeToken(g.cfg.ResolveTokenPath(g.cfg.ClaudeTokenPath))
 	if tokenPath == "" {
 		tokenPath = "/dev/null"
 	}
 
-	// Read GitHub token (non-blocking on error).
+	// Resolve and read GitHub token (non-blocking on error).
 	// Falls back to /dev/null so Docker doesn't create an empty directory.
-	ghTokenPath, _ := ensureGitHubToken()
+	ghTokenPath, _ := ensureGitHubToken(g.cfg.ResolveTokenPath(g.cfg.GitHubTokenPath))
 	if ghTokenPath == "" {
-		if g.logger != nil {
-			g.logger.Warn("GitHub token not found, gh CLI will not be authenticated", "expected_path", "~/.config/github/token")
+		if g.logger != nil && g.cfg.GitHubTokenPath != "" {
+			g.logger.Warn("GitHub token not found", "path", g.cfg.GitHubTokenPath)
 		}
 		ghTokenPath = "/dev/null"
 	}

@@ -1,13 +1,13 @@
 # Config Domain
 
-Last verified: 2026-02-19
+Last verified: 2026-02-21
 
 ## Purpose
 Loads and validates application configuration (config.yaml) and devcontainer templates.
 
 ## Contracts
 - **Exposes**: `Config`, `WebConfig`, `Template`, `LoadTemplates`, `LoadTemplatesFrom`, `SetTemplatesPath`
-- **Guarantees**: Templates loaded from `~/.config/devagent/templates/` (XDG-compliant). Templates discovered by presence of `docker-compose.yml.tmpl` marker file. Template struct contains only `Name` and `Path`.
+- **Guarantees**: Templates loaded from `~/.config/devagent/templates/` (XDG-compliant). Templates discovered by presence of `docker-compose.yml.tmpl` marker file. Template struct contains only `Name` and `Path`. Token paths (`ClaudeTokenPath`, `GitHubTokenPath`) are user-configurable; `ResolveTokenPath()` expands `~/` prefix. If a token path is empty/omitted, that token is skipped entirely.
 - **Expects**: Valid YAML in config files. Template directories contain `docker-compose.yml.tmpl`.
 
 ## Dependencies
@@ -26,5 +26,5 @@ Loads and validates application configuration (config.yaml) and devcontainer tem
 - Templates without `docker-compose.yml.tmpl` are ignored during discovery
 
 ## Key Files
-- `config.go` - Config struct, loading, credential management
+- `config.go` - Config struct, loading
 - `templates.go` - Template loading, discovery

@@ -328,50 +328,22 @@ func TestReadWorkspaceFolder_NoWorkspaceFolderField(t *testing.T) {
 	}
 }
 
-func TestGetClaudeConfigDir_Default(t *testing.T) {
-	// Clear XDG_CONFIG_HOME to test default behavior
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	dir := getClaudeConfigDir()
-
-	// Should return ~/.claude
-	home, _ := os.UserHomeDir()
-	expected := filepath.Join(home, ".claude")
-	if dir != expected {
-		t.Errorf("getClaudeConfigDir() = %q, want %q", dir, expected)
-	}
-}
-
-func TestGetClaudeConfigDir_XDGOverride(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "/custom/config")
-
-	dir := getClaudeConfigDir()
-
-	expected := "/custom/config/claude"
-	if dir != expected {
-		t.Errorf("getClaudeConfigDir() = %q, want %q", dir, expected)
+func TestEnsureClaudeToken_EmptyPath(t *testing.T) {
+	gotPath, gotToken := ensureClaudeToken("")
+	if gotPath != "" || gotToken != "" {
+		t.Errorf("ensureClaudeToken(\"\") = (%q, %q), want (\"\", \"\")", gotPath, gotToken)
 	}
 }
 
 func TestEnsureClaudeToken_ExistingToken(t *testing.T) {
-	// Create a temp directory with a token file
 	tmpDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
-
-	// Create claude dir and token file
-	claudeDir := filepath.Join(tmpDir, "claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		t.Fatalf("Failed to create claude dir: %v", err)
-	}
-
-	tokenPath := filepath.Join(claudeDir, ".devagent-claude-token")
+	tokenPath := filepath.Join(tmpDir, ".devagent-claude-token")
 	expectedToken := "test-oauth-token-12345"
 	if err := os.WriteFile(tokenPath, []byte(expectedToken), 0600); err != nil {
 		t.Fatalf("Failed to write token: %v", err)
 	}
 
-	// Call ensureClaudeToken - should read existing token
-	gotPath, gotToken := ensureClaudeToken()
+	gotPath, gotToken := ensureClaudeToken(tokenPath)
 
 	if gotPath != tokenPath {
 		t.Errorf("ensureClaudeToken() path = %q, want %q", gotPath, tokenPath)
@@ -382,27 +354,17 @@ func TestEnsureClaudeToken_ExistingToken(t *testing.T) {
 }
 
 func TestEnsureClaudeToken_TokenWithWhitespace(t *testing.T) {
-	// Test that token is trimmed of whitespace
 	tmpDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
-
-	claudeDir := filepath.Join(tmpDir, "claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		t.Fatalf("Failed to create claude dir: %v", err)
-	}
-
-	tokenPath := filepath.Join(claudeDir, ".devagent-claude-token")
-	// Write token with trailing newline
+	tokenPath := filepath.Join(tmpDir, ".devagent-claude-token")
 	if err := os.WriteFile(tokenPath, []byte("test-token\n"), 0600); err != nil {
 		t.Fatalf("Failed to write token: %v", err)
 	}
 
-	gotPath, gotToken := ensureClaudeToken()
+	gotPath, gotToken := ensureClaudeToken(tokenPath)
 
 	if gotPath != tokenPath {
 		t.Errorf("ensureClaudeToken() path = %q, want %q", gotPath, tokenPath)
 	}
-	// Token should be trimmed
 	if gotToken != "test-token" {
 		t.Errorf("ensureClaudeToken() token = %q, want %q", gotToken, "test-token")
 	}
@@ -593,23 +555,22 @@ func TestCopyTemplateDir_ProcessesTemplates(t *testing.T) {
 	}
 }
 
+func TestEnsureGitHubToken_EmptyPath(t *testing.T) {
+	gotPath, gotToken := ensureGitHubToken("")
+	if gotPath != "" || gotToken != "" {
+		t.Errorf("ensureGitHubToken(\"\") = (%q, %q), want (\"\", \"\")", gotPath, gotToken)
+	}
+}
+
 func TestEnsureGitHubToken_ExistingToken(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
-
-	// Create github dir and token file
-	githubDir := filepath.Join(tmpDir, "github")
-	if err := os.MkdirAll(githubDir, 0755); err != nil {
-		t.Fatalf("Failed to create github dir: %v", err)
-	}
-
-	tokenPath := filepath.Join(githubDir, "token")
+	tokenPath := filepath.Join(tmpDir, "token")
 	expectedToken := "ghp_testtoken12345"
 	if err := os.WriteFile(tokenPath, []byte(expectedToken), 0600); err != nil {
 		t.Fatalf("Failed to write token: %v", err)
 	}
 
-	gotPath, gotToken := ensureGitHubToken()
+	gotPath, gotToken := ensureGitHubToken(tokenPath)
 
 	if gotPath != tokenPath {
 		t.Errorf("ensureGitHubToken() path = %q, want %q", gotPath, tokenPath)
@@ -620,11 +581,7 @@ func TestEnsureGitHubToken_ExistingToken(t *testing.T) {
 }
 
 func TestEnsureGitHubToken_MissingToken(t *testing.T) {
-	tmpDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
-
-	// Don't create the token file
-	gotPath, gotToken := ensureGitHubToken()
+	gotPath, gotToken := ensureGitHubToken("/nonexistent/path/token")
 
 	if gotPath != "" {
 		t.Errorf("ensureGitHubToken() path = %q, want empty", gotPath)
@@ -636,19 +593,12 @@ func TestEnsureGitHubToken_MissingToken(t *testing.T) {
 
 func TestEnsureGitHubToken_TokenWithWhitespace(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", tmpDir)
-
-	githubDir := filepath.Join(tmpDir, "github")
-	if err := os.MkdirAll(githubDir, 0755); err != nil {
-		t.Fatalf("Failed to create github dir: %v", err)
-	}
-
-	tokenPath := filepath.Join(githubDir, "token")
+	tokenPath := filepath.Join(tmpDir, "token")
 	if err := os.WriteFile(tokenPath, []byte("ghp_testtoken\n"), 0600); err != nil {
 		t.Fatalf("Failed to write token: %v", err)
 	}
 
-	gotPath, gotToken := ensureGitHubToken()
+	gotPath, gotToken := ensureGitHubToken(tokenPath)
 
 	if gotPath != tokenPath {
 		t.Errorf("ensureGitHubToken() path = %q, want %q", gotPath, tokenPath)

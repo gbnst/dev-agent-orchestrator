@@ -15,22 +15,8 @@ func TestLoadFullConfig(t *testing.T) {
 	configContent := `
 theme: latte
 runtime: podman
-otel:
-  grpc_port: 4317
-credentials:
-  OPENAI_API_KEY: OPENAI_API_KEY
-  ANTHROPIC_API_KEY: ANTHROPIC_API_KEY
-agents:
-  claude-code:
-    display_name: Claude Code
-    otel_env:
-      OTEL_SERVICE_NAME: claude-code
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4317
-    state_sources:
-      - type: files
-        events: [create, modify]
-        patterns:
-          todo: ["**/TODO.md"]
+claude_token_path: ~/.claude/.devagent-claude-token
+github_token_path: ~/.config/github/token
 `
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
 		t.Fatalf("Failed to write config file: %v", err)
@@ -51,35 +37,12 @@ agents:
 		t.Errorf("Runtime: got %q, want %q", cfg.Runtime, "podman")
 	}
 
-	// Verify OTEL config
-	if cfg.OTEL.GRPCPort != 4317 {
-		t.Errorf("OTEL.GRPCPort: got %d, want %d", cfg.OTEL.GRPCPort, 4317)
+	// Verify token paths
+	if cfg.ClaudeTokenPath != "~/.claude/.devagent-claude-token" {
+		t.Errorf("ClaudeTokenPath: got %q, want %q", cfg.ClaudeTokenPath, "~/.claude/.devagent-claude-token")
 	}
-
-	// Verify credentials
-	if len(cfg.Credentials) != 2 {
-		t.Errorf("Credentials length: got %d, want %d", len(cfg.Credentials), 2)
-	}
-	if cfg.Credentials["OPENAI_API_KEY"] != "OPENAI_API_KEY" {
-		t.Errorf("Credentials[OPENAI_API_KEY]: got %q, want %q", cfg.Credentials["OPENAI_API_KEY"], "OPENAI_API_KEY")
-	}
-
-	// Verify agents
-	if len(cfg.Agents) != 1 {
-		t.Errorf("Agents length: got %d, want %d", len(cfg.Agents), 1)
-	}
-	agent, ok := cfg.Agents["claude-code"]
-	if !ok {
-		t.Fatal("Agents[claude-code] not found")
-	}
-	if agent.DisplayName != "Claude Code" {
-		t.Errorf("Agent DisplayName: got %q, want %q", agent.DisplayName, "Claude Code")
-	}
-	if agent.OTELEnv["OTEL_SERVICE_NAME"] != "claude-code" {
-		t.Errorf("Agent OTELEnv[OTEL_SERVICE_NAME]: got %q, want %q", agent.OTELEnv["OTEL_SERVICE_NAME"], "claude-code")
-	}
-	if len(agent.StateSources) != 1 {
-		t.Errorf("Agent StateSources length: got %d, want %d", len(agent.StateSources), 1)
+	if cfg.GitHubTokenPath != "~/.config/github/token" {
+		t.Errorf("GitHubTokenPath: got %q, want %q", cfg.GitHubTokenPath, "~/.config/github/token")
 	}
 }
 
@@ -166,55 +129,6 @@ func TestDetectedRuntimePath_Fallback(t *testing.T) {
 	})
 	if got != "docker" {
 		t.Errorf("DetectedRuntimePath fallback: got %q, want %q", got, "docker")
-	}
-}
-
-func TestGetCredentialValue_Found(t *testing.T) {
-	cfg := Config{
-		Credentials: map[string]string{
-			"MY_API_KEY": "TEST_ENV_VAR",
-		},
-	}
-
-	// Set the env var
-	t.Setenv("TEST_ENV_VAR", "secret-value")
-
-	value, ok := cfg.GetCredentialValue("MY_API_KEY")
-	if !ok {
-		t.Error("GetCredentialValue: expected ok=true")
-	}
-	if value != "secret-value" {
-		t.Errorf("GetCredentialValue: got %q, want %q", value, "secret-value")
-	}
-}
-
-func TestGetCredentialValue_NotFound(t *testing.T) {
-	cfg := Config{
-		Credentials: map[string]string{},
-	}
-
-	value, ok := cfg.GetCredentialValue("UNKNOWN_KEY")
-	if ok {
-		t.Error("GetCredentialValue: expected ok=false for unknown key")
-	}
-	if value != "" {
-		t.Errorf("GetCredentialValue: got %q, want empty string", value)
-	}
-}
-
-func TestGetCredentialValue_EnvVarNotSet(t *testing.T) {
-	cfg := Config{
-		Credentials: map[string]string{
-			"MY_API_KEY": "UNSET_ENV_VAR_12345",
-		},
-	}
-
-	value, ok := cfg.GetCredentialValue("MY_API_KEY")
-	if ok {
-		t.Error("GetCredentialValue: expected ok=false when env var not set")
-	}
-	if value != "" {
-		t.Errorf("GetCredentialValue: got %q, want empty string", value)
 	}
 }
 
@@ -427,5 +341,34 @@ func TestLoadFrom_WebConfig_NoSection_UsesDefaults(t *testing.T) {
 	}
 	if cfg.Web.Port != 0 {
 		t.Errorf("Web.Port = %d, want 0 (default)", cfg.Web.Port)
+	}
+}
+
+func TestResolveTokenPath_Empty(t *testing.T) {
+	cfg := Config{}
+	if got := cfg.ResolveTokenPath(""); got != "" {
+		t.Errorf("ResolveTokenPath(\"\") = %q, want empty", got)
+	}
+}
+
+func TestResolveTokenPath_TildeExpansion(t *testing.T) {
+	cfg := Config{}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+
+	got := cfg.ResolveTokenPath("~/foo/bar")
+	want := filepath.Join(home, "foo/bar")
+	if got != want {
+		t.Errorf("ResolveTokenPath(\"~/foo/bar\") = %q, want %q", got, want)
+	}
+}
+
+func TestResolveTokenPath_AbsoluteUnchanged(t *testing.T) {
+	cfg := Config{}
+	got := cfg.ResolveTokenPath("/etc/tokens/test")
+	if got != "/etc/tokens/test" {
+		t.Errorf("ResolveTokenPath(\"/etc/tokens/test\") = %q, want %q", got, "/etc/tokens/test")
 	}
 }
