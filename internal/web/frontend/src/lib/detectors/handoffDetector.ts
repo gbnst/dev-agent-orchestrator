@@ -23,27 +23,53 @@
 
 import type { Detector, DetectorResult } from '../smartActions'
 
-// Matches "(1) Copy this command[now]:" followed by a /command, either:
-//   - on the same line: (1) Copy this command: /foo
-//   - on the next line (with optional blank lines / code fences): (1) Copy this command now:\n```\n/foo
-const HANDOFF_PATTERN =
-  /\(1\)\s*Copy this command(?:\s+now)?[:\s]+(?:`{3}\s*\n)?\s*(\/\S[^\n]*)/g
+// Matches "(1) Copy this command[now]:" header line.
+const STEP1_PATTERN = /\(1\)\s*Copy this command(?:\s+now)?[:\s]/g
+
+// Matches "(2) ... clear ..." line that confirms the handoff.
+const STEP2_PATTERN = /\(2\)[^\n]*(?:clear|\/clear)/i
 
 export const handoffDetector: Detector = {
   id: 'handoff',
 
   detect(text: string): DetectorResult | null {
-    // Find all matches and take the last one (most recent in scrollback).
-    const matches = [...text.matchAll(HANDOFF_PATTERN)]
-    if (matches.length === 0) return null
+    // Find all step (1) matches and take the last one (most recent in scrollback).
+    const step1Matches = [...text.matchAll(STEP1_PATTERN)]
+    if (step1Matches.length === 0) return null
 
-    const lastMatch = matches[matches.length - 1]
-    const command = lastMatch[1].trim()
-    const matchIndex = lastMatch.index ?? 0
+    const lastMatch = step1Matches[step1Matches.length - 1]
+    const afterStep1 = text.slice((lastMatch.index ?? 0) + lastMatch[0].length)
 
-    // Verify that step (2) mentions /clear or clearing context after the match.
-    const textAfterMatch = text.slice(matchIndex + lastMatch[0].length)
-    if (!/\(2\)[^\n]*(?:clear|\/clear)/i.test(textAfterMatch)) return null
+    // Verify that step (2) follows.
+    const step2Match = STEP2_PATTERN.exec(afterStep1)
+    if (!step2Match) return null
+
+    // Extract everything between step (1) header and step (2).
+    const between = afterStep1.slice(0, step2Match.index)
+
+    // Split into lines, strip code fences. Keep raw text for joining.
+    const rawLines = between.split('\n').map(l => l.replace(/`{3}/g, ''))
+    const trimmedLines = rawLines.map(l => l.trim())
+    const cmdStartIdx = trimmedLines.findIndex(l => l.startsWith('/'))
+    if (cmdStartIdx === -1) return null
+
+    // Collect the command line plus any continuation lines.
+    // Continuation lines: non-empty when trimmed, don't start with '('
+    // (parenthetical notes), don't start with '/' (next command).
+    const rawParts = [rawLines[cmdStartIdx]]
+    for (let i = cmdStartIdx + 1; i < trimmedLines.length; i++) {
+      const t = trimmedLines[i]
+      if (t === '' || t.startsWith('(') || t.startsWith('/')) break
+      rawParts.push(rawLines[i])
+    }
+
+    // Detect the leading indent of the command line to strip it from all parts.
+    const indent = rawParts[0].match(/^(\s*)/)?.[1].length ?? 0
+
+    // Join: strip indent from each raw line and concatenate directly.
+    // The terminal wraps at column boundary, so no separator is needed —
+    // if the break was at a space, the space is at the end of the prev line.
+    const command = rawParts.map(l => l.slice(indent)).join('').trim()
 
     return {
       detectorId: 'handoff',

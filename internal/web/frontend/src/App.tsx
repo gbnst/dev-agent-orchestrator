@@ -20,13 +20,21 @@ function App() {
   // keyboard opens. Safari scrolls the page to reveal the focused textarea
   // (xterm's hidden input), pushing our fixed layout off-screen. Resetting
   // scroll on every visualViewport resize keeps the header pinned.
+  //
+  // Also set the app container height to the visual viewport height so the
+  // terminal shrinks when the keyboard opens instead of being covered.
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null)
+
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
 
     function onResize() {
       window.scrollTo(0, 0)
+      setViewportHeight(vv!.height)
     }
+    // Set initial height.
+    setViewportHeight(vv.height)
     vv.addEventListener('resize', onResize)
     return () => vv.removeEventListener('resize', onResize)
   }, [])
@@ -45,7 +53,10 @@ function App() {
   }, [])
 
   return (
-    <div className="bg-base flex flex-col overflow-hidden fixed inset-0">
+    <div
+      className="bg-base flex flex-col overflow-hidden fixed inset-x-0 top-0"
+      style={{ height: viewportHeight != null ? `${viewportHeight}px` : '100%' }}
+    >
       {view === 'containers' && (
         <div className="w-full md:w-80 md:min-h-screen md:border-r md:border-surface-1 flex flex-col">
           <header className="px-4 py-3 border-b border-surface-1 bg-mantle shrink-0">

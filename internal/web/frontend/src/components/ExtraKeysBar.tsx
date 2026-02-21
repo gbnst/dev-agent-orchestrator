@@ -1,8 +1,8 @@
 // ExtraKeysBar.tsx — Button row for keys unavailable on mobile keyboards.
 //
-// Renders Esc, Tab, Ctrl, Alt, and arrow buttons between the tab bar and the
-// terminal. Hidden on desktop (md:hidden). Ctrl/Alt are sticky toggles that
-// light up when active.
+// Renders Esc, Tab, Ctrl, Alt, Paste, and arrow buttons between the tab bar
+// and the terminal. Hidden on desktop (md:hidden). Ctrl/Alt are sticky
+// toggles that light up when active.
 
 import type { ExtraKey } from '../lib/extraKeys'
 import type { ExtraKeysState } from '../lib/useExtraKeys'
@@ -28,7 +28,7 @@ type ExtraKeysBarProps = {
 }
 
 export function ExtraKeysBar({ state }: ExtraKeysBarProps) {
-  const { ctrlActive, altActive, handleExtraKey, onPointerDown, onPointerUp } = state
+  const { ctrlActive, altActive, handleExtraKey, handlePaste, onPointerDown, onPointerUp } = state
 
   function isLit(key: ExtraKey): boolean {
     return (key === 'ctrl' && ctrlActive) || (key === 'alt' && altActive)
@@ -65,6 +65,21 @@ export function ExtraKeysBar({ state }: ExtraKeysBarProps) {
           {label}
         </button>
       ))}
+      <button
+        type="button"
+        className="flex-1 min-h-[44px] text-sm font-mono select-none transition-colors active:bg-surface-1 bg-surface-0 text-subtext-1"
+        style={{
+          touchAction: 'manipulation',
+          WebkitTouchCallout: 'none',
+          userSelect: 'none',
+        }}
+        onPointerDown={(e) => {
+          e.preventDefault()
+          handlePaste()
+        }}
+      >
+        ⎘
+      </button>
     </div>
   )
 }

@@ -114,15 +114,28 @@ export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData,
 
     // Closures for smart actions: read terminal buffer and send input.
     function getBufferText(): string {
-      const buf = term.buffer.active
-      const totalRows = buf.length
-      const startRow = Math.max(0, totalRows - 200)
-      const lines: string[] = []
-      for (let i = startRow; i < totalRows; i++) {
-        const line = buf.getLine(i)
-        if (line) lines.push(line.translateToString(true))
+      // Try active buffer first, fall back to normal if active is empty.
+      // Claude Code uses the alternate screen buffer for its TUI, so we
+      // check both to ensure we read content regardless of buffer mode.
+      const candidates = [term.buffer.active, term.buffer.normal]
+      for (const buf of candidates) {
+        const totalRows = buf.length
+        const startRow = Math.max(0, totalRows - 200)
+        let result = ''
+        let nonEmpty = 0
+        for (let i = startRow; i < totalRows; i++) {
+          const line = buf.getLine(i)
+          if (!line) continue
+          const text = line.translateToString(true)
+          if (text.length > 0) nonEmpty++
+          // Don't insert \n before wrapped lines — they're continuations
+          // of the previous line (e.g. long commands on narrow screens).
+          if (result.length > 0 && !line.isWrapped) result += '\n'
+          result += text
+        }
+        if (nonEmpty > 0) return result
       }
-      return lines.join('\n')
+      return ''
     }
 
     function sendInput(text: string): void {

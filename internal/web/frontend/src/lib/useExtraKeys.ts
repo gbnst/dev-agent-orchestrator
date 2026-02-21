@@ -26,6 +26,7 @@ export type ExtraKeysState = {
   ctrlActive: boolean
   altActive: boolean
   handleExtraKey: (key: ExtraKey) => void
+  handlePaste: () => void
   onPointerDown: (key: ExtraKey) => void
   onPointerUp: () => void
   customKeyHandler: ((event: KeyboardEvent) => boolean) | null
@@ -118,6 +119,29 @@ export function useExtraKeys(handle: XTermHandle | undefined): ExtraKeysState {
     stopRepeat()
   }, [stopRepeat])
 
+  const handlePaste = useCallback(async () => {
+    const h = handleRef.current
+    if (!h) return
+    try {
+      // Prefer Clipboard API (requires secure context).
+      if (navigator.clipboard?.readText) {
+        const text = await navigator.clipboard.readText()
+        if (text) h.sendInput(text)
+        return
+      }
+    } catch { /* fall through */ }
+    // Fallback: use a temporary textarea to capture paste via execCommand.
+    const ta = document.createElement('textarea')
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    document.execCommand('paste')
+    const text = ta.value
+    document.body.removeChild(ta)
+    if (text) h.sendInput(text)
+  }, [])
+
   // Custom key handler for xterm's attachCustomKeyEventHandler.
   // Intercepts real keyboard input when Ctrl/Alt modifiers are active.
   const customKeyHandler = useCallback((event: KeyboardEvent): boolean => {
@@ -155,6 +179,7 @@ export function useExtraKeys(handle: XTermHandle | undefined): ExtraKeysState {
     ctrlActive,
     altActive,
     handleExtraKey,
+    handlePaste,
     onPointerDown,
     onPointerUp,
     customKeyHandler: handle ? customKeyHandler : null,
