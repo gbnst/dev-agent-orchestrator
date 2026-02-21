@@ -84,6 +84,7 @@ export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData,
       fontFamily: 'monospace',
       fontSize: 14,
       cursorBlink: true,
+      macOptionClickForcesSelection: true,
     })
 
     const fitAddon = new FitAddon()
@@ -174,6 +175,24 @@ export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData,
     }
     el.addEventListener('touchmove', onTouchMove, { passive: false })
 
+    // Auto-copy on selection: stash selected text eagerly (xterm clears
+    // selections on incoming PTY data), then write to clipboard on mouseup
+    // (user gesture required by the Clipboard API).
+    let pendingSelection = ''
+    const selectionDispose = term.onSelectionChange(() => {
+      const text = term.getSelection()
+      if (text) {
+        pendingSelection = text
+      }
+    })
+    function onMouseUp() {
+      if (pendingSelection) {
+        navigator.clipboard.writeText(pendingSelection).catch(() => {})
+      }
+      pendingSelection = ''
+    }
+    el.addEventListener('mouseup', onMouseUp)
+
     // ResizeObserver auto-fits terminal to container dimensions.
     const observer = new ResizeObserver(() => {
       fitAddon.fit()
@@ -182,6 +201,8 @@ export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData,
 
     return () => {
       el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('mouseup', onMouseUp)
+      selectionDispose.dispose()
       observer.disconnect()
       dataDispose.dispose()
       resizeDispose.dispose()

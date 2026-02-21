@@ -6,6 +6,11 @@
 //
 // Renders inside each terminal's wrapper div (position: relative).
 // Shows detected patterns with dismissible banners and action buttons.
+//
+// When a DetectorResult has `autoChain: true`, the overlay renders a single
+// button (using the first action's label) that executes all actions in
+// sequence via `onExecuteAll`. When `detail` is present, a read-only
+// textarea shows the content below the buttons.
 
 import type { DetectorResult, SmartAction } from '../lib/smartActions'
 
@@ -13,13 +18,14 @@ type SmartActionOverlayProps = {
   readonly results: ReadonlyArray<DetectorResult>
   readonly onDismiss: (detectorId: string) => void
   readonly onExecute: (action: SmartAction) => void
+  readonly onExecuteAll: (actions: ReadonlyArray<SmartAction>) => void
 }
 
-export function SmartActionOverlay({ results, onDismiss, onExecute }: SmartActionOverlayProps) {
+export function SmartActionOverlay({ results, onDismiss, onExecute, onExecuteAll }: SmartActionOverlayProps) {
   if (results.length === 0) return null
 
   return (
-    <div className="absolute top-2 right-2 z-10 flex flex-col gap-2 max-w-sm">
+    <div className="absolute top-2 left-2 z-10 flex flex-col gap-2 max-w-[80vw] md:hidden">
       {results.map(result => (
         <div
           key={result.detectorId}
@@ -38,16 +44,33 @@ export function SmartActionOverlay({ results, onDismiss, onExecute }: SmartActio
             </button>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {result.actions.map(action => (
+            {result.autoChain ? (
               <button
-                key={action.label}
-                onClick={() => onExecute(action)}
+                onClick={() => onExecuteAll(result.actions)}
                 className="bg-blue/20 text-blue hover:bg-blue/30 text-xs px-2.5 py-1 rounded transition-colors"
               >
-                {action.label}
+                {result.actions[0]?.label}
               </button>
-            ))}
+            ) : (
+              result.actions.map(action => (
+                <button
+                  key={action.label}
+                  onClick={() => onExecute(action)}
+                  className="bg-blue/20 text-blue hover:bg-blue/30 text-xs px-2.5 py-1 rounded transition-colors"
+                >
+                  {action.label}
+                </button>
+              ))
+            )}
           </div>
+          {result.detail != null && (
+            <textarea
+              readOnly
+              value={result.detail}
+              rows={8}
+              className="mt-2 w-full bg-mantle text-subtext-0 text-xs font-mono border border-surface-1 rounded px-2 py-1.5 resize-none focus:outline-none focus:border-blue/50"
+            />
+          )}
         </div>
       ))}
     </div>

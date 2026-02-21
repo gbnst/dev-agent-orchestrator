@@ -20,6 +20,7 @@ type UseSmartActionsReturn = {
   readonly results: ReadonlyArray<DetectorResult>
   readonly dismiss: (detectorId: string) => void
   readonly execute: (action: SmartAction, tabKey: string) => void
+  readonly executeAll: (actions: ReadonlyArray<SmartAction>, tabKey: string) => void
   readonly notifyDataReceived: (tabKey: string) => void
 }
 
@@ -100,5 +101,18 @@ export function useSmartActions(
     [handles],
   )
 
-  return { results, dismiss, execute, notifyDataReceived }
+  const executeAll = useCallback(
+    (actions: ReadonlyArray<SmartAction>, tabKey: string) => {
+      const handle = handles.get(tabKey)
+      if (!handle || actions.length === 0) return
+
+      const CHAIN_DELAY_MS = 500
+      actions.forEach((action, i) => {
+        setTimeout(() => typeAndSubmit(handle, action.input), i * CHAIN_DELAY_MS)
+      })
+    },
+    [handles],
+  )
+
+  return { results, dismiss, execute, executeAll, notifyDataReceived }
 }

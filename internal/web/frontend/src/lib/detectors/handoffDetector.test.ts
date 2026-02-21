@@ -22,9 +22,11 @@ describe('handoffDetector', () => {
     expect(result).not.toBeNull()
     expect(result!.detectorId).toBe('handoff')
     expect(result!.banner).toBe('Workflow handoff detected')
+    expect(result!.detail).toBe('/execute-implementation-plan /Users/ed/project/docs/plan/')
+    expect(result!.autoChain).toBe(true)
     expect(result!.actions).toEqual([
-      { label: '(1) /clear', input: '/clear' },
-      { label: '(2) Run command', input: '/execute-implementation-plan /Users/ed/project/docs/plan/' },
+      { label: 'Clear & Run', input: '/clear' },
+      { label: 'Run command', input: '/execute-implementation-plan /Users/ed/project/docs/plan/' },
     ])
   })
 

@@ -48,9 +48,11 @@ export const handoffDetector: Detector = {
     return {
       detectorId: 'handoff',
       banner: 'Workflow handoff detected',
+      detail: command,
+      autoChain: true,
       actions: [
-        { label: '(1) /clear', input: '/clear' },
-        { label: '(2) Run command', input: command },
+        { label: 'Clear & Run', input: '/clear' },
+        { label: 'Run command', input: command },
       ],
     }
   },

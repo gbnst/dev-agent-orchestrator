@@ -69,7 +69,7 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
 
   // Smart actions: detect patterns in terminal output and offer one-click actions.
   const handlesRef = useRef<Map<string, XTermHandle>>(new Map())
-  const { results, dismiss, execute, notifyDataReceived } = useSmartActions(
+  const { results, dismiss, execute, executeAll, notifyDataReceived } = useSmartActions(
     resolvedActiveKey,
     handlesRef.current,
   )
@@ -142,6 +142,7 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
                       results={results}
                       onDismiss={dismiss}
                       onExecute={action => execute(action, tab.key)}
+                      onExecuteAll={actions => executeAll(actions, tab.key)}
                     />
                   </>
                 )}
