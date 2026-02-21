@@ -20,6 +20,7 @@ type XTermProps = {
   readonly onDisconnect?: () => void
   readonly onReady?: (handle: XTermHandle) => void
   readonly onData?: () => void
+  readonly customKeyHandler?: ((event: KeyboardEvent) => boolean) | null
 }
 
 // buildWsUrl constructs the WebSocket URL for the terminal endpoint.
@@ -58,7 +59,7 @@ const catppuccinMochaTheme = {
   brightWhite: '#a6adc8',
 }
 
-export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData }: XTermProps) {
+export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData, customKeyHandler }: XTermProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // Keep callbacks in refs so the useEffect does not need them as
   // dependencies. Including prop callbacks in deps would cause the terminal
@@ -69,6 +70,8 @@ export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData 
   onReadyRef.current = onReady
   const onDataRef = useRef(onData)
   onDataRef.current = onData
+  const customKeyHandlerRef = useRef(customKeyHandler)
+  customKeyHandlerRef.current = customKeyHandler
 
   useEffect(() => {
     const el = containerRef.current
@@ -89,6 +92,13 @@ export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData 
     term.loadAddon(fitAddon)
     term.loadAddon(webLinksAddon)
     term.open(el)
+
+    // Attach custom key handler for virtual modifier keys (extra keys bar).
+    // Uses a ref wrapper so the handler always reads the latest callback.
+    term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      const handler = customKeyHandlerRef.current
+      return handler ? handler(event) : true
+    })
 
     // Defer initial fit to the next frame so the browser has completed layout
     // and the container element has measurable dimensions. Mobile Safari does
@@ -154,6 +164,16 @@ export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData 
       }
     })
 
+    // Prevent page scrolling when touching the terminal area. On iOS Safari,
+    // touch-dragging inside the terminal can scroll the entire page (pushing
+    // the header off-screen). We block touchmove default on the container to
+    // prevent this. Terminal scrollback scrolling is not yet supported on
+    // touch devices (xterm 6.x limitation).
+    function onTouchMove(e: TouchEvent) {
+      e.preventDefault()
+    }
+    el.addEventListener('touchmove', onTouchMove, { passive: false })
+
     // ResizeObserver auto-fits terminal to container dimensions.
     const observer = new ResizeObserver(() => {
       fitAddon.fit()
@@ -161,6 +181,7 @@ export function XTerm({ containerId, sessionName, onDisconnect, onReady, onData 
     observer.observe(el)
 
     return () => {
+      el.removeEventListener('touchmove', onTouchMove)
       observer.disconnect()
       dataDispose.dispose()
       resizeDispose.dispose()
