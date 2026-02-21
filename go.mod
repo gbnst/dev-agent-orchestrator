@@ -10,7 +10,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/coder/websocket v1.8.14
 	github.com/creack/pty v1.1.24
-	github.com/fsnotify/fsnotify v1.7.0
+	github.com/fsnotify/fsnotify v1.9.0
 	go.uber.org/zap v1.27.1
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gopkg.in/yaml.v3 v3.0.1
