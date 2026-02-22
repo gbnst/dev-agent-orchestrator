@@ -40,7 +40,11 @@ func (m Model) View() string {
 	layout := ComputeLayout(m.width, m.height, m.logPanelOpen, m.detailPanelOpen)
 
 	// Build header
-	header := m.styles.TitleStyle().Width(layout.Header.Width).Render("Development Agent Orchestrator")
+	title := "Dev Agent Orchestrator"
+	if len(m.listenURLs) > 0 {
+		title += " (" + strings.Join(m.listenURLs, ", ") + ")"
+	}
+	header := m.styles.TitleStyle().Render(truncateString(title, layout.Header.Width))
 
 	// Build content: tree view + optional detail panel
 	var content string

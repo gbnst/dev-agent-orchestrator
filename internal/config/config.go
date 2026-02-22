@@ -4,6 +4,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,12 +14,25 @@ import (
 )
 
 type Config struct {
-	Theme           string    `yaml:"theme"`
-	Runtime         string    `yaml:"runtime"`
-	LogLevel        string    `yaml:"log_level"`
-	Web             WebConfig `yaml:"web"`
-	ClaudeTokenPath string    `yaml:"claude_token_path"`
-	GitHubTokenPath string    `yaml:"github_token_path"`
+	Theme           string          `yaml:"theme"`
+	Runtime         string          `yaml:"runtime"`
+	LogLevel        string          `yaml:"log_level"`
+	Web             WebConfig       `yaml:"web"`
+	Tailscale       TailscaleConfig `yaml:"tailscale"`
+	ClaudeTokenPath string          `yaml:"claude_token_path"`
+	GitHubTokenPath string          `yaml:"github_token_path"`
+}
+
+type TailscaleConfig struct {
+	Enabled     bool     `yaml:"enabled"`
+	Name        string   `yaml:"name"`
+	Funnel      bool     `yaml:"funnel"`
+	FunnelOnly  bool     `yaml:"funnel_only"`
+	Ephemeral   bool     `yaml:"ephemeral"`
+	Plaintext   bool     `yaml:"plaintext"`
+	AuthKeyPath string   `yaml:"auth_key_path"`
+	StateDir    string   `yaml:"state_dir"`
+	Tags        []string `yaml:"tags"`
 }
 
 type WebConfig struct {
@@ -36,6 +50,12 @@ func DefaultConfig() Config {
 		Web: WebConfig{
 			Bind: "127.0.0.1",
 			Port: 0, // disabled by default
+		},
+		Tailscale: TailscaleConfig{
+			Name:        "devagent",
+			Ephemeral:   true,
+			AuthKeyPath: "~/.config/devagent/tailscale-authkey",
+			StateDir:    "~/.local/share/devagent/tsnsrv",
 		},
 	}
 }
@@ -172,6 +192,31 @@ func (c *Config) ResolveTokenPath(path string) string {
 		return filepath.Join(home, path[2:])
 	}
 	return path
+}
+
+// ResolvePathFunc is the function signature for resolving paths with ~ expansion.
+type ResolvePathFunc func(string) string
+
+// ValidateTailscale validates the TailscaleConfig.
+// resolveTokenPath expands ~ in paths (use Config.ResolveTokenPath).
+func (tc *TailscaleConfig) Validate(resolvePath ResolvePathFunc) error {
+	if !tc.Enabled {
+		return nil
+	}
+	if tc.Name == "" {
+		return errors.New("tailscale.name must be non-empty when tailscale is enabled")
+	}
+	if tc.FunnelOnly && !tc.Funnel {
+		return errors.New("tailscale.funnel_only requires tailscale.funnel to be enabled")
+	}
+	authPath := resolvePath(tc.AuthKeyPath)
+	if authPath == "" {
+		return errors.New("tailscale.auth_key_path must be set when tailscale is enabled")
+	}
+	if _, err := os.Stat(authPath); err != nil {
+		return fmt.Errorf("tailscale auth key file not found: %s", authPath)
+	}
+	return nil
 }
 
 func getConfigDir() string {

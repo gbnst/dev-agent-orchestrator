@@ -103,12 +103,18 @@ export function DictationBar({ handle, extraKeys }: DictationBarProps) {
         />
         <button
           type="button"
-          onClick={handleSubmit}
-          disabled={!value.trim() || !handle}
+          onClick={() => {
+            if (value.trim()) {
+              handleSubmit()
+            } else {
+              handle?.sendInput('\r')
+            }
+          }}
+          disabled={!handle}
           className="shrink-0 bg-blue/20 text-blue hover:bg-blue/30 disabled:opacity-40 disabled:cursor-default text-sm px-2.5 py-1 rounded transition-colors"
           style={touchStyle}
         >
-          Send
+          {value.trim() ? 'Send' : 'Enter'}
         </button>
       </div>
       {/* Extra keys */}

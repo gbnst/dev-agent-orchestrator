@@ -54,6 +54,7 @@ services:
     image: mitmproxy/mitmproxy:latest
     networks:
       - isolated
+      - external
     volumes:
       - proxy-certs:/home/mitmproxy/.mitmproxy
       - {{.ProjectPath}}/.devcontainer/containers/proxy/opt/devagent-proxy:/opt/devagent-proxy
@@ -70,6 +71,8 @@ services:
 
 networks:
   isolated:
+    internal: true
+  external:
 
 volumes:
   proxy-certs:

@@ -33,8 +33,8 @@ func TestComputeLayout(t *testing.T) {
 			width:         80,
 			height:        24,
 			logPanelOpen:  true,
-			wantContent:   7,  // 40% of (24-6) = 7.2 -> 7
-			wantLogHeight: 11, // 60% of (24-6) = 10.8 -> 11
+			wantContent:   6,  // 40% of (24-6-1) = 6.8 -> 6 (separator subtracted first)
+			wantLogHeight: 11, // 60% of (24-6-1) = 10.2 -> 11
 		},
 		{
 			name:         "minimum height",

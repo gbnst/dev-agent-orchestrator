@@ -34,6 +34,7 @@
         (pkgs.delve.override { buildGoModule = pkgs.buildGo124Module; })
         pkgs.golangci-lint
         pkgs.lefthook
+        inputs.tsnsrv.packages.${pkgs.system}.tsnsrv
       ];
     };
   };

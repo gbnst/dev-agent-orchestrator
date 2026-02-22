@@ -88,7 +88,7 @@ func TestIntegration_TreeNavigation(t *testing.T) {
 
 	// Initially shows title
 	view := model.View()
-	if !strings.Contains(view, "Development Agent Orchestrator") {
+	if !strings.Contains(view, "Dev Agent Orchestrator") {
 		t.Error("should show title")
 	}
 

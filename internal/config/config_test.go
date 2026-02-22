@@ -344,6 +344,104 @@ func TestLoadFrom_WebConfig_NoSection_UsesDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_TailscaleDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg.Tailscale.Enabled {
+		t.Error("Tailscale should be disabled by default")
+	}
+	if cfg.Tailscale.Name != "devagent" {
+		t.Errorf("Tailscale.Name = %q, want %q", cfg.Tailscale.Name, "devagent")
+	}
+	if !cfg.Tailscale.Ephemeral {
+		t.Error("Tailscale.Ephemeral should default to true")
+	}
+	if cfg.Tailscale.AuthKeyPath != "~/.config/devagent/tailscale-authkey" {
+		t.Errorf("Tailscale.AuthKeyPath = %q, want default", cfg.Tailscale.AuthKeyPath)
+	}
+	if cfg.Tailscale.StateDir != "~/.local/share/devagent/tsnsrv" {
+		t.Errorf("Tailscale.StateDir = %q, want default", cfg.Tailscale.StateDir)
+	}
+}
+
+func TestValidateTailscale_DisabledSkipsValidation(t *testing.T) {
+	tc := TailscaleConfig{Enabled: false}
+	err := tc.Validate(func(s string) string { return s })
+	if err != nil {
+		t.Errorf("expected nil for disabled tailscale, got %v", err)
+	}
+}
+
+func TestValidateTailscale_EmptyName(t *testing.T) {
+	tc := TailscaleConfig{Enabled: true, Name: "", AuthKeyPath: "/tmp/key"}
+	err := tc.Validate(func(s string) string { return s })
+	if err == nil {
+		t.Error("expected error for empty name")
+	}
+}
+
+func TestValidateTailscale_FunnelOnlyRequiresFunnel(t *testing.T) {
+	tc := TailscaleConfig{Enabled: true, Name: "test", FunnelOnly: true, Funnel: false, AuthKeyPath: "/tmp/key"}
+	err := tc.Validate(func(s string) string { return s })
+	if err == nil {
+		t.Error("expected error when funnel_only=true but funnel=false")
+	}
+}
+
+func TestValidateTailscale_AuthKeyMissing(t *testing.T) {
+	tc := TailscaleConfig{Enabled: true, Name: "test", AuthKeyPath: "/nonexistent/path/key"}
+	err := tc.Validate(func(s string) string { return s })
+	if err == nil {
+		t.Error("expected error for missing auth key file")
+	}
+}
+
+func TestValidateTailscale_AuthKeyExists(t *testing.T) {
+	tmpFile := filepath.Join(t.TempDir(), "authkey")
+	if err := os.WriteFile(tmpFile, []byte("tskey-test"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	tc := TailscaleConfig{Enabled: true, Name: "test", AuthKeyPath: tmpFile}
+	err := tc.Validate(func(s string) string { return s })
+	if err != nil {
+		t.Errorf("expected nil, got %v", err)
+	}
+}
+
+func TestLoadFrom_TailscaleConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	content := []byte(`
+tailscale:
+  enabled: true
+  name: myagent
+  funnel: true
+  tags:
+    - tag:dev
+`)
+	if err := os.WriteFile(configPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadFrom(configPath)
+	if err != nil {
+		t.Fatalf("LoadFrom() error = %v", err)
+	}
+	if !cfg.Tailscale.Enabled {
+		t.Error("Tailscale.Enabled should be true")
+	}
+	if cfg.Tailscale.Name != "myagent" {
+		t.Errorf("Tailscale.Name = %q, want %q", cfg.Tailscale.Name, "myagent")
+	}
+	if !cfg.Tailscale.Funnel {
+		t.Error("Tailscale.Funnel should be true")
+	}
+	if len(cfg.Tailscale.Tags) != 1 || cfg.Tailscale.Tags[0] != "tag:dev" {
+		t.Errorf("Tailscale.Tags = %v, want [tag:dev]", cfg.Tailscale.Tags)
+	}
+}
+
 func TestResolveTokenPath_Empty(t *testing.T) {
 	cfg := Config{}
 	if got := cfg.ResolveTokenPath(""); got != "" {

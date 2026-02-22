@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-02-20
+Last verified: 2026-02-22
 
 ## Tech Stack
 - Language: Go 1.21+
@@ -11,6 +11,8 @@ Last verified: 2026-02-20
 - Devcontainers: @devcontainers/cli
 - Network Isolation: mitmproxy (sidecar container with domain allowlist)
 - Web UI: React + Vite + TypeScript + Tailwind (embedded SPA)
+- Tailscale Exposure: tsnsrv (optional, proxies web UI onto tailnet)
+- Process Supervision: internal/process (restart policies, graceful shutdown)
 - Terminal Bridge: coder/websocket + creack/pty
 
 ## Commands
@@ -32,7 +34,9 @@ Last verified: 2026-02-20
 - `internal/tui/` - Bubbletea TUI with tree navigation, detail panel, log panel
 - `internal/container/` - Container lifecycle management (see internal/container/CLAUDE.md for contracts)
 - `internal/tmux/` - Tmux session management within containers
-- `internal/config/` - Configuration loading and validation
+- `internal/config/` - Configuration loading and validation (see internal/config/CLAUDE.md for contracts)
+- `internal/process/` - Child process supervisor with restart policies (see internal/process/CLAUDE.md)
+- `internal/tsnsrv/` - Tailscale tsnsrv integration (see internal/tsnsrv/CLAUDE.md)
 - `internal/web/` - HTTP/WebSocket server with REST API and embedded SPA (see internal/web/CLAUDE.md for contracts)
 - `internal/web/frontend/` - React SPA (Vite + TypeScript + Tailwind)
 - `internal/e2e/` - E2E test utilities

@@ -4,6 +4,7 @@
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    tsnsrv.url = "github:boinkor-net/tsnsrv";
   };
 
   outputs = inputs @ {
@@ -33,20 +34,27 @@
         };
         packages = {
           default = config.packages.devagent;
-          devagent = pkgs.buildGo124Module {
-            pname = "devagent";
-            version = "0.1.0";
-            vendorHash = builtins.readFile ./devagent.sri;
-            src = lib.sourceFilesBySuffices (lib.sources.cleanSource ./.) [
-              ".go"
-              ".mod"
-              ".sum"
-            ];
-            ldflags = [
-              "-s"
-              "-w"
-            ];
-          };
+          devagent = let
+            unwrapped = pkgs.buildGo124Module {
+              pname = "devagent";
+              version = "0.1.0";
+              vendorHash = builtins.readFile ./devagent.sri;
+              src = lib.sourceFilesBySuffices (lib.sources.cleanSource ./.) [
+                ".go"
+                ".mod"
+                ".sum"
+              ];
+              ldflags = [
+                "-s"
+                "-w"
+              ];
+            };
+            tsnsrvPkg = inputs.tsnsrv.packages.${pkgs.system}.tsnsrv;
+          in
+            pkgs.symlinkJoin {
+              name = "devagent";
+              paths = [unwrapped tsnsrvPkg];
+            };
         };
 
         formatter = pkgs.alejandra;

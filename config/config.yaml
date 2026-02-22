@@ -6,12 +6,21 @@ log_level: info  # debug, info, warn, error
 
 # Web UI (disabled when port is 0 or omitted)
 web:
-  bind: "0.0.0.0"
+  bind: "127.0.0.1"
   port: 9001
 
 # Container runtime (auto-detected if not specified)
 # runtime: docker  # or podman
 
 # Token file paths for container injection (omit to skip)
-claude_token_path: ~/.claude/.devagent-claude-token
-github_token_path: ~/.config/github/token
+claude_token_path: ~/.config/devagent/claude-token
+github_token_path: ~/.config/devagent/github_token
+
+# Tailscale exposure via tsnsrv (disabled by default)
+tailscale:
+  enabled: true
+  name: devagent
+  auth_key_path: ~/.config/devagent/tailscale-authkey
+  state_dir: ~/.local/share/devagent/tsnsrv
+  tags:
+    - tag:devagent

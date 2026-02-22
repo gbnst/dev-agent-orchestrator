@@ -567,6 +567,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh sessions after action
 		return m, m.refreshSessions()
 
+	case WebListenURLMsg:
+		m.listenURLs = append(m.listenURLs, msg.URL)
+		return m, nil
+
+	case TailscaleURLMsg:
+		m.listenURLs = append(m.listenURLs, msg.URL)
+		return m, nil
+
 	case WebSessionActionMsg:
 		return m, m.refreshAllSessions()
 

@@ -16,6 +16,8 @@ import (
 	"devagent/internal/config"
 	"devagent/internal/container"
 	"devagent/internal/logging"
+	"devagent/internal/process"
+	"devagent/internal/tsnsrv"
 	"devagent/internal/tui"
 	"devagent/internal/web"
 )
@@ -205,8 +207,19 @@ func runTUI(configDir string) {
 			p.Send,
 			logManager,
 		)
+		ln, err := webServer.Listen()
+		if err != nil {
+			appLogger.Error("web server listen error", "error", err)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		webURL := fmt.Sprintf("http://%s", webServer.Addr())
 		go func() {
-			if err := webServer.Start(); err != nil && err != http.ErrServerClosed {
+			p.Send(tui.WebListenURLMsg{URL: webURL})
+		}()
+
+		go func() {
+			if err := webServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 				appLogger.Error("web server error", "error", err)
 			}
 		}()
@@ -217,6 +230,34 @@ func runTUI(configDir string) {
 				appLogger.Error("web server shutdown error", "error", err)
 			}
 		}()
+
+		if cfg.Tailscale.Enabled {
+			supervisor, err := startTsnsrv(&cfg, webServer.Addr(), logManager)
+			if err != nil {
+				appLogger.Warn("tsnsrv failed to start (continuing without tailscale)", "error", err)
+			} else {
+				defer supervisor.Stop()
+
+				// Poll for tailscale FQDN in background
+				stateDir := cfg.ResolveTokenPath(cfg.Tailscale.StateDir)
+				tc := cfg.Tailscale
+				go func() {
+					for i := 0; i < 30; i++ {
+						url, ok := tsnsrv.ReadServiceURL(stateDir, tc)
+						if ok {
+							appLogger.Info("tailscale URL resolved", "url", url)
+							p.Send(tui.TailscaleURLMsg{URL: url})
+							return
+						}
+						time.Sleep(1 * time.Second)
+					}
+					// Timed out, send fallback
+					fallback, _ := tsnsrv.ReadServiceURL(stateDir, tc)
+					appLogger.Warn("tailscale URL resolution timed out, using fallback", "url", fallback)
+					p.Send(tui.TailscaleURLMsg{URL: fallback})
+				}()
+			}
+		}
 	}
 
 	if _, err := p.Run(); err != nil {
@@ -226,4 +267,26 @@ func runTUI(configDir string) {
 	}
 
 	appLogger.Info("application stopped")
+}
+
+// startTsnsrv validates config, builds the process config, and starts the tsnsrv supervisor.
+func startTsnsrv(cfg *config.Config, upstreamAddr string, logProvider logging.LoggerProvider) (*process.Supervisor, error) {
+	logger := logProvider.For("tsnsrv")
+
+	if err := cfg.Tailscale.Validate(cfg.ResolveTokenPath); err != nil {
+		return nil, fmt.Errorf("tailscale config validation: %w", err)
+	}
+
+	pc, err := tsnsrv.BuildProcessConfig(cfg.Tailscale, upstreamAddr, cfg.ResolveTokenPath)
+	if err != nil {
+		return nil, fmt.Errorf("tsnsrv config: %w", err)
+	}
+
+	supervisor := process.NewSupervisor(pc, logger)
+	if err := supervisor.Start(context.Background()); err != nil {
+		return nil, fmt.Errorf("tsnsrv start: %w", err)
+	}
+
+	logger.Info("tsnsrv started", "upstream", upstreamAddr, "name", cfg.Tailscale.Name)
+	return supervisor, nil
 }

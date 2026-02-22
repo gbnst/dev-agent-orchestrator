@@ -184,6 +184,9 @@ type Model struct {
 	logDetailsViewport viewport.Model
 	logDetailsReady    bool // viewport initialized
 
+	// listenURLs holds the URLs the service is listening on, for display in the header.
+	listenURLs []string
+
 	// Quit tracking
 	lastCtrlCTime time.Time // for double ctrl+c detection
 	quitHintCount int       // consecutive esc/q presses with nothing to close
@@ -423,6 +426,12 @@ func (m *Model) closeSessionView() {
 	m.sessionCreatedOpen = false
 	m.sessionCreatedName = ""
 }
+
+// WebListenURLMsg is sent when the web server starts listening.
+type WebListenURLMsg struct{ URL string }
+
+// TailscaleURLMsg is sent when the tailscale FQDN becomes available.
+type TailscaleURLMsg struct{ URL string }
 
 // IsActionMenuOpen returns whether the action menu is open.
 func (m Model) IsActionMenuOpen() bool {
