@@ -56,3 +56,31 @@ export async function destroySession(containerId: string, name: string): Promise
     throw new Error(body.error ?? `failed to destroy session: ${res.status}`)
   }
 }
+
+export async function fetchHostSessions(): Promise<Array<Session>> {
+  const res = await fetch(`${API_BASE}/host/sessions`)
+  if (!res.ok) throw new Error(`failed to fetch host sessions: ${res.status}`)
+  return res.json() as Promise<Array<Session>>
+}
+
+export async function createHostSession(name: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/host/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? `failed to create host session: ${res.status}`)
+  }
+}
+
+export async function destroyHostSession(name: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/host/sessions/${name}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(body.error ?? `failed to destroy host session: ${res.status}`)
+  }
+}

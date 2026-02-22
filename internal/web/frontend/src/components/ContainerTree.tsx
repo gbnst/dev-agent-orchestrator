@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { type Container, fetchContainers } from '../api'
 import { useServerEvents } from '../lib/useServerEvents'
 import { ContainerCard } from './ContainerCard'
+import { HostCard } from './HostCard'
 
 type ContainerTreeProps = {
   readonly onAttach: (containerId: string, containerName: string, sessionName: string) => void
@@ -53,12 +54,16 @@ export function ContainerTree({ onAttach }: ContainerTreeProps) {
 
   if (containers.length === 0) {
     return (
-      <div className="p-4 text-overlay-0 text-sm">No containers found.</div>
+      <div className="space-y-3 p-4">
+        <HostCard onAttach={onAttach} />
+        <div className="text-overlay-0 text-sm">No containers found.</div>
+      </div>
     )
   }
 
   return (
     <div className="space-y-3 p-4">
+      <HostCard onAttach={onAttach} />
       {containers.map(container => (
         <ContainerCard
           key={container.id}

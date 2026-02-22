@@ -71,6 +71,10 @@ func New(cfg Config, manager *container.Manager, notifyTUI func(tea.Msg), logPro
 	mux.HandleFunc("POST /api/containers/{id}/sessions", s.handleCreateSession)
 	mux.HandleFunc("DELETE /api/containers/{id}/sessions/{name}", s.handleDestroySession)
 	mux.HandleFunc("GET /api/containers/{id}/sessions/{name}/terminal", s.HandleTerminal)
+	mux.HandleFunc("GET /api/host/sessions", s.handleListHostSessions)
+	mux.HandleFunc("POST /api/host/sessions", s.handleCreateHostSession)
+	mux.HandleFunc("DELETE /api/host/sessions/{name}", s.handleDestroyHostSession)
+	mux.HandleFunc("GET /api/host/sessions/{name}/terminal", s.HandleHostTerminal)
 	mux.Handle("/", s.spaHandler())
 
 	return s

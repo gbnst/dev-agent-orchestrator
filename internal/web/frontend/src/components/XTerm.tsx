@@ -26,6 +26,9 @@ type XTermProps = {
 // buildWsUrl constructs the WebSocket URL for the terminal endpoint.
 function buildWsUrl(containerId: string, sessionName: string): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  if (containerId === '__host__') {
+    return `${protocol}//${window.location.host}/api/host/sessions/${sessionName}/terminal`
+  }
   return `${protocol}//${window.location.host}/api/containers/${containerId}/sessions/${sessionName}/terminal`
 }
 
