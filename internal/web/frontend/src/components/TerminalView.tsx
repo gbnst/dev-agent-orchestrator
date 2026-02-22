@@ -12,7 +12,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { TerminalTabs, type Tab } from './TerminalTabs'
 import { SmartActionOverlay } from './SmartActionOverlay'
 import { ScrollButtons } from './ScrollButtons'
-import { ExtraKeysBar } from './ExtraKeysBar'
+import { DictationBar } from './DictationBar'
 import type { XTermHandle } from '../lib/smartActions'
 import { useSmartActions } from '../lib/useSmartActions'
 import { useExtraKeys } from '../lib/useExtraKeys'
@@ -86,6 +86,11 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
     notifyDataReceived(tabKey)
   }, [notifyDataReceived])
 
+  // Ref wrapper so XTerm's onDisconnect always calls the latest handleClose
+  // without being a useEffect dependency.
+  const handleCloseRef = useRef(handleClose)
+  handleCloseRef.current = handleClose
+
   return (
     <div className="flex flex-col h-full">
       {/* Back button + tab bar */}
@@ -105,9 +110,6 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
           />
         </div>
       </div>
-
-      {/* Extra keys bar — visible on mobile only, between tab bar and terminal */}
-      <ExtraKeysBar state={extraKeys} />
 
       {/* Terminal panels — all mounted, inactive hidden via display:none */}
       <div className="flex-1 min-h-0 overflow-hidden relative">
@@ -133,6 +135,7 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
                   sessionName={tab.sessionName}
                   onReady={handle => handleXTermReady(tab.key, handle)}
                   onData={() => handleXTermData(tab.key)}
+                  onDisconnect={() => handleCloseRef.current(tab.key)}
                   customKeyHandler={extraKeys.customKeyHandler}
                 />
                 {isActive && (
@@ -151,6 +154,9 @@ export function TerminalView({ tabs, onTabsChange, onBack }: TerminalViewProps) 
           })}
         </Suspense>
       </div>
+
+      {/* Dictation + extra keys bar — visible on mobile only, below terminal */}
+      <DictationBar handle={activeHandle} extraKeys={extraKeys} />
     </div>
   )
 }

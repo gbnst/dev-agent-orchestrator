@@ -25,7 +25,7 @@ export function SmartActionOverlay({ results, onDismiss, onExecute, onExecuteAll
   if (results.length === 0) return null
 
   return (
-    <div className="absolute top-2 left-2 z-10 flex flex-col gap-2 max-w-[80vw] md:hidden">
+    <div className="absolute top-2 left-2 z-50 flex flex-col gap-2 max-w-[80vw] md:hidden">
       {results.map(result => (
         <div
           key={result.detectorId}
@@ -38,6 +38,7 @@ export function SmartActionOverlay({ results, onDismiss, onExecute, onExecuteAll
             <button
               onClick={() => onDismiss(result.detectorId)}
               className="text-overlay-0 hover:text-red text-xs transition-colors shrink-0"
+              style={{ touchAction: 'manipulation' }}
               aria-label="Dismiss"
             >
               ✕
@@ -48,6 +49,7 @@ export function SmartActionOverlay({ results, onDismiss, onExecute, onExecuteAll
               <button
                 onClick={() => onExecuteAll(result.actions)}
                 className="bg-blue/20 text-blue hover:bg-blue/30 text-xs px-2.5 py-1 rounded transition-colors"
+                style={{ touchAction: 'manipulation' }}
               >
                 {result.actions[0]?.label}
               </button>
@@ -57,6 +59,7 @@ export function SmartActionOverlay({ results, onDismiss, onExecute, onExecuteAll
                   key={action.label}
                   onClick={() => onExecute(action)}
                   className="bg-blue/20 text-blue hover:bg-blue/30 text-xs px-2.5 py-1 rounded transition-colors"
+                  style={{ touchAction: 'manipulation' }}
                 >
                   {action.label}
                 </button>

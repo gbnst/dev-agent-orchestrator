@@ -106,6 +106,11 @@ export function useSmartActions(
       const handle = handles.get(tabKey)
       if (!handle || actions.length === 0) return
 
+      // Dismiss all results so the overlay clears immediately, revealing the
+      // terminal underneath and preventing the overlay from intercepting further
+      // touch events while the chained commands execute.
+      setResults([])
+
       const CHAIN_DELAY_MS = 500
       actions.forEach((action, i) => {
         setTimeout(() => typeAndSubmit(handle, action.input), i * CHAIN_DELAY_MS)
