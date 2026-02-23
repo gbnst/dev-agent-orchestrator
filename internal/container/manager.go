@@ -406,9 +406,15 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 
 	// Start devcontainer (devcontainer CLI handles compose orchestration)
 	containerID, err := m.devCLI.Up(ctx, opts.ProjectPath)
-	if err != nil {
+	if err != nil && containerID == "" {
 		reportProgress("container", "failed", fmt.Sprintf("Failed to start: %v", err))
 		return nil, fmt.Errorf("failed to start devcontainer: %w", err)
+	}
+	if err != nil {
+		// Container was created but postCreateCommand or similar failed.
+		// Log the error but continue — the container is usable.
+		logger.Warn("devcontainer up completed with error (postCreateCommand may have failed)", "error", err)
+		reportProgress("container", "completed", "Devcontainer started (with post-create warnings)")
 	}
 
 	displayID := containerID
@@ -450,6 +456,21 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 	}
 
 	return container, nil
+}
+
+// StartWorktreeContainer starts a devcontainer for an already-configured worktree directory.
+// The worktree's .devcontainer/ is expected to be fully configured (compose YAML, Dockerfile, etc.).
+// If devcontainer up fails but the container was created (e.g. postCreateCommand error),
+// the container ID is returned along with the error.
+func (m *Manager) StartWorktreeContainer(ctx context.Context, wtPath string) (string, error) {
+	containerID, err := m.devCLI.Up(ctx, wtPath)
+	if err != nil && containerID == "" {
+		return "", fmt.Errorf("failed to start worktree container: %w", err)
+	}
+	if err := m.Refresh(ctx); err != nil {
+		m.logger.Warn("failed to refresh after worktree container start", "error", err)
+	}
+	return containerID, nil
 }
 
 // composeProjectName returns the compose project name for a container.

@@ -10,6 +10,7 @@ import (
 
 	"devagent/internal/config"
 	"devagent/internal/container"
+	"devagent/internal/discovery"
 	"devagent/internal/logging"
 )
 
@@ -85,7 +86,7 @@ func TestRebuildTreeItems_CollapsedContainers(t *testing.T) {
 	if len(m.treeItems) != 3 {
 		t.Errorf("expected 3 items (All + 2 collapsed containers), got %d", len(m.treeItems))
 	}
-	if m.treeItems[0].Type != TreeItemAll {
+	if m.treeItems[0].Type != TreeItemAllProjects {
 		t.Error("first item should be All")
 	}
 	if m.treeItems[1].Type != TreeItemContainer {
@@ -119,7 +120,7 @@ func TestRebuildTreeItems_ExpandedContainer(t *testing.T) {
 	if len(m.treeItems) != 4 {
 		t.Errorf("expected 4 items, got %d", len(m.treeItems))
 	}
-	if m.treeItems[0].Type != TreeItemAll {
+	if m.treeItems[0].Type != TreeItemAllProjects {
 		t.Error("first item should be All")
 	}
 	if m.treeItems[1].Type != TreeItemContainer {
@@ -174,7 +175,7 @@ func TestRebuildTreeItems_MixedExpansion(t *testing.T) {
 	if len(m.treeItems) != 4 {
 		t.Errorf("expected 4 items, got %d", len(m.treeItems))
 	}
-	if m.treeItems[0].Type != TreeItemAll {
+	if m.treeItems[0].Type != TreeItemAllProjects {
 		t.Error("first item should be All")
 	}
 	if m.treeItems[1].ContainerID != "c1" || m.treeItems[1].Type != TreeItemContainer {
@@ -200,7 +201,7 @@ func TestRebuildTreeItems_EmptyContainers(t *testing.T) {
 	if len(m.treeItems) != 1 {
 		t.Errorf("expected 1 item (All) for empty container list, got %d", len(m.treeItems))
 	}
-	if m.treeItems[0].Type != TreeItemAll {
+	if m.treeItems[0].Type != TreeItemAllProjects {
 		t.Error("only item should be All")
 	}
 }
@@ -637,11 +638,11 @@ func TestRenderDetailPanel_Empty(t *testing.T) {
 	}
 }
 
-// New tests for TreeItemAll
+// New tests for TreeItemAllProjects
 
-func TestTreeItemAll_IsAll(t *testing.T) {
-	item := TreeItem{Type: TreeItemAll}
-	if !item.IsAll() {
+func TestTreeItemAllProjects_IsAll(t *testing.T) {
+	item := TreeItem{Type: TreeItemAllProjects}
+	if !item.IsAllProjects() {
 		t.Error("IsAll should return true for All items")
 	}
 	if item.IsContainer() {
@@ -658,7 +659,7 @@ func TestRebuildTreeItems_AlwaysHasAll(t *testing.T) {
 	// With no containers
 	m.containerList.SetItems([]list.Item{})
 	m.rebuildTreeItems()
-	if len(m.treeItems) < 1 || m.treeItems[0].Type != TreeItemAll {
+	if len(m.treeItems) < 1 || m.treeItems[0].Type != TreeItemAllProjects {
 		t.Error("tree should always start with All item")
 	}
 
@@ -667,7 +668,7 @@ func TestRebuildTreeItems_AlwaysHasAll(t *testing.T) {
 		containerItem{container: &container.Container{ID: "c1", Name: "c1"}},
 	})
 	m.rebuildTreeItems()
-	if m.treeItems[0].Type != TreeItemAll {
+	if m.treeItems[0].Type != TreeItemAllProjects {
 		t.Error("tree should always start with All item even with containers")
 	}
 }
@@ -762,16 +763,16 @@ func TestRenderAllContainersDetailContent(t *testing.T) {
 	layout := ComputeLayout(100, 40, false, true)
 	result := m.renderDetailPanel(layout)
 
-	if !strings.Contains(result, "3 containers") {
+	if !strings.Contains(result, "Containers: 3") {
 		t.Errorf("should show total container count, got: %s", result)
 	}
-	if !strings.Contains(result, "Running:  2") {
+	if !strings.Contains(result, "Running:    2") {
 		t.Errorf("should show running count, got: %s", result)
 	}
-	if !strings.Contains(result, "Stopped:  1") {
+	if !strings.Contains(result, "Stopped:    1") {
 		t.Errorf("should show stopped count, got: %s", result)
 	}
-	if !strings.Contains(result, "Sessions: 1") {
+	if !strings.Contains(result, "Sessions:   1") {
 		t.Errorf("should show total session count, got: %s", result)
 	}
 }
@@ -791,5 +792,602 @@ func TestRenderTree_ShowsAllContainersRow(t *testing.T) {
 	}
 	if !strings.Contains(result, "(1)") {
 		t.Errorf("All Containers should show count, got: %s", result)
+	}
+}
+
+// Tests for project-grouped tree structure (Phase 3)
+
+func TestRebuildTreeItems_NoProjectsFallbackToFlatContainers(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	// Set up containers without any discovered projects
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/path1"}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/path2"}
+	items := []list.Item{
+		containerItem{container: c1},
+		containerItem{container: c2},
+	}
+	m.containerList.SetItems(items)
+	m.discoveredProjects = nil // No projects
+
+	m.rebuildTreeItems()
+
+	// Should have: All + 2 containers
+	if len(m.treeItems) != 3 {
+		t.Errorf("expected 3 items (All + 2 containers), got %d", len(m.treeItems))
+	}
+	if m.treeItems[0].Type != TreeItemAllProjects {
+		t.Error("first item should be All")
+	}
+	if m.treeItems[1].Type != TreeItemContainer || m.treeItems[1].ContainerID != "c1" {
+		t.Error("second item should be container c1")
+	}
+	if m.treeItems[2].Type != TreeItemContainer || m.treeItems[2].ContainerID != "c2" {
+		t.Error("third item should be container c2")
+	}
+}
+
+func TestRebuildTreeItems_WithProjectsCreatesProjectGroups(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	// Set up discovered projects
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+		Worktrees: []discovery.Worktree{
+			{Name: "feature-x", Path: "/projects/proj1/feature-x", Branch: "feature-x"},
+		},
+	}
+	project2 := discovery.DiscoveredProject{
+		Name:      "project-2",
+		Path:      "/projects/proj2",
+		Worktrees: []discovery.Worktree{},
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project1, project2}
+	m.expandedProjects = make(map[string]bool)
+
+	// Set up containers matching projects
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1/feature-x"}
+	items := []list.Item{
+		containerItem{container: c1},
+		containerItem{container: c2},
+	}
+	m.containerList.SetItems(items)
+
+	// Expand first project to see its contents
+	m.expandedProjects["/projects/proj1"] = true
+
+	m.rebuildTreeItems()
+
+	// Should have: All + project1 + main worktree + c1 + feature-x worktree + c2 + project2
+	// = 1 (All) + 1 (project1) + 1 (main) + 1 (c1) + 1 (feature-x) + 1 (c2) + 1 (project2) = 7
+	if len(m.treeItems) != 7 {
+		t.Errorf("expected 7 items, got %d. Items: %v", len(m.treeItems), m.treeItems)
+	}
+
+	// Verify structure
+	if m.treeItems[0].Type != TreeItemAllProjects {
+		t.Error("first item should be All")
+	}
+	if m.treeItems[1].Type != TreeItemProject || m.treeItems[1].ProjectName != "project-1" {
+		t.Error("second item should be project-1")
+	}
+	if m.treeItems[2].Type != TreeItemWorktree || m.treeItems[2].WorktreeName != "main" {
+		t.Error("third item should be worktree 'main'")
+	}
+	if m.treeItems[3].Type != TreeItemContainer || m.treeItems[3].ContainerID != "c1" {
+		t.Error("fourth item should be container c1")
+	}
+	if m.treeItems[4].Type != TreeItemWorktree || m.treeItems[4].WorktreeName != "feature-x" {
+		t.Error("fifth item should be worktree 'feature-x'")
+	}
+	if m.treeItems[5].Type != TreeItemContainer || m.treeItems[5].ContainerID != "c2" {
+		t.Error("sixth item should be container c2")
+	}
+	if m.treeItems[6].Type != TreeItemProject || m.treeItems[6].ProjectName != "project-2" {
+		t.Error("seventh item should be project-2")
+	}
+}
+
+func TestFindContainersForPath_MatchesContainersByProjectPath(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	// Set up containers with different project paths
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1"}
+	c3 := &container.Container{ID: "c3", Name: "container-3", ProjectPath: "/projects/proj2"}
+	items := []list.Item{
+		containerItem{container: c1},
+		containerItem{container: c2},
+		containerItem{container: c3},
+	}
+	m.containerList.SetItems(items)
+
+	// Find containers for project 1
+	result := m.findContainersForPath("/projects/proj1")
+
+	if len(result) != 2 {
+		t.Errorf("expected 2 containers for /projects/proj1, got %d", len(result))
+	}
+	if result[0].ID != "c1" || result[1].ID != "c2" {
+		t.Errorf("expected c1 and c2, got %v", []string{result[0].ID, result[1].ID})
+	}
+
+	// Find containers for project 2
+	result = m.findContainersForPath("/projects/proj2")
+
+	if len(result) != 1 {
+		t.Errorf("expected 1 container for /projects/proj2, got %d", len(result))
+	}
+	if result[0].ID != "c3" {
+		t.Errorf("expected c3, got %s", result[0].ID)
+	}
+
+	// Find containers for non-existent path
+	result = m.findContainersForPath("/projects/nonexistent")
+
+	if len(result) != 0 {
+		t.Errorf("expected 0 containers for non-existent path, got %d", len(result))
+	}
+}
+
+func TestRebuildTreeItems_OtherGroupCollectsUnmatchedContainers(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	// Set up discovered projects
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project1}
+	m.expandedProjects = make(map[string]bool)
+
+	// Set up containers: one matching project, one unmatched
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/other/path"}
+	items := []list.Item{
+		containerItem{container: c1},
+		containerItem{container: c2},
+	}
+	m.containerList.SetItems(items)
+
+	// Expand project to see matched container
+	m.expandedProjects["/projects/proj1"] = true
+	// Expand "Other" group to see unmatched container
+	m.expandedProjects["__other__"] = true
+
+	m.rebuildTreeItems()
+
+	// Should have: All + project1 + main worktree + c1 + Other + c2
+	// = 1 (All) + 1 (project) + 1 (main) + 1 (c1) + 1 (Other) + 1 (c2) = 6
+	if len(m.treeItems) != 6 {
+		t.Errorf("expected 6 items, got %d", len(m.treeItems))
+	}
+
+	// Find the "Other" item
+	otherIdx := -1
+	for i, item := range m.treeItems {
+		if item.Type == TreeItemProject && item.ProjectName == "Other" {
+			otherIdx = i
+			break
+		}
+	}
+	if otherIdx == -1 {
+		t.Error("should have 'Other' group in tree")
+	} else if m.treeItems[otherIdx+1].ContainerID != "c2" {
+		t.Errorf("'Other' group should contain unmatched container c2, got %s", m.treeItems[otherIdx+1].ContainerID)
+	}
+}
+
+func TestRebuildTreeItems_OtherGroupOmittedWhenAllContainersMatched(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	// Set up discovered project
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project1}
+	m.expandedProjects = make(map[string]bool)
+
+	// Set up containers all matching project
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1"}
+	items := []list.Item{
+		containerItem{container: c1},
+		containerItem{container: c2},
+	}
+	m.containerList.SetItems(items)
+
+	m.expandedProjects["/projects/proj1"] = true
+
+	m.rebuildTreeItems()
+
+	// Should not have "Other" group since all containers are matched
+	for _, item := range m.treeItems {
+		if item.Type == TreeItemProject && item.ProjectName == "Other" {
+			t.Error("should not have 'Other' group when all containers are matched")
+		}
+	}
+}
+
+func TestRebuildTreeItems_ProjectExpansionToggle(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project1}
+	m.expandedProjects = make(map[string]bool)
+
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	items := []list.Item{containerItem{container: c1}}
+	m.containerList.SetItems(items)
+
+	// Initially collapsed
+	m.expandedProjects["/projects/proj1"] = false
+	m.rebuildTreeItems()
+
+	// When project is collapsed, it doesn't claim its containers (they go to "Other")
+	// Should have: All + project1 + Other + c1
+	if len(m.treeItems) < 2 {
+		t.Errorf("collapsed project should have at least 2 items (All + project), got %d", len(m.treeItems))
+	}
+
+	// Verify project item is marked as collapsed
+	projectItem := m.treeItems[1]
+	if projectItem.Expanded {
+		t.Error("project item should have Expanded=false when collapsed")
+	}
+
+	// Expand project
+	m.expandedProjects["/projects/proj1"] = true
+	m.rebuildTreeItems()
+
+	// Should have: All + project1 + main + c1
+	if len(m.treeItems) < 3 {
+		t.Errorf("expanded project should have more items, got %d", len(m.treeItems))
+	}
+
+	// Verify expansion flag is set
+	projectItem = m.treeItems[1]
+	if !projectItem.Expanded {
+		t.Error("project item should have Expanded=true when expanded")
+	}
+}
+
+func TestRebuildTreeItems_ContainerExpansionUnderWorktree(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+		Worktrees: []discovery.Worktree{
+			{Name: "feature-x", Path: "/projects/proj1/feature-x", Branch: "feature-x"},
+		},
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project1}
+	m.expandedProjects = make(map[string]bool)
+	m.expandedProjects["/projects/proj1"] = true
+
+	// Container under worktree with session
+	c1 := &container.Container{
+		ID:          "c1",
+		Name:        "container-1",
+		ProjectPath: "/projects/proj1/feature-x",
+		Sessions: []container.Session{
+			{Name: "dev", ContainerID: "c1"},
+			{Name: "test", ContainerID: "c1"},
+		},
+	}
+	items := []list.Item{containerItem{container: c1}}
+	m.containerList.SetItems(items)
+
+	// Mark container as expanded
+	m.expandedContainers = map[string]bool{"c1": true}
+
+	m.rebuildTreeItems()
+
+	// Find the container item
+	containerIdx := -1
+	for i, item := range m.treeItems {
+		if item.Type == TreeItemContainer && item.ContainerID == "c1" {
+			containerIdx = i
+			break
+		}
+	}
+	if containerIdx == -1 {
+		t.Fatal("container c1 not found in tree")
+	}
+
+	// Should have sessions after the container
+	if containerIdx+1 >= len(m.treeItems) {
+		t.Error("container should have sessions after it")
+	}
+	if m.treeItems[containerIdx+1].Type != TreeItemSession {
+		t.Error("item after container should be a session")
+	}
+	if m.treeItems[containerIdx+1].SessionName != "dev" {
+		t.Errorf("expected session 'dev', got %s", m.treeItems[containerIdx+1].SessionName)
+	}
+	if m.treeItems[containerIdx+2].SessionName != "test" {
+		t.Errorf("expected session 'test', got %s", m.treeItems[containerIdx+2].SessionName)
+	}
+}
+
+func TestToggleTreeExpand_ProjectExpansion(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project1}
+	m.expandedProjects = make(map[string]bool)
+
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	items := []list.Item{containerItem{container: c1}}
+	m.containerList.SetItems(items)
+
+	m.rebuildTreeItems()
+	m.selectedIdx = 1 // Select the project item (after All)
+
+	// Toggle expand
+	m.toggleTreeExpand()
+
+	// Project should now be expanded
+	if !m.expandedProjects["/projects/proj1"] {
+		t.Error("project should be expanded after toggle")
+	}
+
+	// Tree should be rebuilt
+	projectItem := m.treeItems[1]
+	if !projectItem.Expanded {
+		t.Error("project item should have Expanded=true after toggle")
+	}
+}
+
+func TestToggleTreeExpand_OtherGroupExpansion(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project1}
+	m.expandedProjects = make(map[string]bool)
+
+	// One matched, one unmatched
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/other"}
+	items := []list.Item{
+		containerItem{container: c1},
+		containerItem{container: c2},
+	}
+	m.containerList.SetItems(items)
+
+	m.rebuildTreeItems()
+
+	// Find the "Other" item
+	otherIdx := -1
+	for i, item := range m.treeItems {
+		if item.Type == TreeItemProject && item.ProjectName == "Other" {
+			otherIdx = i
+			break
+		}
+	}
+	if otherIdx == -1 {
+		t.Fatal("'Other' group not found")
+	}
+
+	m.selectedIdx = otherIdx
+
+	// Toggle expand
+	m.toggleTreeExpand()
+
+	// "Other" should now be expanded
+	if !m.expandedProjects["__other__"] {
+		t.Error("'Other' group should be expanded after toggle")
+	}
+}
+
+func TestRebuildTreeItems_CollapsedProjectHidesChildren(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+		Worktrees: []discovery.Worktree{
+			{Name: "feature", Path: "/projects/proj1/feature", Branch: "feature"},
+		},
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project1}
+	m.expandedProjects = make(map[string]bool)
+
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1/feature"}
+	items := []list.Item{
+		containerItem{container: c1},
+		containerItem{container: c2},
+	}
+	m.containerList.SetItems(items)
+
+	// Project is collapsed
+	m.expandedProjects["/projects/proj1"] = false
+
+	m.rebuildTreeItems()
+
+	// Collapsed projects don't claim their containers (they go to "Other" group)
+	// Should have: All + project1 + Other + c1 + c2
+	// (No worktrees or nested containers under project because it's collapsed)
+	if len(m.treeItems) < 2 {
+		t.Errorf("collapsed project should have at least All + project, got %d", len(m.treeItems))
+	}
+
+	// Verify no worktree items visible under the project
+	hasWorktreeUnderProject := false
+	projectIdx := -1
+	for i, item := range m.treeItems {
+		if item.Type == TreeItemProject && item.ProjectName == "project-1" {
+			projectIdx = i
+			break
+		}
+	}
+	if projectIdx != -1 && projectIdx+1 < len(m.treeItems) {
+		if m.treeItems[projectIdx+1].Type == TreeItemWorktree {
+			hasWorktreeUnderProject = true
+		}
+	}
+	if hasWorktreeUnderProject {
+		t.Error("collapsed project should not have worktree items")
+	}
+}
+
+func TestFindContainersForProject_IncludesMainAndWorktrees(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+		Worktrees: []discovery.Worktree{
+			{Name: "feature", Path: "/projects/proj1/feature", Branch: "feature"},
+			{Name: "bugfix", Path: "/projects/proj1/bugfix", Branch: "bugfix"},
+		},
+	}
+
+	// Containers in main and worktrees
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1/feature"}
+	c3 := &container.Container{ID: "c3", Name: "container-3", ProjectPath: "/projects/proj1/bugfix"}
+	items := []list.Item{
+		containerItem{container: c1},
+		containerItem{container: c2},
+		containerItem{container: c3},
+	}
+	m.containerList.SetItems(items)
+
+	result := m.findContainersForProject(project1)
+
+	if len(result) != 3 {
+		t.Errorf("expected 3 containers for project, got %d", len(result))
+	}
+
+	// Verify all containers are included
+	ids := make(map[string]bool)
+	for _, c := range result {
+		ids[c.ID] = true
+	}
+	if !ids["c1"] || !ids["c2"] || !ids["c3"] {
+		t.Errorf("expected c1, c2, c3, got %v", ids)
+	}
+}
+
+// Test for syncSelectionFromTree clearing selectedContainer for Project nodes
+func TestSyncSelection_ProjectNodeClearsSelectedContainer(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	// Set up a project and container
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project1}
+	m.expandedProjects = make(map[string]bool)
+	m.expandedProjects["/projects/proj1"] = true
+
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	items := []list.Item{containerItem{container: c1}}
+	m.containerList.SetItems(items)
+
+	m.rebuildTreeItems()
+
+	// First, select a container
+	// Tree structure: All (0) + Project (1) + main worktree (2) + container (3)
+	m.selectedIdx = 3 // Select container
+	m.syncSelectionFromTree()
+
+	if m.selectedContainer == nil {
+		t.Fatal("selectedContainer should be set when container is selected")
+	}
+	if m.selectedContainer.ID != "c1" {
+		t.Errorf("selectedContainer.ID = %q, want 'c1'", m.selectedContainer.ID)
+	}
+
+	// Now navigate to the project node
+	m.selectedIdx = 1 // Select project node
+	m.syncSelectionFromTree()
+
+	// selectedContainer should be nil after navigating to project node
+	if m.selectedContainer != nil {
+		t.Errorf("selectedContainer should be nil when project node is selected, got %v", m.selectedContainer.ID)
+	}
+	if m.selectedSessionIdx != 0 {
+		t.Errorf("selectedSessionIdx should be 0 when project node is selected, got %d", m.selectedSessionIdx)
+	}
+}
+
+// Test for syncSelectionFromTree clearing selectedContainer for Worktree nodes
+func TestSyncSelection_WorktreeNodeClearsSelectedContainer(t *testing.T) {
+	m := newTreeTestModel(t)
+
+	// Set up a project with worktree
+	project1 := discovery.DiscoveredProject{
+		Name: "project-1",
+		Path: "/projects/proj1",
+		Worktrees: []discovery.Worktree{
+			{Name: "feature", Path: "/projects/proj1/feature", Branch: "feature"},
+		},
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project1}
+	m.expandedProjects = make(map[string]bool)
+	m.expandedProjects["/projects/proj1"] = true
+
+	// Container under worktree
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1/feature"}
+	items := []list.Item{containerItem{container: c1}}
+	m.containerList.SetItems(items)
+
+	m.rebuildTreeItems()
+
+	// First, select the container
+	// Find the container in the tree
+	containerIdx := -1
+	for i, item := range m.treeItems {
+		if item.Type == TreeItemContainer && item.ContainerID == "c1" {
+			containerIdx = i
+			break
+		}
+	}
+	if containerIdx == -1 {
+		t.Fatal("container c1 not found in tree")
+	}
+
+	m.selectedIdx = containerIdx
+	m.syncSelectionFromTree()
+
+	if m.selectedContainer == nil {
+		t.Fatal("selectedContainer should be set when container is selected")
+	}
+	if m.selectedContainer.ID != "c1" {
+		t.Errorf("selectedContainer.ID = %q, want 'c1'", m.selectedContainer.ID)
+	}
+
+	// Now navigate to the worktree node
+	worktreeIdx := containerIdx - 1 // Worktree should be just before container
+	if worktreeIdx < 0 || m.treeItems[worktreeIdx].Type != TreeItemWorktree {
+		t.Fatal("worktree item not found at expected location")
+	}
+
+	m.selectedIdx = worktreeIdx
+	m.syncSelectionFromTree()
+
+	// selectedContainer should be nil after navigating to worktree node
+	if m.selectedContainer != nil {
+		t.Errorf("selectedContainer should be nil when worktree node is selected, got %v", m.selectedContainer.ID)
+	}
+	if m.selectedSessionIdx != 0 {
+		t.Errorf("selectedSessionIdx should be 0 when worktree node is selected, got %d", m.selectedSessionIdx)
 	}
 }

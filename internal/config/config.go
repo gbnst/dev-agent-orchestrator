@@ -21,6 +21,7 @@ type Config struct {
 	Tailscale       TailscaleConfig `yaml:"tailscale"`
 	ClaudeTokenPath string          `yaml:"claude_token_path"`
 	GitHubTokenPath string          `yaml:"github_token_path"`
+	ScanPaths       []string        `yaml:"scan_paths"`
 }
 
 type TailscaleConfig struct {
@@ -192,6 +193,15 @@ func (c *Config) ResolveTokenPath(path string) string {
 		return filepath.Join(home, path[2:])
 	}
 	return path
+}
+
+// ResolveScanPaths returns scan paths with ~ expanded to the user's home directory.
+func (c *Config) ResolveScanPaths() []string {
+	var resolved []string
+	for _, p := range c.ScanPaths {
+		resolved = append(resolved, c.ResolveTokenPath(p))
+	}
+	return resolved
 }
 
 // ResolvePathFunc is the function signature for resolving paths with ~ expansion.

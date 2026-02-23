@@ -27,7 +27,7 @@ Thumbs.db
 
 # Local config (keep config.yaml in user's ~/.config/devagent/)
 
-# Git worktrees
+# Devagent worktrees
 .worktrees/
 
 # Implementation plans (generated during development)

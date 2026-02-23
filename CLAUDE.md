@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-02-22
+Last verified: 2026-02-23
 
 ## Tech Stack
 - Language: Go 1.21+
@@ -35,6 +35,8 @@ Last verified: 2026-02-22
 - `internal/container/` - Container lifecycle management (see internal/container/CLAUDE.md for contracts)
 - `internal/tmux/` - Tmux session management within containers
 - `internal/config/` - Configuration loading and validation (see internal/config/CLAUDE.md for contracts)
+- `internal/discovery/` - Project scanner for scan_paths directories (see internal/discovery/CLAUDE.md)
+- `internal/worktree/` - Git worktree lifecycle management (see internal/worktree/CLAUDE.md)
 - `internal/process/` - Child process supervisor with restart policies (see internal/process/CLAUDE.md)
 - `internal/tsnsrv/` - Tailscale tsnsrv integration (see internal/tsnsrv/CLAUDE.md)
 - `internal/web/` - HTTP/WebSocket server with REST API and embedded SPA (see internal/web/CLAUDE.md for contracts)

@@ -13,7 +13,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/container"
+	"devagent/internal/discovery"
 	"devagent/internal/logging"
+	"devagent/internal/worktree"
 )
 
 // doubleCtrlCWindow is the maximum time between two ctrl+c presses to trigger quit.
@@ -53,6 +55,25 @@ type formAutoCloseMsg struct{}
 type isolationInfoMsg struct {
 	info        *container.IsolationInfo
 	containerID string
+}
+
+// worktreeActionMsg is sent when a worktree operation completes.
+type worktreeActionMsg struct {
+	action      string // "create" or "destroy"
+	name        string
+	projectPath string
+	err         error
+}
+
+// worktreeContainerMsg is sent when a worktree container start completes.
+type worktreeContainerMsg struct {
+	name string
+	err  error
+}
+
+// projectsRefreshedMsg is sent when projects are rescanned.
+type projectsRefreshedMsg struct {
+	projects []discovery.DiscoveredProject
 }
 
 // WebSessionActionMsg is sent by the web server after session mutations.
@@ -172,6 +193,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleActionMenuKey(msg)
 		}
 
+		// Handle worktree form input when worktree form is open
+		if m.worktreeFormOpen {
+			return m.handleWorktreeFormKey(msg)
+		}
+
 		// Handle form input when form is open
 		if m.formOpen {
 			return m.handleFormKey(msg)
@@ -197,10 +223,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.moveTreeSelectionDown()
 				return m, m.fetchIsolationInfoIfNeeded()
 			case tea.KeyEnter:
-				// Toggle expand/collapse for containers, open detail for others
+				// Toggle expand/collapse for projects and containers
 				if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
 					item := m.treeItems[m.selectedIdx]
-					if item.Type == TreeItemContainer {
+					if item.Type == TreeItemProject || item.Type == TreeItemContainer {
 						m.toggleTreeExpand()
 						return m, nil
 					}
@@ -430,6 +456,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+		case "w":
+			// Create worktree for selected project
+			if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
+				item := m.treeItems[m.selectedIdx]
+				var project *discovery.DiscoveredProject
+				switch item.Type {
+				case TreeItemProject:
+					for i := range m.discoveredProjects {
+						if m.discoveredProjects[i].Path == item.ProjectPath {
+							project = &m.discoveredProjects[i]
+							break
+						}
+					}
+				case TreeItemAllProjects:
+					// Pick first project if any
+					if len(m.discoveredProjects) > 0 {
+						project = &m.discoveredProjects[0]
+					}
+				}
+				if project != nil {
+					m.openWorktreeForm(project)
+					return m, nil
+				}
+			}
+
+		case "W":
+			// Delete worktree
+			if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
+				item := m.treeItems[m.selectedIdx]
+				if item.Type == TreeItemWorktree && item.WorktreeName != "main" {
+					m.confirmOpen = true
+					m.confirmAction = "destroy_worktree"
+					m.confirmTarget = item.WorktreeName
+					m.confirmMessage = fmt.Sprintf("Remove worktree '%s'?", item.WorktreeName)
+					return m, nil
+				}
+			}
+
 		case "l", "L":
 			// Toggle log panel
 			m.logger.Debug("toggling log panel", "visible", !m.logPanelOpen)
@@ -548,6 +612,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logger.Debug("periodic refresh triggered")
 		cmds := []tea.Cmd{
 			m.refreshContainers(),
+			m.rescanProjects(),
 			m.tick(),
 			m.refreshAllSessions(),
 		}
@@ -566,6 +631,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Refresh sessions after action
 		return m, m.refreshSessions()
+
+	case worktreeActionMsg:
+		if msg.err != nil {
+			m.logger.Error("worktree action failed", "action", msg.action, "name", msg.name, "error", msg.err)
+			m.setError(fmt.Sprintf("Failed to %s worktree", msg.action), msg.err)
+			return m, nil
+		}
+		m.logger.Info("worktree action completed", "action", msg.action, "name", msg.name)
+		if msg.action == "create" {
+			m.setSuccess(fmt.Sprintf("Worktree created: %s — starting container...", msg.name))
+			return m, tea.Batch(
+				m.rescanProjects(),
+				m.startWorktreeContainer(msg.projectPath, msg.name),
+			)
+		}
+		// destroy
+		m.setSuccess(fmt.Sprintf("Worktree removed: %s", msg.name))
+		return m, m.rescanProjects()
+
+	case worktreeContainerMsg:
+		if msg.err != nil {
+			m.logger.Error("worktree container start failed", "name", msg.name, "error", msg.err)
+			m.setError("Failed to start worktree container", msg.err)
+			return m, nil
+		}
+		m.logger.Info("worktree container started", "name", msg.name)
+		m.setSuccess(fmt.Sprintf("Worktree container started: %s", msg.name))
+		return m, m.refreshContainers()
+
+	case projectsRefreshedMsg:
+		m.discoveredProjects = msg.projects
+		m.rebuildTreeItems()
+		m.syncSelectionFromTree()
+		return m, m.refreshContainers()
 
 	case WebListenURLMsg:
 		m.listenURLs = append(m.listenURLs, msg.URL)
@@ -683,7 +782,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logger.Info("container action completed", "action", "create", "containerID", msg.id)
 		closeCmd := m.finishFormSubmission(true)
 		refreshCmd := m.refreshContainers()
-		return m, tea.Batch(closeCmd, refreshCmd)
+		rescanCmd := m.rescanProjects()
+		return m, tea.Batch(closeCmd, refreshCmd, rescanCmd)
 
 	case formAutoCloseMsg:
 		// Auto-close the form after completion delay
@@ -965,6 +1065,46 @@ func (m Model) fetchIsolationInfo(containerID string) tea.Cmd {
 	}
 }
 
+// createWorktree returns a command to create a worktree.
+func (m Model) createWorktree(projectPath, name string) tea.Cmd {
+	return func() tea.Msg {
+		_, err := worktree.Create(projectPath, name)
+		return worktreeActionMsg{action: "create", name: name, projectPath: projectPath, err: err}
+	}
+}
+
+// destroyWorktree returns a command to destroy a worktree.
+func (m Model) destroyWorktree(projectPath, name string) tea.Cmd {
+	return func() tea.Msg {
+		err := worktree.Destroy(projectPath, name)
+		return worktreeActionMsg{action: "destroy", name: name, projectPath: projectPath, err: err}
+	}
+}
+
+// startWorktreeContainer returns a command to start a container for a worktree.
+func (m Model) startWorktreeContainer(projectPath, name string) tea.Cmd {
+	return func() tea.Msg {
+		wtPath := worktree.WorktreeDir(projectPath, name)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		_, err := m.manager.StartWorktreeContainer(ctx, wtPath)
+		return worktreeContainerMsg{name: name, err: err}
+	}
+}
+
+// rescanProjects rescans all configured scan paths to update discovered projects and worktree lists.
+func (m Model) rescanProjects() tea.Cmd {
+	return func() tea.Msg {
+		scanner := discovery.NewScanner()
+		paths := m.cfg.ResolveScanPaths()
+		if len(paths) == 0 {
+			return nil
+		}
+		projects := scanner.ScanAll(paths)
+		return projectsRefreshedMsg{projects: projects}
+	}
+}
+
 // handleSessionViewKey processes key events when the session view is open.
 func (m Model) handleSessionViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// If session form is open, handle form input
@@ -1157,6 +1297,31 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.logger.Info("killing session", "containerID", m.selectedContainer.ID, "session", target)
 				return m, m.killSession(m.selectedContainer.ID, target)
 			}
+
+		case "destroy_worktree":
+			// Find the project path for this worktree
+			for _, item := range m.treeItems {
+				if item.Type == TreeItemWorktree && item.WorktreeName == target {
+					// Find parent project
+					projectPath := ""
+					for _, p := range m.discoveredProjects {
+						for _, wt := range p.Worktrees {
+							if wt.Branch == target {
+								projectPath = p.Path
+								break
+							}
+						}
+						if projectPath != "" {
+							break
+						}
+					}
+					if projectPath != "" {
+						cmd := m.setLoading("Removing worktree " + target + "...")
+						return m, tea.Batch(cmd, m.destroyWorktree(projectPath, target))
+					}
+					break
+				}
+			}
 		}
 		return m, nil
 	}
@@ -1182,5 +1347,43 @@ func (m Model) handleActionMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.closeActionMenu()
 		return m, nil
 	}
+	return m, nil
+}
+
+// handleWorktreeFormKey processes key events when the worktree form is open.
+func (m Model) handleWorktreeFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.resetWorktreeForm()
+		return m, nil
+
+	case tea.KeyEnter:
+		name := strings.TrimSpace(m.worktreeFormName)
+		if name == "" {
+			m.worktreeFormError = "Worktree name is required"
+			return m, nil
+		}
+		// Validate name
+		if err := worktree.ValidateName(name); err != nil {
+			m.worktreeFormError = err.Error()
+			return m, nil
+		}
+		project := m.worktreeFormProject
+		m.resetWorktreeForm()
+		cmd := m.setLoading("Creating worktree " + name + "...")
+		return m, tea.Batch(cmd, m.createWorktree(project.Path, name))
+
+	case tea.KeyBackspace:
+		if len(m.worktreeFormName) > 0 {
+			m.worktreeFormName = m.worktreeFormName[:len(m.worktreeFormName)-1]
+		}
+		return m, nil
+
+	case tea.KeyRunes:
+		m.worktreeFormError = ""
+		m.worktreeFormName += string(msg.Runes)
+		return m, nil
+	}
+
 	return m, nil
 }

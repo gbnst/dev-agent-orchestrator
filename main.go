@@ -15,6 +15,7 @@ import (
 
 	"devagent/internal/config"
 	"devagent/internal/container"
+	"devagent/internal/discovery"
 	"devagent/internal/logging"
 	"devagent/internal/process"
 	"devagent/internal/tsnsrv"
@@ -197,6 +198,15 @@ func runTUI(configDir string) {
 	appLogger.Info("application starting")
 
 	model := tui.NewModel(&cfg, logManager)
+
+	// Start project discovery if scan paths configured
+	if len(cfg.ScanPaths) > 0 {
+		scanner := discovery.NewScanner()
+		resolvedPaths := cfg.ResolveScanPaths()
+		projects := scanner.ScanAll(resolvedPaths)
+		appLogger.Info("discovered projects", "count", len(projects), "scan_paths", resolvedPaths)
+		model.SetDiscoveredProjects(projects)
+	}
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
 

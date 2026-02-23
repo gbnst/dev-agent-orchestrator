@@ -48,7 +48,10 @@ func (m Model) View() string {
 
 	// Build content: tree view + optional detail panel
 	var content string
-	if m.formOpen {
+	// Worktree creation form replaces content area
+	if m.worktreeFormOpen {
+		content = m.renderWorktreeForm()
+	} else if m.formOpen {
 		// Container creation form replaces content area
 		content = m.renderCreateForm()
 	} else {
@@ -90,6 +93,39 @@ func (m Model) View() string {
 		parts = append(parts, errorDisplay)
 	}
 	parts = append(parts, statusBar)
+
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// renderWorktreeForm renders the worktree creation form as a left-justified input area.
+func (m Model) renderWorktreeForm() string {
+	projectName := ""
+	if m.worktreeFormProject != nil {
+		projectName = m.worktreeFormProject.Name
+	}
+
+	header := m.styles.TitleStyle().Render("Create Worktree") + "  " +
+		m.styles.SubtitleStyle().Render(fmt.Sprintf("in %s", projectName))
+
+	label := m.styles.AccentStyle().Render("Branch Name: ")
+	value := m.worktreeFormName + "_"
+
+	var errorLine string
+	if m.worktreeFormError != "" {
+		errorLine = m.styles.ErrorStyle().Render("Error: " + m.worktreeFormError)
+	}
+
+	help := m.styles.HelpStyle().Render("Enter: create • Esc: cancel")
+
+	parts := []string{
+		header,
+		"",
+		label + value,
+	}
+	if errorLine != "" {
+		parts = append(parts, errorLine)
+	}
+	parts = append(parts, "", help)
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
@@ -589,16 +625,24 @@ func (m Model) renderContextualHelp() string {
 	case FocusLogs:
 		help = "↑/↓: scroll • 1-4: filter levels • g/G: top/bottom • tab: next panel • esc: tree"
 	default: // FocusTree
-		sessionSelected := m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) && m.treeItems[m.selectedIdx].Type == TreeItemSession
-		allSelected := m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) && m.treeItems[m.selectedIdx].Type == TreeItemAll
-		if m.detailPanelOpen {
-			help = "←/esc: close detail • ↑/↓: navigate • tab: next panel • l: logs"
-		} else if len(m.treeItems) > 0 && sessionSelected {
-			help = "↑/↓: navigate • →: details • k: kill session • tab: next panel • l: logs"
-		} else if len(m.treeItems) > 0 && allSelected {
-			help = "↑/↓: navigate • →: details • c: create • tab: next panel • l: logs"
-		} else if len(m.treeItems) > 0 {
-			help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: actions • tab: next panel • l: logs"
+		if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
+			item := m.treeItems[m.selectedIdx]
+			switch item.Type {
+			case TreeItemAllProjects:
+				help = "↑/↓: navigate • →: details • c: create • w: new worktree • l: logs"
+			case TreeItemProject:
+				help = "↑/↓: navigate • enter: expand • w: new worktree • c: create • l: logs"
+			case TreeItemWorktree:
+				help = "↑/↓: navigate • c: create container • W: delete worktree • l: logs"
+			case TreeItemSession:
+				help = "↑/↓: navigate • →: details • k: kill session • tab: next panel • l: logs"
+			case TreeItemContainer:
+				if m.detailPanelOpen {
+					help = "←/esc: close detail • ↑/↓: navigate • tab: next panel • l: logs"
+				} else {
+					help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: actions • tab: next panel • l: logs"
+				}
+			}
 		} else {
 			help = "c: create container • l: logs"
 		}
@@ -763,14 +807,14 @@ func (m Model) renderTree(layout Layout) string {
 	if m.panelFocus == FocusTree {
 		headerStyle = m.styles.PanelHeaderFocusedStyle()
 	}
-	header := headerStyle.Width(layout.Tree.Width).Render(" Containers")
+	header := headerStyle.Width(layout.Tree.Width).Render(" Projects")
 
 	if len(m.treeItems) == 0 {
 		body := lipgloss.NewStyle().
 			Width(layout.Tree.Width).
 			Height(layout.Tree.Height - 1).
 			Padding(1).
-			Render(m.styles.InfoStyle().Render("No containers. Press 'c' to create one."))
+			Render(m.styles.InfoStyle().Render("No projects or containers. Press 'c' to create a container."))
 		return lipgloss.JoinVertical(lipgloss.Left, header, body)
 	}
 
@@ -791,7 +835,7 @@ func (m Model) renderTree(layout Layout) string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, body)
 }
 
-// renderTreeItem renders a single tree item (container, session, or All Containers).
+// renderTreeItem renders a single tree item (container, session, project, or All Projects).
 func (m Model) renderTreeItem(idx int, item TreeItem, selected bool) string {
 	cursor := "  "
 	if selected {
@@ -800,8 +844,12 @@ func (m Model) renderTreeItem(idx int, item TreeItem, selected bool) string {
 
 	var line string
 	switch item.Type {
-	case TreeItemAll:
-		line = m.renderAllContainersTreeItem(cursor, selected)
+	case TreeItemAllProjects:
+		line = m.renderAllProjectsTreeItem(cursor, selected)
+	case TreeItemProject:
+		line = m.renderProjectTreeItem(item, cursor, selected)
+	case TreeItemWorktree:
+		line = m.renderWorktreeTreeItem(item, cursor, selected)
 	case TreeItemContainer:
 		line = m.renderContainerTreeItem(item, cursor, selected)
 	default:
@@ -814,14 +862,86 @@ func (m Model) renderTreeItem(idx int, item TreeItem, selected bool) string {
 	return line
 }
 
-// renderAllContainersTreeItem renders the "All Containers" virtual row.
-func (m Model) renderAllContainersTreeItem(cursor string, selected bool) string {
+// renderAllProjectsTreeItem renders the "All Projects" virtual row.
+func (m Model) renderAllProjectsTreeItem(cursor string, selected bool) string {
 	icon := "◈"
 	if !selected {
 		icon = m.styles.AccentStyle().Render("◈")
 	}
+
+	projectCount := len(m.discoveredProjects)
+	containerCount := len(m.containerList.Items())
+
+	if projectCount > 0 {
+		return fmt.Sprintf("%s%s All Projects (%d) — %d containers",
+			cursor, icon, projectCount, containerCount)
+	}
 	return fmt.Sprintf("%s%s All Containers (%d)",
-		cursor, icon, len(m.containerList.Items()))
+		cursor, icon, containerCount)
+}
+
+// renderProjectTreeItem renders a project in the tree.
+func (m Model) renderProjectTreeItem(item TreeItem, cursor string, selected bool) string {
+	indicator := "▸"
+	if item.Expanded {
+		indicator = "▾"
+	}
+
+	// Count containers for this project
+	containerCount := 0
+	if item.ProjectPath != "" {
+		for _, p := range m.discoveredProjects {
+			if p.Path == item.ProjectPath {
+				containerCount = len(m.findContainersForProject(p))
+				break
+			}
+		}
+	}
+
+	name := item.ProjectName
+	if containerCount > 0 {
+		return fmt.Sprintf("%s%s %s (%d)", cursor, indicator, name, containerCount)
+	}
+	return fmt.Sprintf("%s%s %s", cursor, indicator, name)
+}
+
+// renderWorktreeTreeItem renders a worktree in the tree.
+func (m Model) renderWorktreeTreeItem(item TreeItem, cursor string, selected bool) string {
+	// Find if this worktree has any running containers
+	containers := m.findContainersForPath(item.ProjectPath)
+
+	var stateIcon string
+	if len(containers) > 0 {
+		hasRunning := false
+		for _, c := range containers {
+			if c.State == container.StateRunning {
+				hasRunning = true
+				break
+			}
+		}
+		if selected {
+			if hasRunning {
+				stateIcon = "●"
+			} else {
+				stateIcon = "○"
+			}
+		} else {
+			if hasRunning {
+				stateIcon = m.styles.SuccessStyle().Render("●")
+			} else {
+				stateIcon = m.styles.InfoStyle().Render("○")
+			}
+		}
+	} else {
+		if selected {
+			stateIcon = "◌"
+		} else {
+			stateIcon = m.styles.InfoStyle().Render("◌")
+		}
+	}
+
+	name := item.WorktreeName
+	return fmt.Sprintf("%s   %s %s", cursor, stateIcon, name)
 }
 
 // renderContainerTreeItem renders a container in the tree.
@@ -873,7 +993,12 @@ func (m Model) renderContainerTreeItem(item TreeItem, cursor string, selected bo
 	name := c.Name
 	state := string(c.State)
 
-	return fmt.Sprintf("%s%s %s %s [%s]", cursor, indicator, stateIcon, name, state)
+	// Indent containers under worktrees when projects are discovered
+	indent := ""
+	if len(m.discoveredProjects) > 0 {
+		indent = "     "
+	}
+	return fmt.Sprintf("%s%s%s %s %s [%s]", cursor, indent, indicator, stateIcon, name, state)
 }
 
 // renderSessionTreeItem renders a session in the tree (indented under container).
@@ -919,7 +1044,12 @@ func (m Model) renderSessionTreeItem(idx int, item TreeItem, cursor string) stri
 		attachedIndicator = " (attached)"
 	}
 
-	return fmt.Sprintf("%s    %s %s%s", cursor, connector, sess.Name, attachedIndicator)
+	// Indent sessions deeper when under project tree
+	indent := "    "
+	if len(m.discoveredProjects) > 0 {
+		indent = "        "
+	}
+	return fmt.Sprintf("%s%s%s %s%s", cursor, indent, connector, sess.Name, attachedIndicator)
 }
 
 // renderDetailPanel renders the detail panel for the selected item.
@@ -957,8 +1087,8 @@ func (m Model) renderDetailPanel(layout Layout) string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, panelStyle.Render(content))
 }
 
-// renderAllContainersDetailContent renders the summary detail for "All Containers".
-func (m Model) renderAllContainersDetailContent() string {
+// renderAllProjectsDetailContent renders the summary detail for "All Projects".
+func (m Model) renderAllProjectsDetailContent() string {
 	var running, stopped, created, totalSessions int
 	for _, item := range m.containerList.Items() {
 		ci, ok := item.(containerItem)
@@ -977,15 +1107,64 @@ func (m Model) renderAllContainersDetailContent() string {
 	}
 
 	lines := []string{
-		fmt.Sprintf("Total:    %d containers", len(m.containerList.Items())),
-		fmt.Sprintf("Running:  %d", running),
-		fmt.Sprintf("Stopped:  %d", stopped),
+		fmt.Sprintf("Projects:   %d", len(m.discoveredProjects)),
+		fmt.Sprintf("Containers: %d", len(m.containerList.Items())),
+		fmt.Sprintf("Running:    %d", running),
+		fmt.Sprintf("Stopped:    %d", stopped),
 	}
 	if created > 0 {
-		lines = append(lines, fmt.Sprintf("Created:  %d", created))
+		lines = append(lines, fmt.Sprintf("Created:    %d", created))
 	}
-	lines = append(lines, fmt.Sprintf("Sessions: %d", totalSessions))
-	lines = append(lines, fmt.Sprintf("Runtime:  %s", m.manager.RuntimeName()))
+	lines = append(lines, fmt.Sprintf("Sessions:   %d", totalSessions))
+	lines = append(lines, fmt.Sprintf("Runtime:    %s", m.manager.RuntimeName()))
+
+	return strings.Join(lines, "\n")
+}
+
+// renderProjectDetailContent renders detail content for a project.
+func (m Model) renderProjectDetailContent(item TreeItem) string {
+	lines := []string{
+		fmt.Sprintf("Project:  %s", item.ProjectName),
+		fmt.Sprintf("Path:     %s", item.ProjectPath),
+	}
+
+	// Find the project
+	for _, p := range m.discoveredProjects {
+		if p.Path == item.ProjectPath {
+			lines = append(lines, fmt.Sprintf("Makefile: %v", p.HasMakefile))
+			containers := m.findContainersForProject(p)
+			lines = append(lines, fmt.Sprintf("Containers: %d", len(containers)))
+			lines = append(lines, fmt.Sprintf("Worktrees: %d", len(p.Worktrees)))
+
+			if len(p.Worktrees) > 0 {
+				lines = append(lines, "", "Worktrees:")
+				for _, wt := range p.Worktrees {
+					lines = append(lines, fmt.Sprintf("  • %s (%s)", wt.Branch, wt.Name))
+				}
+			}
+			break
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderWorktreeDetailContent renders detail content for a worktree.
+func (m Model) renderWorktreeDetailContent(item TreeItem) string {
+	lines := []string{
+		fmt.Sprintf("Worktree: %s", item.WorktreeName),
+		fmt.Sprintf("Path:     %s", item.ProjectPath),
+	}
+
+	containers := m.findContainersForPath(item.ProjectPath)
+	lines = append(lines, fmt.Sprintf("Containers: %d", len(containers)))
+
+	if len(containers) > 0 {
+		lines = append(lines, "", "Containers:")
+		for _, c := range containers {
+			lines = append(lines, fmt.Sprintf("  • %s [%s]", c.Name, c.State))
+		}
+	}
 
 	return strings.Join(lines, "\n")
 }
