@@ -72,10 +72,10 @@ func Create(projectPath, name string) (string, error) {
 		return "", fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(output)), err)
 	}
 
-	// Patch compose YAML
-	if err := PatchComposeForWorktree(projectPath, wtDir, name); err != nil {
+	// Write compose override file (leaves original docker-compose.yml untouched)
+	if err := WriteComposeOverride(projectPath, wtDir, name); err != nil {
 		_ = removeWorktree(projectPath, wtDir)
-		return "", fmt.Errorf("patching compose: %w", err)
+		return "", fmt.Errorf("writing compose override: %w", err)
 	}
 
 	// Run make worktree-prep if Makefile exists
