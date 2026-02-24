@@ -284,21 +284,25 @@ type upResponse struct {
 }
 
 // Up starts a devcontainer from the project directory.
+// Returns the container ID even if the command fails (e.g. postCreateCommand error),
+// since the container may already be running. Callers should check both return values.
 func (c *DevcontainerCLI) Up(ctx context.Context, projectPath string) (string, error) {
 	args := []string{"up", "--workspace-folder", projectPath}
 	if c.dockerPath != "" {
 		args = append(args, "--docker-path", c.dockerPath)
 	}
 
-	output, err := c.exec(ctx, "devcontainer", args...)
-	if err != nil {
-		return "", err
-	}
+	output, execErr := c.exec(ctx, "devcontainer", args...)
 
+	// devcontainer up writes JSON to stdout even on failure (e.g. postCreateCommand error).
+	// Try to extract the container ID regardless of exit code.
 	var resp upResponse
-	if err := json.Unmarshal([]byte(output), &resp); err != nil {
-		return "", err
+	if parseErr := json.Unmarshal([]byte(output), &resp); parseErr != nil {
+		if execErr != nil {
+			return "", execErr
+		}
+		return "", parseErr
 	}
 
-	return resp.ContainerID, nil
+	return resp.ContainerID, execErr
 }

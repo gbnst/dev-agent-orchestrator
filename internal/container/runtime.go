@@ -48,9 +48,9 @@ func defaultExecutor(ctx context.Context, name string, args ...string) (string, 
 
 	if err := cmd.Run(); err != nil {
 		if stderr.Len() > 0 {
-			return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+			return stdout.String(), fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 		}
-		return "", err
+		return stdout.String(), err
 	}
 
 	return stdout.String(), nil

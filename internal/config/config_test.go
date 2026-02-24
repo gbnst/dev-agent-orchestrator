@@ -470,3 +470,54 @@ func TestResolveTokenPath_AbsoluteUnchanged(t *testing.T) {
 		t.Errorf("ResolveTokenPath(\"/etc/tokens/test\") = %q, want %q", got, "/etc/tokens/test")
 	}
 }
+
+func TestConfig_ScanPaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	content := []byte("scan_paths:\n  - ~/code\n  - /opt/projects\n")
+	if err := os.WriteFile(configPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadFrom(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cfg.ScanPaths) != 2 {
+		t.Fatalf("expected 2 scan paths, got %d", len(cfg.ScanPaths))
+	}
+	if cfg.ScanPaths[0] != "~/code" {
+		t.Errorf("expected ~/code, got %s", cfg.ScanPaths[0])
+	}
+	if cfg.ScanPaths[1] != "/opt/projects" {
+		t.Errorf("expected /opt/projects, got %s", cfg.ScanPaths[1])
+	}
+}
+
+func TestConfig_ResolveScanPaths(t *testing.T) {
+	cfg := Config{
+		ScanPaths: []string{"~/code", "/opt/projects"},
+	}
+
+	resolved := cfg.ResolveScanPaths()
+	if len(resolved) != 2 {
+		t.Fatalf("expected 2 resolved paths, got %d", len(resolved))
+	}
+	// ~/code should be expanded
+	if resolved[0] == "~/code" {
+		t.Error("expected ~/code to be expanded")
+	}
+	// /opt/projects should remain unchanged
+	if resolved[1] != "/opt/projects" {
+		t.Errorf("expected /opt/projects, got %s", resolved[1])
+	}
+}
+
+func TestConfig_ResolveScanPaths_Empty(t *testing.T) {
+	cfg := Config{}
+	resolved := cfg.ResolveScanPaths()
+	if resolved != nil {
+		t.Errorf("expected nil for empty scan paths, got %v", resolved)
+	}
+}

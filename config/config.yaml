@@ -24,3 +24,11 @@ tailscale:
   state_dir: ~/.local/share/devagent/tsnsrv
   tags:
     - tag:devagent
+
+# Project discovery - scan directories for devagent-managed projects
+# Each directory is walked one level deep looking for projects with
+# .devcontainer/docker-compose.yml containing devagent.managed: "true"
+# Discovered projects appear as top-level nodes in the TUI tree
+# and can have git worktrees created for parallel feature development
+scan_paths:
+  - ~/code

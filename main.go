@@ -15,6 +15,7 @@ import (
 
 	"devagent/internal/config"
 	"devagent/internal/container"
+	"devagent/internal/discovery"
 	"devagent/internal/logging"
 	"devagent/internal/process"
 	"devagent/internal/tsnsrv"
@@ -22,14 +23,17 @@ import (
 	"devagent/internal/web"
 )
 
+var version = "dev"
+
 func main() {
 	configDir := flag.String("config-dir", "", "config directory (default: ~/.config/devagent)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: devagent [options] [command]\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  list    Output JSON data about all managed containers\n")
-		fmt.Fprintf(os.Stderr, "  (none)  Launch interactive TUI\n\n")
+		fmt.Fprintf(os.Stderr, "  list      Output JSON data about all managed containers\n")
+		fmt.Fprintf(os.Stderr, "  version   Print version and exit\n")
+		fmt.Fprintf(os.Stderr, "  (none)    Launch interactive TUI\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 	}
@@ -41,6 +45,9 @@ func main() {
 		switch args[0] {
 		case "list":
 			runListCommand(*configDir)
+			return
+		case "version":
+			fmt.Println(version)
 			return
 		}
 	}
@@ -197,6 +204,15 @@ func runTUI(configDir string) {
 	appLogger.Info("application starting")
 
 	model := tui.NewModel(&cfg, logManager)
+
+	// Start project discovery if scan paths configured
+	if len(cfg.ScanPaths) > 0 {
+		scanner := discovery.NewScanner()
+		resolvedPaths := cfg.ResolveScanPaths()
+		projects := scanner.ScanAll(resolvedPaths)
+		appLogger.Info("discovered projects", "count", len(projects), "scan_paths", resolvedPaths)
+		model.SetDiscoveredProjects(projects)
+	}
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
 

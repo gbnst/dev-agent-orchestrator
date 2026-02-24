@@ -218,7 +218,7 @@ func TestLogFilter_SyncsOnTreeNavigation(t *testing.T) {
 	c := &container.Container{ID: "abc123456789", Name: "test", State: container.StateRunning}
 	m.containerList.SetItems([]list.Item{containerItem{container: c}})
 	m.treeItems = []TreeItem{
-		{Type: TreeItemAll},
+		{Type: TreeItemAllProjects},
 		{Type: TreeItemContainer, ContainerID: c.ID},
 	}
 	m.selectedIdx = 1 // Container (after All)

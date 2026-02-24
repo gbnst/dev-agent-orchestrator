@@ -16,6 +16,7 @@ import (
 
 	"devagent/internal/config"
 	"devagent/internal/container"
+	"devagent/internal/discovery"
 	"devagent/internal/logging"
 )
 
@@ -29,21 +30,32 @@ type FormStatusStep struct {
 type TreeItemType int
 
 const (
-	TreeItemAll TreeItemType = iota
+	TreeItemAllProjects TreeItemType = iota
+	TreeItemProject
+	TreeItemWorktree
 	TreeItemContainer
 	TreeItemSession
 )
 
 // TreeItem represents a selectable item in the tree view.
 type TreeItem struct {
-	Type        TreeItemType
-	ContainerID string
-	SessionName string // empty for containers
-	Expanded    bool   // only meaningful for containers
+	Type         TreeItemType
+	ContainerID  string
+	SessionName  string // empty for containers
+	Expanded     bool   // meaningful for containers and projects
+	ProjectPath  string // set for project and worktree items
+	ProjectName  string // display name for project items
+	WorktreeName string // set for worktree items
 }
 
-// IsAll returns true if this is the "All Containers" item.
-func (t TreeItem) IsAll() bool { return t.Type == TreeItemAll }
+// IsAllProjects returns true if this is the "All Projects" item.
+func (t TreeItem) IsAllProjects() bool { return t.Type == TreeItemAllProjects }
+
+// IsProject returns true if this is a project item.
+func (t TreeItem) IsProject() bool { return t.Type == TreeItemProject }
+
+// IsWorktree returns true if this is a worktree item.
+func (t TreeItem) IsWorktree() bool { return t.Type == TreeItemWorktree }
 
 // IsContainer returns true if this is a container item.
 func (t TreeItem) IsContainer() bool { return t.Type == TreeItemContainer }
@@ -93,11 +105,12 @@ type Model struct {
 	themeName string
 	styles    *Styles
 
-	cfg               *config.Config
-	templates         []config.Template
-	manager           *container.Manager
-	containerList     list.Model
-	containerDelegate containerDelegate
+	cfg                *config.Config
+	templates          []config.Template
+	discoveredProjects []discovery.DiscoveredProject
+	manager            *container.Manager
+	containerList      list.Model
+	containerDelegate  containerDelegate
 
 	// Form state for container creation
 	formOpen          bool
@@ -115,6 +128,12 @@ type Model struct {
 	formCurrentStep    string
 	formCompleted      bool // true when submission finished (success or error)
 	formCompletedError bool // true if submission ended with error
+
+	// Worktree creation form state
+	worktreeFormOpen    bool
+	worktreeFormName    string
+	worktreeFormProject *discovery.DiscoveredProject
+	worktreeFormError   string
 
 	// Session view state
 	sessionViewOpen    bool
@@ -145,6 +164,7 @@ type Model struct {
 	treeItems          []TreeItem
 	selectedIdx        int
 	expandedContainers map[string]bool
+	expandedProjects   map[string]bool // projectPath -> expanded
 	detailPanelOpen    bool
 	panelFocus         PanelFocus
 
@@ -200,6 +220,12 @@ func NewModel(cfg *config.Config, logManager *logging.Manager) Model {
 	return NewModelWithTemplates(cfg, templates, logManager)
 }
 
+// SetDiscoveredProjects sets the discovered projects for the TUI to display.
+// This is called before the Bubbletea program starts, so no synchronization needed.
+func (m *Model) SetDiscoveredProjects(projects []discovery.DiscoveredProject) {
+	m.discoveredProjects = projects
+}
+
 // NewModelWithTemplates creates a new TUI model with explicit templates (for testing).
 func NewModelWithTemplates(cfg *config.Config, templates []config.Template, logManager *logging.Manager) Model {
 	// Create container manager with logger
@@ -234,6 +260,7 @@ func NewModelWithTemplates(cfg *config.Config, templates []config.Template, logM
 		containerDelegate: delegate,
 		statusSpinner:     s,
 		pendingOperations: make(map[string]string),
+		expandedProjects:  make(map[string]bool),
 		logEntries:        make([]logging.LogEntry, 0, maxLogEntries),
 		logLevelFilter:    map[string]bool{"DEBUG": true, "INFO": true, "WARN": true, "ERROR": true},
 		logAutoScroll:     true,
@@ -671,41 +698,151 @@ func (m *Model) renderDetailContent() string {
 	item := m.treeItems[m.selectedIdx]
 
 	switch item.Type {
-	case TreeItemAll:
-		return m.renderAllContainersDetailContent()
+	case TreeItemAllProjects:
+		return m.renderAllProjectsDetailContent()
+	case TreeItemProject:
+		return m.renderProjectDetailContent(item)
+	case TreeItemWorktree:
+		return m.renderWorktreeDetailContent(item)
 	case TreeItemContainer:
 		if m.selectedContainer == nil {
 			return m.styles.InfoStyle().Render("Select an item to view details")
 		}
 		return m.renderContainerDetailContent()
-	default:
+	case TreeItemSession:
 		if m.selectedContainer == nil {
 			return m.styles.InfoStyle().Render("Select an item to view details")
 		}
 		return m.renderSessionDetailContent()
 	}
+	return ""
 }
 
 // rebuildTreeItems rebuilds the flat list of visible tree items based on
-// container expansion state. Call this after containers change or expansion toggles.
+// discovered projects, container states, and expansion. Call after containers
+// change, expansion toggles, or project discovery updates.
 func (m *Model) rebuildTreeItems() {
 	m.treeItems = nil
-	m.treeItems = append(m.treeItems, TreeItem{Type: TreeItemAll})
+	m.treeItems = append(m.treeItems, TreeItem{Type: TreeItemAllProjects})
 
+	// If no discovered projects, fall back to flat container list
+	if len(m.discoveredProjects) == 0 {
+		for _, item := range m.containerList.Items() {
+			ci, ok := item.(containerItem)
+			if !ok {
+				continue
+			}
+			c := ci.container
+			expanded := m.expandedContainers[c.ID]
+			m.treeItems = append(m.treeItems, TreeItem{
+				Type:        TreeItemContainer,
+				ContainerID: c.ID,
+				Expanded:    expanded,
+			})
+			if expanded {
+				for _, session := range c.Sessions {
+					m.treeItems = append(m.treeItems, TreeItem{
+						Type:        TreeItemSession,
+						ContainerID: c.ID,
+						SessionName: session.Name,
+					})
+				}
+			}
+		}
+		return
+	}
+
+	// Track which containers have been matched to projects
+	matchedContainers := make(map[string]bool)
+
+	// Build project groups
+	for _, project := range m.discoveredProjects {
+		expanded := m.expandedProjects[project.Path]
+		m.treeItems = append(m.treeItems, TreeItem{
+			Type:        TreeItemProject,
+			ProjectPath: project.Path,
+			ProjectName: project.Name,
+			Expanded:    expanded,
+		})
+
+		if !expanded {
+			continue
+		}
+
+		// Find containers matching this project
+		projectContainers := m.findContainersForProject(project)
+		for _, c := range projectContainers {
+			matchedContainers[c.ID] = true
+		}
+
+		// Add worktree entries (from discovery)
+		// First, add "main" (the project root itself)
+		mainContainers := m.findContainersForPath(project.Path)
+		m.addWorktreeTreeItems("main", project.Path, mainContainers)
+
+		// Then add discovered worktrees
+		for _, wt := range project.Worktrees {
+			wtContainers := m.findContainersForPath(wt.Path)
+			m.addWorktreeTreeItems(wt.Branch, wt.Path, wtContainers)
+		}
+	}
+
+	// "Other" group for unmatched containers
+	var unmatched []*container.Container
 	for _, item := range m.containerList.Items() {
 		ci, ok := item.(containerItem)
 		if !ok {
 			continue
 		}
-		c := ci.container
+		if !matchedContainers[ci.container.ID] {
+			unmatched = append(unmatched, ci.container)
+		}
+	}
 
+	if len(unmatched) > 0 {
+		m.treeItems = append(m.treeItems, TreeItem{
+			Type:        TreeItemProject,
+			ProjectName: "Other",
+			Expanded:    m.expandedProjects["__other__"],
+		})
+
+		if m.expandedProjects["__other__"] {
+			for _, c := range unmatched {
+				expanded := m.expandedContainers[c.ID]
+				m.treeItems = append(m.treeItems, TreeItem{
+					Type:        TreeItemContainer,
+					ContainerID: c.ID,
+					Expanded:    expanded,
+				})
+				if expanded {
+					for _, session := range c.Sessions {
+						m.treeItems = append(m.treeItems, TreeItem{
+							Type:        TreeItemSession,
+							ContainerID: c.ID,
+							SessionName: session.Name,
+						})
+					}
+				}
+			}
+		}
+	}
+}
+
+// addWorktreeTreeItems adds a worktree node and its containers/sessions to the tree.
+func (m *Model) addWorktreeTreeItems(name, path string, containers []*container.Container) {
+	m.treeItems = append(m.treeItems, TreeItem{
+		Type:         TreeItemWorktree,
+		ProjectPath:  path,
+		WorktreeName: name,
+	})
+
+	for _, c := range containers {
 		expanded := m.expandedContainers[c.ID]
 		m.treeItems = append(m.treeItems, TreeItem{
 			Type:        TreeItemContainer,
 			ContainerID: c.ID,
 			Expanded:    expanded,
 		})
-
 		if expanded {
 			for _, session := range c.Sessions {
 				m.treeItems = append(m.treeItems, TreeItem{
@@ -718,6 +855,32 @@ func (m *Model) rebuildTreeItems() {
 	}
 }
 
+// findContainersForProject returns all containers that belong to a project
+// (matching by project path or any worktree path).
+func (m *Model) findContainersForProject(project discovery.DiscoveredProject) []*container.Container {
+	var result []*container.Container
+	result = append(result, m.findContainersForPath(project.Path)...)
+	for _, wt := range project.Worktrees {
+		result = append(result, m.findContainersForPath(wt.Path)...)
+	}
+	return result
+}
+
+// findContainersForPath returns containers whose devagent.project_path label matches the given path.
+func (m *Model) findContainersForPath(path string) []*container.Container {
+	var result []*container.Container
+	for _, item := range m.containerList.Items() {
+		ci, ok := item.(containerItem)
+		if !ok {
+			continue
+		}
+		if ci.container.ProjectPath == path {
+			result = append(result, ci.container)
+		}
+	}
+	return result
+}
+
 // toggleTreeExpand toggles expansion of a container in the tree view.
 // If the selected item is a session, this does nothing.
 func (m *Model) toggleTreeExpand() {
@@ -725,17 +888,25 @@ func (m *Model) toggleTreeExpand() {
 		return
 	}
 	item := m.treeItems[m.selectedIdx]
-	if item.Type != TreeItemContainer {
-		return
-	}
 
-	if m.expandedContainers == nil {
-		m.expandedContainers = make(map[string]bool)
+	switch item.Type {
+	case TreeItemProject:
+		if m.expandedProjects == nil {
+			m.expandedProjects = make(map[string]bool)
+		}
+		key := item.ProjectPath
+		if key == "" {
+			key = "__other__" // "Other" group
+		}
+		m.expandedProjects[key] = !m.expandedProjects[key]
+		m.rebuildTreeItems()
+	case TreeItemContainer:
+		if m.expandedContainers == nil {
+			m.expandedContainers = make(map[string]bool)
+		}
+		m.expandedContainers[item.ContainerID] = !m.expandedContainers[item.ContainerID]
+		m.rebuildTreeItems()
 	}
-
-	// Toggle expansion state
-	m.expandedContainers[item.ContainerID] = !m.expandedContainers[item.ContainerID]
-	m.rebuildTreeItems()
 }
 
 // syncSelectionFromTree updates selectedContainer and selectedSessionIdx
@@ -768,7 +939,7 @@ func (m *Model) syncSelectionFromTree() {
 
 	item := m.treeItems[m.selectedIdx]
 
-	if item.Type == TreeItemAll {
+	if item.IsAllProjects() || item.IsProject() || item.IsWorktree() {
 		m.selectedContainer = nil
 		m.selectedSessionIdx = 0
 		// Clear cache only if container changed

@@ -33,6 +33,11 @@ const touchStyle: React.CSSProperties = {
   userSelect: 'none',
 }
 
+/** Prevent iOS from blurring the active input when a button is touched. */
+function preventFocusSteal(e: React.MouseEvent | React.TouchEvent) {
+  e.preventDefault()
+}
+
 type DictationBarProps = {
   readonly handle: XTermHandle | undefined
   readonly extraKeys: ExtraKeysState
@@ -76,7 +81,12 @@ export function DictationBar({ handle, extraKeys }: DictationBarProps) {
       <div className="flex items-center gap-1.5 px-2 py-1">
         <button
           type="button"
-          onClick={handleClear}
+          tabIndex={-1}
+          onMouseDown={preventFocusSteal}
+          onPointerDown={(e) => {
+            e.preventDefault()
+            handleClear()
+          }}
           disabled={!handle}
           className={`shrink-0 text-sm px-2.5 py-1 rounded transition-colors disabled:opacity-40 disabled:cursor-default ${
             confirmClear
@@ -103,7 +113,10 @@ export function DictationBar({ handle, extraKeys }: DictationBarProps) {
         />
         <button
           type="button"
-          onClick={() => {
+          tabIndex={-1}
+          onMouseDown={preventFocusSteal}
+          onPointerDown={(e) => {
+            e.preventDefault()
             if (value.trim()) {
               handleSubmit()
             } else {
@@ -123,10 +136,12 @@ export function DictationBar({ handle, extraKeys }: DictationBarProps) {
           <button
             key={key}
             type="button"
-            className={`flex-1 min-h-[36px] text-xs font-mono select-none transition-colors active:bg-surface-1 ${
+            tabIndex={-1}
+            className={`flex-1 min-h-[43px] text-xs font-mono select-none transition-colors active:bg-surface-1 ${
               isLit(key) ? 'bg-blue/30 text-blue' : 'bg-surface-0 text-subtext-1'
             }`}
             style={touchStyle}
+            onMouseDown={preventFocusSteal}
             onPointerDown={(e) => {
               e.preventDefault()
               handleExtraKey(key)
@@ -141,8 +156,10 @@ export function DictationBar({ handle, extraKeys }: DictationBarProps) {
         ))}
         <button
           type="button"
-          className="flex-1 min-h-[36px] text-xs font-mono select-none transition-colors active:bg-surface-1 bg-surface-0 text-subtext-1"
+          tabIndex={-1}
+          className="flex-1 min-h-[43px] text-xs font-mono select-none transition-colors active:bg-surface-1 bg-surface-0 text-subtext-1"
           style={touchStyle}
+          onMouseDown={preventFocusSteal}
           onPointerDown={(e) => {
             e.preventDefault()
             handlePaste()

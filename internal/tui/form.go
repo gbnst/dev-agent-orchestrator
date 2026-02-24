@@ -8,6 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"devagent/internal/discovery"
 )
 
 // FormField represents the currently focused form field.
@@ -157,4 +159,25 @@ func (m Model) IsFormSubmitting() bool {
 // IsFormCompleted returns true if form submission has finished.
 func (m Model) IsFormCompleted() bool {
 	return m.formCompleted
+}
+
+// openWorktreeForm opens the worktree creation form for a project.
+func (m *Model) openWorktreeForm(project *discovery.DiscoveredProject) {
+	m.worktreeFormOpen = true
+	m.worktreeFormName = ""
+	m.worktreeFormProject = project
+	m.worktreeFormError = ""
+}
+
+// resetWorktreeForm clears the worktree form state.
+func (m *Model) resetWorktreeForm() {
+	m.worktreeFormOpen = false
+	m.worktreeFormName = ""
+	m.worktreeFormProject = nil
+	m.worktreeFormError = ""
+}
+
+// IsWorktreeFormOpen returns true if the worktree creation form is open.
+func (m Model) IsWorktreeFormOpen() bool {
+	return m.worktreeFormOpen
 }

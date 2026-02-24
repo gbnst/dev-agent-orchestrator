@@ -1,18 +1,18 @@
 # Config Domain
 
-Last verified: 2026-02-22
+Last verified: 2026-02-23
 
 ## Purpose
 Loads and validates application configuration (config.yaml) and devcontainer templates.
 
 ## Contracts
-- **Exposes**: `Config`, `WebConfig`, `TailscaleConfig`, `Template`, `LoadTemplates`, `LoadTemplatesFrom`, `SetTemplatesPath`, `ResolvePathFunc`, `LookPathFunc`
-- **Guarantees**: Templates loaded from `~/.config/devagent/templates/` (XDG-compliant). Templates discovered by presence of `docker-compose.yml.tmpl` marker file. Template struct contains only `Name` and `Path`. Token paths (`ClaudeTokenPath`, `GitHubTokenPath`) are user-configurable; `ResolveTokenPath()` expands `~/` prefix. If a token path is empty/omitted, that token is skipped entirely. `TailscaleConfig.Validate()` checks name non-empty, funnel_only requires funnel, auth key file exists on disk.
+- **Exposes**: `Config`, `WebConfig`, `TailscaleConfig`, `Template`, `LoadTemplates`, `LoadTemplatesFrom`, `SetTemplatesPath`, `ResolvePathFunc`, `LookPathFunc`, `ResolveScanPaths`
+- **Guarantees**: Templates loaded from `~/.config/devagent/templates/` (XDG-compliant). Templates discovered by presence of `docker-compose.yml.tmpl` marker file. Template struct contains only `Name` and `Path`. Token paths (`ClaudeTokenPath`, `GitHubTokenPath`) are user-configurable; `ResolveTokenPath()` expands `~/` prefix. If a token path is empty/omitted, that token is skipped entirely. `TailscaleConfig.Validate()` checks name non-empty, funnel_only requires funnel, auth key file exists on disk. `ScanPaths` is an optional list of directories for project discovery; `ResolveScanPaths()` expands `~/` in each path.
 - **Expects**: Valid YAML in config files. Template directories contain `docker-compose.yml.tmpl`.
 
 ## Dependencies
 - **Uses**: os, path/filepath (stdlib only)
-- **Used by**: container.Manager, container.ComposeGenerator, container.DevcontainerGenerator, TUI, web.Server, tsnsrv
+- **Used by**: container.Manager, container.ComposeGenerator, container.DevcontainerGenerator, TUI, web.Server, tsnsrv, discovery (via ResolveScanPaths)
 - **Boundary**: Configuration loading only; no container operations
 
 ## Key Decisions

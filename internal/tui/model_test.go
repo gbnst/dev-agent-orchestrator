@@ -369,7 +369,7 @@ func TestSyncSelectionFromTree_ClearsCacheOnContainerChange(t *testing.T) {
 	})
 
 	m.treeItems = []TreeItem{
-		{Type: TreeItemAll},
+		{Type: TreeItemAllProjects},
 		{Type: TreeItemContainer, ContainerID: "container1"},
 		{Type: TreeItemContainer, ContainerID: "container2"},
 	}
@@ -409,7 +409,7 @@ func TestSyncSelectionFromTree_PreservesCacheForSameContainer(t *testing.T) {
 	})
 
 	m.treeItems = []TreeItem{
-		{Type: TreeItemAll},
+		{Type: TreeItemAllProjects},
 		{Type: TreeItemContainer, ContainerID: "container1"},
 		{Type: TreeItemSession, ContainerID: "container1", SessionName: "dev"},
 	}
@@ -443,7 +443,7 @@ func TestSyncSelectionFromTree_ClearsCacheWhenDeselectingContainer(t *testing.T)
 	})
 
 	m.treeItems = []TreeItem{
-		{Type: TreeItemAll},
+		{Type: TreeItemAllProjects},
 		{Type: TreeItemContainer, ContainerID: "container1"},
 	}
 
