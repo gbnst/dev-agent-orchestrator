@@ -114,6 +114,9 @@
                 "-w"
                 "-X main.version=${version}"
               ];
+              postInstall = ''
+                mv $out/bin/devagent $out/bin/devagent.exe
+              '';
             };
           };
 
