@@ -104,9 +104,11 @@
               inherit version;
               vendorHash = builtins.readFile ./devagent.sri;
               src = goSrc;
-              CGO_ENABLED = 0;
-              GOOS = "windows";
-              GOARCH = "amd64";
+              env = {
+                CGO_ENABLED = "0";
+                GOOS = "windows";
+                GOARCH = "amd64";
+              };
               ldflags = [
                 "-s"
                 "-w"
