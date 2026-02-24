@@ -55,11 +55,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
       - name: Generate checksums
         run: |
           cd artifacts
-          find . -name 'devagent-*' -type f -exec mv {} . \;
           sha256sum devagent-* > checksums.txt
 
       - uses: softprops/action-gh-release@v2
