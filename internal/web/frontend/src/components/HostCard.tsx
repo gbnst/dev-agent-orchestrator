@@ -7,10 +7,11 @@ export const HOST_ID = '__host__'
 
 type HostCardProps = {
   readonly onAttach: (containerId: string, containerName: string, sessionName: string) => void
+  readonly expanded: boolean
+  readonly onToggle: () => void
 }
 
-export function HostCard({ onAttach }: HostCardProps) {
-  const [expanded, setExpanded] = useState(true)
+export function HostCard({ onAttach, expanded, onToggle }: HostCardProps) {
   const [sessions, setSessions] = useState<Array<Session>>([])
   const [newSessionName, setNewSessionName] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -65,7 +66,7 @@ export function HostCard({ onAttach }: HostCardProps) {
     <div className="w-full border border-surface-1 rounded-lg overflow-hidden">
       {/* Header */}
       <button
-        onClick={() => setExpanded(prev => !prev)}
+        onClick={onToggle}
         className="w-full flex items-center justify-between px-4 py-3 bg-mantle hover:bg-surface-0 transition-colors text-left"
       >
         <div className="flex items-center gap-3 min-w-0">

@@ -6,6 +6,8 @@ type ContainerCardProps = {
   readonly container: Container
   readonly onRefresh: () => void
   readonly onAttach: (containerId: string, containerName: string, sessionName: string) => void
+  readonly expanded: boolean
+  readonly onToggle: () => void
 }
 
 function stateColorClass(state: string): string {
@@ -19,8 +21,7 @@ function stateColorClass(state: string): string {
   }
 }
 
-export function ContainerCard({ container, onRefresh, onAttach }: ContainerCardProps) {
-  const [expanded, setExpanded] = useState(true)
+export function ContainerCard({ container, onRefresh, onAttach, expanded, onToggle }: ContainerCardProps) {
   const [newSessionName, setNewSessionName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -60,7 +61,7 @@ export function ContainerCard({ container, onRefresh, onAttach }: ContainerCardP
     <div className="w-full border border-surface-1 rounded-lg overflow-hidden">
       {/* Header */}
       <button
-        onClick={() => setExpanded(prev => !prev)}
+        onClick={onToggle}
         className="w-full flex items-center justify-between px-4 py-3 bg-mantle hover:bg-surface-0 transition-colors text-left"
       >
         <div className="flex items-center gap-3 min-w-0">

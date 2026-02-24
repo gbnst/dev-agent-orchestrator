@@ -58,7 +58,7 @@ function App() {
       style={{ height: viewportHeight != null ? `${viewportHeight}px` : '100%' }}
     >
       {view === 'containers' && (
-        <div className="w-full md:w-80 md:min-h-screen md:border-r md:border-surface-1 flex flex-col">
+        <div className="w-full md:w-80 md:min-h-screen md:border-r md:border-surface-1 flex flex-col min-h-0">
           <header className="px-4 py-3 border-b border-surface-1 bg-mantle shrink-0">
             <h1 className="text-text font-semibold text-base">devagent</h1>
           </header>
