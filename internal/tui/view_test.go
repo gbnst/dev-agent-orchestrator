@@ -296,3 +296,105 @@ func TestRenderIsolationInfo_WithAllData(t *testing.T) {
 		t.Error("should show allowed domain github.com")
 	}
 }
+
+func TestRenderWorktreeTreeItem_Pending(t *testing.T) {
+	m := newTestModel(t)
+	m.setPendingWorktree("/path/to/worktree", "start")
+
+	item := TreeItem{
+		Type:         TreeItemWorktree,
+		ProjectPath:  "/path/to/worktree",
+		WorktreeName: "feature-branch",
+	}
+
+	result := m.renderWorktreeTreeItem(item, ">", false)
+
+	// Should contain spinner frame (not static ◌)
+	if !strings.Contains(result, "feature-branch") {
+		t.Error("should contain worktree name")
+	}
+	if strings.Contains(result, "◌") {
+		t.Error("should not contain static indicator when pending")
+	}
+}
+
+func TestRenderWorktreeTreeItem_ContainerlessWorktree(t *testing.T) {
+	m := newTestModel(t)
+
+	item := TreeItem{
+		Type:         TreeItemWorktree,
+		ProjectPath:  "/path/to/worktree",
+		WorktreeName: "main",
+	}
+
+	result := m.renderWorktreeTreeItem(item, ">", false)
+
+	if !strings.Contains(result, "main") {
+		t.Error("should contain worktree name")
+	}
+	if !strings.Contains(result, "◌") {
+		t.Error("should contain static ◌ indicator for containerless worktree")
+	}
+}
+
+func TestContextualHelp_ContainerlessWorktree(t *testing.T) {
+	m := newTestModel(t)
+
+	// Create a worktree tree item with no containers
+	item := TreeItem{
+		Type:         TreeItemWorktree,
+		ProjectPath:  "/path/to/worktree",
+		WorktreeName: "feature-branch",
+	}
+
+	m.selectedIdx = 0
+	m.treeItems = []TreeItem{item}
+
+	// Get the help text
+	help := m.renderContextualHelp()
+
+	// Should include "s: start" for containerless worktree
+	if !strings.Contains(help, "s: start") {
+		t.Error("help text should include 's: start' for containerless worktree")
+	}
+}
+
+func TestContextualHelp_WorktreeWithContainer(t *testing.T) {
+	m := newTestModel(t)
+
+	// Add a container for the worktree
+	containers := []*container.Container{
+		{
+			ID:          "abc123",
+			Name:        "test-container",
+			State:       container.StateRunning,
+			ProjectPath: "/path/to/worktree",
+		},
+	}
+
+	// Update model with containers
+	updated, _ := m.Update(containersRefreshedMsg{containers: containers})
+	m = updated.(Model)
+
+	// Create a worktree tree item
+	item := TreeItem{
+		Type:         TreeItemWorktree,
+		ProjectPath:  "/path/to/worktree",
+		WorktreeName: "main",
+	}
+
+	m.selectedIdx = 0
+	m.treeItems = []TreeItem{item}
+
+	// Get the help text
+	help := m.renderContextualHelp()
+
+	// Should NOT include "s: start" for worktree with containers
+	if strings.Contains(help, "s: start") {
+		t.Error("help text should NOT include 's: start' for worktree with containers")
+	}
+	// Should include other worktree commands
+	if !strings.Contains(help, "c: create container") {
+		t.Error("help text should include 'c: create container'")
+	}
+}

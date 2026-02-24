@@ -205,13 +205,17 @@ func runTUI(configDir string) {
 
 	model := tui.NewModel(&cfg, logManager)
 
-	// Start project discovery if scan paths configured
+	// Start project discovery if scan paths configured and create scanner function for web server
+	var scannerFn func(context.Context) []discovery.DiscoveredProject
 	if len(cfg.ScanPaths) > 0 {
 		scanner := discovery.NewScanner()
 		resolvedPaths := cfg.ResolveScanPaths()
 		projects := scanner.ScanAll(resolvedPaths)
 		appLogger.Info("discovered projects", "count", len(projects), "scan_paths", resolvedPaths)
 		model.SetDiscoveredProjects(projects)
+		scannerFn = func(_ context.Context) []discovery.DiscoveredProject {
+			return scanner.ScanAll(resolvedPaths)
+		}
 	}
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
@@ -222,6 +226,7 @@ func runTUI(configDir string) {
 			model.Manager(),
 			p.Send,
 			logManager,
+			scannerFn,
 		)
 		ln, err := webServer.Listen()
 		if err != nil {

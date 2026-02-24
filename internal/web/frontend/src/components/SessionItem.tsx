@@ -1,4 +1,6 @@
+import { useCallback } from 'react'
 import { type Session } from '../api'
+import { useConfirmAction } from '../lib/useConfirmAction'
 
 type SessionItemProps = {
   readonly containerId: string
@@ -12,13 +14,8 @@ export function SessionItem({ containerId, session, onDestroy, onAttach }: Sessi
     onAttach(containerId, session.name)
   }
 
-  async function handleDestroy() {
-    const confirmed = window.confirm(
-      `Destroy session "${session.name}"? This cannot be undone.`,
-    )
-    if (!confirmed) return
-    await onDestroy(session.name)
-  }
+  const destroyAction = useCallback(() => onDestroy(session.name), [onDestroy, session.name])
+  const destroyConfirm = useConfirmAction(destroyAction)
 
   return (
     <div className="flex flex-wrap items-center gap-y-1 justify-between px-3 py-2 bg-surface-0 rounded">
@@ -39,10 +36,15 @@ export function SessionItem({ containerId, session, onDestroy, onAttach }: Sessi
           Attach
         </button>
         <button
-          onClick={handleDestroy}
-          className="text-xs px-2 py-1 rounded bg-surface-1 text-red hover:bg-surface-2 transition-colors"
+          onClick={destroyConfirm.handleClick}
+          disabled={destroyConfirm.state === 'executing'}
+          className={`text-xs px-2 py-1 rounded transition-colors ${
+            destroyConfirm.state === 'confirming'
+              ? 'bg-red text-crust'
+              : 'bg-surface-1 text-red hover:bg-surface-2'
+          } disabled:opacity-40`}
         >
-          Destroy
+          {destroyConfirm.state === 'executing' ? '…' : destroyConfirm.state === 'confirming' ? 'Confirm?' : 'Destroy'}
         </button>
       </div>
     </div>

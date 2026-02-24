@@ -68,6 +68,7 @@ type worktreeActionMsg struct {
 // worktreeContainerMsg is sent when a worktree container start completes.
 type worktreeContainerMsg struct {
 	name string
+	path string // worktree path, used to clear pending state
 	err  error
 }
 
@@ -134,8 +135,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinner.TickMsg:
 		var cmds []tea.Cmd
 
-		// Update status spinner if loading
-		if m.statusLevel == StatusLoading {
+		// Update status spinner if loading or if there are pending worktree operations
+		if m.statusLevel == StatusLoading || len(m.pendingWorktrees) > 0 {
 			var cmd tea.Cmd
 			m.statusSpinner, cmd = m.statusSpinner.Update(msg)
 			cmds = append(cmds, cmd)
@@ -415,15 +416,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "s":
-			// Start selected container (no-op when All Containers is selected)
-			if m.selectedContainer == nil {
-				break
+			if m.selectedContainer != nil {
+				// Start stopped container (existing behavior — docker compose start)
+				c := m.selectedContainer
+				m.logger.Info("starting container", "containerID", c.ID, "name", c.Name)
+				m.setPending(c.ID, "start")
+				cmd := m.setLoading("Starting " + c.Name + "...")
+				return m, tea.Batch(cmd, m.startContainer(c.ID))
 			}
-			c := m.selectedContainer
-			m.logger.Info("starting container", "containerID", c.ID, "name", c.Name)
-			m.setPending(c.ID, "start")
-			cmd := m.setLoading("Starting " + c.Name + "...")
-			return m, tea.Batch(cmd, m.startContainer(c.ID))
+			// Check if selected item is a containerless worktree
+			if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
+				item := m.treeItems[m.selectedIdx]
+				if item.Type == TreeItemWorktree && !m.isPendingWorktree(item.ProjectPath) {
+					containers := m.findContainersForPath(item.ProjectPath)
+					if len(containers) == 0 {
+						m.logger.Info("starting worktree container", "worktree", item.WorktreeName, "path", item.ProjectPath)
+						m.setPendingWorktree(item.ProjectPath, "start")
+						cmd := m.setLoading("Starting container for " + item.WorktreeName + "...")
+						return m, tea.Batch(cmd, m.startMissingWorktreeContainer(item.ProjectPath, item.WorktreeName))
+					}
+				}
+			}
 
 		case "x":
 			// Stop selected container (no-op when All Containers is selected)
@@ -651,6 +664,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.rescanProjects()
 
 	case worktreeContainerMsg:
+		m.clearPendingWorktree(msg.path)
 		if msg.err != nil {
 			m.logger.Error("worktree container start failed", "name", msg.name, "error", msg.err)
 			m.setError("Failed to start worktree container", msg.err)
@@ -1088,7 +1102,20 @@ func (m Model) startWorktreeContainer(projectPath, name string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
 		_, err := m.manager.StartWorktreeContainer(ctx, wtPath)
-		return worktreeContainerMsg{name: name, err: err}
+		return worktreeContainerMsg{name: name, path: wtPath, err: err}
+	}
+}
+
+// startMissingWorktreeContainer returns a command to start a container for a
+// containerless worktree using its full path. Unlike startWorktreeContainer
+// (used during worktree creation where project root + name are available),
+// this takes the pre-built worktree path from the tree item.
+func (m Model) startMissingWorktreeContainer(wtPath, name string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+		defer cancel()
+		_, err := m.manager.StartWorktreeContainer(ctx, wtPath)
+		return worktreeContainerMsg{name: name, path: wtPath, err: err}
 	}
 }
 

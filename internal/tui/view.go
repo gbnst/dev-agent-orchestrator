@@ -633,7 +633,12 @@ func (m Model) renderContextualHelp() string {
 			case TreeItemProject:
 				help = "↑/↓: navigate • enter: expand • w: new worktree • c: create • l: logs"
 			case TreeItemWorktree:
-				help = "↑/↓: navigate • c: create container • W: delete worktree • l: logs"
+				containers := m.findContainersForPath(item.ProjectPath)
+				if len(containers) == 0 {
+					help = "↑/↓: navigate • s: start • c: create container • W: delete worktree • l: logs"
+				} else {
+					help = "↑/↓: navigate • c: create container • W: delete worktree • l: logs"
+				}
 			case TreeItemSession:
 				help = "↑/↓: navigate • →: details • k: kill session • tab: next panel • l: logs"
 			case TreeItemContainer:
@@ -907,6 +912,15 @@ func (m Model) renderProjectTreeItem(item TreeItem, cursor string, selected bool
 
 // renderWorktreeTreeItem renders a worktree in the tree.
 func (m Model) renderWorktreeTreeItem(item TreeItem, cursor string, selected bool) string {
+	// Show spinner for pending worktree operations
+	if m.isPendingWorktree(item.ProjectPath) {
+		stateIcon := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(m.styles.flavor.Teal().Hex)).
+			Render(m.statusSpinner.View())
+		name := item.WorktreeName
+		return fmt.Sprintf("%s   %s %s", cursor, stateIcon, name)
+	}
+
 	// Find if this worktree has any running containers
 	containers := m.findContainersForPath(item.ProjectPath)
 

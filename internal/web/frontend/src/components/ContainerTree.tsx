@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { type Container, fetchContainers } from '../api'
+import { type ProjectsListResponse, fetchProjects } from '../api'
 import { useServerEvents } from '../lib/useServerEvents'
 import { ContainerCard } from './ContainerCard'
+import { ProjectCard } from './ProjectCard'
 import { HostCard, HOST_ID } from './HostCard'
 
 const STORAGE_KEY = 'devagent-expanded-cards'
@@ -23,18 +24,18 @@ type ContainerTreeProps = {
 }
 
 export function ContainerTree({ onAttach }: ContainerTreeProps) {
-  const [containers, setContainers] = useState<Array<Container>>([])
+  const [data, setData] = useState<ProjectsListResponse>({ projects: [], unmatched: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(loadExpanded)
 
   const load = useCallback(async () => {
     try {
-      const data = await fetchContainers()
-      setContainers(data)
+      const result = await fetchProjects()
+      setData(result)
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'failed to load containers')
+      setError(err instanceof Error ? err.message : 'failed to load projects')
     } finally {
       setLoading(false)
     }
@@ -46,9 +47,13 @@ export function ContainerTree({ onAttach }: ContainerTreeProps) {
 
   useServerEvents(load)
 
-  // Prune stale IDs whenever the container list changes.
+  // Prune stale IDs whenever the projects or unmatched containers change.
   useEffect(() => {
-    const validIds = new Set<string>([HOST_ID, ...containers.map(c => c.id)])
+    const validIds = new Set<string>([
+      HOST_ID,
+      ...data.projects.map(p => p.encoded_path),
+      ...data.unmatched.map(c => c.id),
+    ])
     setExpandedIds(prev => {
       const pruned = new Set([...prev].filter(id => validIds.has(id)))
       if (pruned.size !== prev.size) {
@@ -56,7 +61,7 @@ export function ContainerTree({ onAttach }: ContainerTreeProps) {
       }
       return pruned.size !== prev.size ? pruned : prev
     })
-  }, [containers])
+  }, [data])
 
   function toggleExpanded(id: string) {
     setExpandedIds(prev => {
@@ -73,14 +78,14 @@ export function ContainerTree({ onAttach }: ContainerTreeProps) {
 
   if (loading) {
     return (
-      <div className="p-4 text-overlay-0 text-sm">Loading containers…</div>
+      <div className="p-4 text-overlay-0 text-sm">Loading projects…</div>
     )
   }
 
   if (error !== null) {
     return (
       <div className="p-4 text-red text-sm">
-        <p className="font-medium">Failed to load containers</p>
+        <p className="font-medium">Failed to load projects</p>
         <p className="text-xs mt-1 text-overlay-1">{error}</p>
         <button
           onClick={load}
@@ -92,7 +97,7 @@ export function ContainerTree({ onAttach }: ContainerTreeProps) {
     )
   }
 
-  if (containers.length === 0) {
+  if (data.projects.length === 0 && data.unmatched.length === 0) {
     return (
       <div className="space-y-3 p-4">
         <HostCard
@@ -100,7 +105,7 @@ export function ContainerTree({ onAttach }: ContainerTreeProps) {
           expanded={expandedIds.has(HOST_ID)}
           onToggle={() => toggleExpanded(HOST_ID)}
         />
-        <div className="text-overlay-0 text-sm">No containers found.</div>
+        <div className="text-overlay-0 text-sm">No projects found.</div>
       </div>
     )
   }
@@ -112,16 +117,31 @@ export function ContainerTree({ onAttach }: ContainerTreeProps) {
         expanded={expandedIds.has(HOST_ID)}
         onToggle={() => toggleExpanded(HOST_ID)}
       />
-      {containers.map(container => (
-        <ContainerCard
-          key={container.id}
-          container={container}
-          onRefresh={load}
+      {data.projects.map(project => (
+        <ProjectCard
+          key={project.encoded_path}
+          project={project}
+          expanded={expandedIds.has(project.encoded_path)}
+          onToggle={() => toggleExpanded(project.encoded_path)}
           onAttach={onAttach}
-          expanded={expandedIds.has(container.id)}
-          onToggle={() => toggleExpanded(container.id)}
+          onRefresh={load}
         />
       ))}
+      {data.unmatched.length > 0 && (
+        <>
+          <div className="text-xs text-overlay-1 uppercase tracking-wide px-4 font-semibold">Other</div>
+          {data.unmatched.map(container => (
+            <ContainerCard
+              key={container.id}
+              container={container}
+              onRefresh={load}
+              onAttach={onAttach}
+              expanded={expandedIds.has(container.id)}
+              onToggle={() => toggleExpanded(container.id)}
+            />
+          ))}
+        </>
+      )}
     </div>
   )
 }

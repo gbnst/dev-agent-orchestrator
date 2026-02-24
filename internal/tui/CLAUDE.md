@@ -1,6 +1,6 @@
 # TUI Domain
 
-Last verified: 2026-02-23
+Last verified: 2026-02-24
 
 ## Purpose
 Provides terminal UI for orchestrating development containers and git worktrees. Tree-based navigation showing projects with nested worktrees, containers, and sessions. Optional detail panel, live log panel with selectable entries, and log details panel for HTTP request inspection. Supports worktree creation/destruction within projects.
@@ -29,7 +29,7 @@ Provides terminal UI for orchestrating development containers and git worktrees.
 - Action menu: Shows copyable commands for container operations (t key on running containers)
 - Container creation progress: Real-time step-by-step feedback in creation form via OnProgress callback
 - All container lifecycle commands (start/stop/destroy) dispatch directly to compose methods (no IsComposeContainer branching)
-- Log filtering: When container selected, matches both container.<name> and proxy.<name> scopes
+- Log filtering: Hierarchical scope — container selected filters to that container's name, worktree selected filters to all containers matching that worktree path, project selected filters to all containers under the project. Matches both container.<name> and proxy.<name> scopes
 - Log details panel: Shows full HTTP request/response for proxy logs (headers, bodies) or Fields for regular logs
 
 ## Invariants
@@ -37,6 +37,7 @@ Provides terminal UI for orchestrating development containers and git worktrees.
 - SetDiscoveredProjects() called before Bubbletea program starts; sets discoveredProjects field (used in Phase 3)
 - selectedContainer set when container selected in tree; cleared when project/worktree selected
 - pendingOperations cleared on success or error
+- pendingWorktrees cleared on success or error; spinner ticks when len(pendingWorktrees) > 0
 - logAutoScroll true by default; j/k/g/G disable it
 - panelFocus defaults to FocusTree (zero value)
 - confirmOpen blocks other input until confirmed/cancelled
@@ -68,7 +69,7 @@ Provides terminal UI for orchestrating development containers and git worktrees.
 - `c` - Create container
 - `w` - Create worktree (opens form for selected project or first project if "All Projects" selected)
 - `W` - Delete worktree (shows confirmation, only on non-main worktrees)
-- `s/x/d` - Start/stop/destroy container (d shows confirmation)
+- `s/x/d` - Start/stop/destroy container (d shows confirmation); `s` on containerless worktree starts a new container via devcontainer up
 - `t` - Open action menu (running containers) / Create tmux session (on session nodes)
 - `k` - Kill session (shows confirmation)
 - `ctrl+c ctrl+c` - Quit (double-press within 500ms)
