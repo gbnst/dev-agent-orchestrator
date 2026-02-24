@@ -187,10 +187,14 @@ type Model struct {
 	// Pending operations (containerID -> operation type)
 	pendingOperations map[string]string
 
+	// Pending worktree operations (worktree path -> operation type)
+	pendingWorktrees map[string]string
+
 	// Log panel
 	logEntries     []logging.LogEntry
 	logViewport    viewport.Model
 	logFilter      string
+	logFilterNames map[string]bool // container names to include (nil = no scope filter)
 	logFilterLabel string
 	logLevelFilter map[string]bool // Enabled log levels: "DEBUG", "INFO", "WARN", "ERROR"
 	logAutoScroll  bool
@@ -544,6 +548,25 @@ func (m Model) getPendingOperation(containerID string) string {
 	return m.pendingOperations[containerID]
 }
 
+// setPendingWorktree marks a worktree as having a pending operation.
+func (m *Model) setPendingWorktree(path, operation string) {
+	if m.pendingWorktrees == nil {
+		m.pendingWorktrees = make(map[string]string)
+	}
+	m.pendingWorktrees[path] = operation
+}
+
+// clearPendingWorktree removes a worktree from pending operations.
+func (m *Model) clearPendingWorktree(path string) {
+	delete(m.pendingWorktrees, path)
+}
+
+// isPendingWorktree returns true if the worktree has a pending operation.
+func (m Model) isPendingWorktree(path string) bool {
+	_, ok := m.pendingWorktrees[path]
+	return ok
+}
+
 // Ring buffer constant
 const maxLogEntries = 1000
 
@@ -558,6 +581,7 @@ func (m *Model) addLogEntry(entry logging.LogEntry) {
 
 // filteredLogEntries returns entries matching the current scope and level filters.
 // When a container is selected, matches both container.<name> and proxy.<name> scopes.
+// When a project or worktree is selected, matches logs for all containers in that scope.
 func (m Model) filteredLogEntries() []logging.LogEntry {
 	hasLevelFilter := m.logLevelFilter != nil
 	if m.logFilter == "" && !hasLevelFilter {
@@ -566,10 +590,16 @@ func (m Model) filteredLogEntries() []logging.LogEntry {
 
 	var filtered []logging.LogEntry
 	for _, entry := range m.logEntries {
-		// Apply scope filter
-		if m.logFilter != "" {
-			if !entry.MatchesScope("container."+m.logFilter) &&
-				!entry.MatchesScope("proxy."+m.logFilter) {
+		// Apply scope filter using logFilterNames set
+		if m.logFilterNames != nil {
+			matched := false
+			for name := range m.logFilterNames {
+				if entry.MatchesScope("container."+name) || entry.MatchesScope("proxy."+name) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
 				continue
 			}
 		}
@@ -604,14 +634,55 @@ func (m *Model) toggleLogLevel(level string) {
 // setLogFilterFromContext sets the log filter based on current UI state.
 // Filter scopes match the logger scopes used by the container package:
 // "container.<name>" for container-specific operations.
+//
+// Filtering hierarchy:
+//   - Container/session selected: filter to that container's name
+//   - Worktree selected: filter to containers matching that worktree path
+//   - Project selected: filter to containers matching any worktree in the project
+//   - All Projects / no selection: no filter (show all logs)
 func (m *Model) setLogFilterFromContext() {
-	if m.selectedContainer == nil {
-		m.logFilter = ""
-		m.logFilterLabel = ""
-	} else {
-		// Store just the container name - filteredLogEntries will match both prefixes
+	if m.selectedContainer != nil {
+		// Single container selected — filter to just that container
 		m.logFilter = m.selectedContainer.Name
+		m.logFilterNames = map[string]bool{m.selectedContainer.Name: true}
 		m.logFilterLabel = m.selectedContainer.Name
+	} else if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
+		item := m.treeItems[m.selectedIdx]
+		switch {
+		case item.IsWorktree():
+			// Worktree selected — filter to containers for this worktree path
+			names := m.containerNamesForPath(item.ProjectPath)
+			if len(names) > 0 {
+				m.logFilter = "scope"
+				m.logFilterNames = names
+				m.logFilterLabel = item.WorktreeName
+			} else {
+				m.logFilter = "scope"
+				m.logFilterNames = map[string]bool{} // empty = match nothing
+				m.logFilterLabel = item.WorktreeName
+			}
+		case item.IsProject():
+			// Project selected — filter to all containers under this project
+			names := m.containerNamesForProject(item.ProjectPath)
+			if len(names) > 0 {
+				m.logFilter = "scope"
+				m.logFilterNames = names
+				m.logFilterLabel = item.ProjectName
+			} else {
+				m.logFilter = "scope"
+				m.logFilterNames = map[string]bool{} // empty = match nothing
+				m.logFilterLabel = item.ProjectName
+			}
+		default:
+			// All Projects or unknown — no filter
+			m.logFilter = ""
+			m.logFilterNames = nil
+			m.logFilterLabel = ""
+		}
+	} else {
+		m.logFilter = ""
+		m.logFilterNames = nil
+		m.logFilterLabel = ""
 	}
 
 	// Reset selectedLogIndex when filter changes
@@ -621,6 +692,32 @@ func (m *Model) setLogFilterFromContext() {
 	} else {
 		m.selectedLogIndex = 0
 	}
+}
+
+// containerNamesForPath returns the set of container names whose ProjectPath matches path.
+func (m *Model) containerNamesForPath(path string) map[string]bool {
+	names := make(map[string]bool)
+	for _, item := range m.containerList.Items() {
+		if ci, ok := item.(containerItem); ok && ci.container.ProjectPath == path {
+			names[ci.container.Name] = true
+		}
+	}
+	return names
+}
+
+// containerNamesForProject returns the set of container names for all worktrees
+// under a project. It matches containers whose ProjectPath starts with the
+// project path (covers main checkout and worktree subdirectories).
+func (m *Model) containerNamesForProject(projectPath string) map[string]bool {
+	names := make(map[string]bool)
+	for _, item := range m.containerList.Items() {
+		if ci, ok := item.(containerItem); ok {
+			if strings.HasPrefix(ci.container.ProjectPath, projectPath) {
+				names[ci.container.Name] = true
+			}
+		}
+	}
+	return names
 }
 
 // consumeLogEntries reads entries from the log manager channel.

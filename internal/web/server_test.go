@@ -23,6 +23,7 @@ func newTestServer(t *testing.T) *web.Server {
 		nil, // *container.Manager not needed for health endpoint
 		nil, // notifyTUI not needed for health endpoint
 		lm,
+		nil, // scanner not needed for health endpoint
 	)
 }
 
@@ -101,6 +102,7 @@ func TestServer_Lifecycle(t *testing.T) {
 		nil,
 		nil,
 		lm,
+		nil,
 	)
 
 	t.Run("Start makes server accept connections", func(t *testing.T) {
@@ -158,6 +160,7 @@ func TestServer_AddrBeforeListen(t *testing.T) {
 		nil,
 		nil,
 		lm,
+		nil,
 	)
 
 	// Before Listen(), Addr() returns the configured address
@@ -178,6 +181,7 @@ func TestServer_GracefulShutdown(t *testing.T) {
 		nil,
 		nil,
 		lm,
+		nil,
 	)
 
 	ln, err := s.Listen()
@@ -254,6 +258,7 @@ func TestServer_BindFailure(t *testing.T) {
 		nil,
 		nil,
 		lm,
+		nil,
 	)
 
 	bindErr := s.Start()

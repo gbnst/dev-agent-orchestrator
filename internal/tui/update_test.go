@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/container"
+	"devagent/internal/discovery"
 	"devagent/internal/logging"
 )
 
@@ -981,5 +982,174 @@ func TestIsActionMenuOpen(t *testing.T) {
 	m.actionMenuOpen = true
 	if !m.IsActionMenuOpen() {
 		t.Error("IsActionMenuOpen should return true when menu is open")
+	}
+}
+
+// AC1.1 - Worktree container lifecycle tests
+
+func TestSKeyHandler_ContainerlessWorktree(t *testing.T) {
+	m := newTestModel(t)
+
+	// Set up a containerless worktree (no containers for this path)
+	wt := discovery.Worktree{
+		Name:   "feature-branch",
+		Path:   "/path/to/feature-branch",
+		Branch: "feature-branch",
+	}
+	projectPath := "/path/to/project"
+	project := discovery.DiscoveredProject{
+		Name:      "test-project",
+		Path:      projectPath,
+		Worktrees: []discovery.Worktree{wt},
+	}
+	m.discoveredProjects = []discovery.DiscoveredProject{project}
+
+	// Expand the project to show worktrees
+	m.expandedProjects = make(map[string]bool)
+	m.expandedProjects[projectPath] = true
+
+	m.rebuildTreeItems()
+
+	// Find the worktree item in the tree
+	var wtIdx int
+	for i, item := range m.treeItems {
+		if item.Type == TreeItemWorktree && item.WorktreeName == "feature-branch" {
+			wtIdx = i
+			break
+		}
+	}
+
+	if wtIdx == 0 {
+		t.Fatal("could not find worktree item in tree")
+	}
+
+	m.selectedIdx = wtIdx
+	m.syncSelectionFromTree()
+
+	// Press 's' to start container for containerless worktree
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")}
+	updated, cmd := m.Update(msg)
+	m = updated.(Model)
+
+	// Should set pending worktree state
+	if !m.isPendingWorktree(wt.Path) {
+		t.Error("isPendingWorktree should be true after pressing 's' on containerless worktree")
+	}
+
+	// Should set loading status
+	if m.statusLevel != StatusLoading {
+		t.Errorf("statusLevel = %v, want %v", m.statusLevel, StatusLoading)
+	}
+
+	// Should return non-nil command
+	if cmd == nil {
+		t.Error("should return command for spinner")
+	}
+}
+
+// AC1.4 - Container-level pending for stopped containers
+
+func TestSKeyHandler_StoppedContainer(t *testing.T) {
+	m := newTestModel(t)
+
+	// Add a stopped container
+	ctr := &container.Container{
+		ID:    "abc123def456",
+		Name:  "test-container",
+		State: container.StateStopped,
+	}
+	m.containerList.SetItems(toListItems([]*container.Container{ctr}))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1 // Container (after All)
+	m.syncSelectionFromTree()
+
+	// Press 's' to start stopped container
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	// Should use container-level pending, NOT worktree-level pending
+	if !m.isPending(ctr.ID) {
+		t.Error("isPending(containerID) should be true for stopped container")
+	}
+
+	// Container-level worktree pending should not be set
+	if m.isPendingWorktree("/some/path") {
+		t.Error("isPendingWorktree should be false when starting a stopped container")
+	}
+}
+
+// AC1.5 - Worktree container message error handling
+
+func TestWorktreeContainerMsg_Error(t *testing.T) {
+	m := newTestModel(t)
+
+	// Set up a pending worktree
+	wtPath := "/path/to/worktree"
+	m.setPendingWorktree(wtPath, "start")
+
+	// Verify pending state is set
+	if !m.isPendingWorktree(wtPath) {
+		t.Fatal("pending worktree should be set before message")
+	}
+
+	// Simulate error message
+	msg := worktreeContainerMsg{
+		name: "feature-branch",
+		path: wtPath,
+		err:  fmt.Errorf("build failed"),
+	}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	// Should clear pending worktree
+	if m.isPendingWorktree(wtPath) {
+		t.Error("isPendingWorktree should be false after error")
+	}
+
+	// Should set error status
+	if m.statusLevel != StatusError {
+		t.Errorf("statusLevel = %v, want StatusError", m.statusLevel)
+	}
+
+	// Status message should contain error text
+	if !strings.Contains(m.statusMessage, "Failed") {
+		t.Errorf("statusMessage = %q, should contain 'Failed'", m.statusMessage)
+	}
+}
+
+// AC1.6 - No-op when no selection
+
+func TestSKeyHandler_NoSelection(t *testing.T) {
+	m := newTestModel(t)
+
+	// Ensure no selection
+	m.selectedIdx = -1
+	m.selectedContainer = nil
+
+	// Initial state
+	initialStatusLevel := m.statusLevel
+	initialStatusMessage := m.statusMessage
+
+	// Press 's' with no selection
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")}
+	updated, cmd := m.Update(msg)
+	m = updated.(Model)
+
+	// Should be a no-op: no pending state, no status change, nil command
+	if m.isPending("anything") {
+		t.Error("should not set pending operations with no selection")
+	}
+	if len(m.pendingWorktrees) > 0 {
+		t.Error("should not set pending worktrees with no selection")
+	}
+	if m.statusLevel != initialStatusLevel {
+		t.Errorf("statusLevel should not change, got %v want %v", m.statusLevel, initialStatusLevel)
+	}
+	if m.statusMessage != initialStatusMessage {
+		t.Errorf("statusMessage should not change, got %q want %q", m.statusMessage, initialStatusMessage)
+	}
+	if cmd != nil {
+		t.Error("should return nil command with no selection")
 	}
 }

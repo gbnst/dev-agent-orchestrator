@@ -80,6 +80,35 @@ func TestModel_PendingOperations(t *testing.T) {
 	}
 }
 
+func TestModel_PendingWorktrees(t *testing.T) {
+	m := newTestModel(t)
+
+	// Initially empty
+	if len(m.pendingWorktrees) != 0 {
+		t.Error("pendingWorktrees should be empty initially")
+	}
+
+	// Can add pending worktree operation
+	m.setPendingWorktree("/path/to/worktree", "start")
+	if op, ok := m.pendingWorktrees["/path/to/worktree"]; !ok || op != "start" {
+		t.Errorf("pendingWorktrees[/path/to/worktree] = %q, want 'start'", op)
+	}
+
+	// Can check if pending
+	if !m.isPendingWorktree("/path/to/worktree") {
+		t.Error("/path/to/worktree should be pending")
+	}
+	if m.isPendingWorktree("/other/path") {
+		t.Error("/other/path should not be pending")
+	}
+
+	// Can clear pending worktree operation
+	m.clearPendingWorktree("/path/to/worktree")
+	if m.isPendingWorktree("/path/to/worktree") {
+		t.Error("/path/to/worktree should not be pending after clear")
+	}
+}
+
 func TestModel_LogEntries(t *testing.T) {
 	m := newTestModel(t)
 
@@ -130,6 +159,7 @@ func TestModel_FilteredLogEntries(t *testing.T) {
 
 	// Container filter matches both container.* and proxy.* scopes
 	m.logFilter = "abc123"
+	m.logFilterNames = map[string]bool{"abc123": true}
 	filtered := m.filteredLogEntries()
 	if len(filtered) != 2 {
 		t.Errorf("filter for 'abc123' should return 2 entries (container+proxy), got %d", len(filtered))
@@ -560,6 +590,7 @@ func TestModel_FilteredLogEntries_LevelAndScopeFilter(t *testing.T) {
 
 	// Scope filter + level filter combined
 	m.logFilter = "myapp"
+	m.logFilterNames = map[string]bool{"myapp": true}
 	m.logLevelFilter["DEBUG"] = false
 
 	filtered := m.filteredLogEntries()

@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { type Container, createSession, destroySession } from '../api'
+import { useState, useCallback } from 'react'
+import { type Container, createSession, destroySession, startContainer, stopContainer, destroyContainer } from '../api'
+import { useConfirmAction } from '../lib/useConfirmAction'
 import { SessionItem } from './SessionItem'
 
 type ContainerCardProps = {
@@ -25,11 +26,47 @@ export function ContainerCard({ container, onRefresh, onAttach, expanded, onTogg
   const [newSessionName, setNewSessionName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
 
   function showError(message: string) {
     setError(message)
     setTimeout(() => setError(null), 3000)
   }
+
+  async function handleStart() {
+    setActionLoading(true)
+    try {
+      await startContainer(container.id)
+      onRefresh()
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'failed to start container')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleStop() {
+    setActionLoading(true)
+    try {
+      await stopContainer(container.id)
+      onRefresh()
+    } catch (err) {
+      showError(err instanceof Error ? err.message : 'failed to stop container')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const destroyConfirm = useConfirmAction(
+    useCallback(async () => {
+      try {
+        await destroyContainer(container.id)
+        onRefresh()
+      } catch (err) {
+        showError(err instanceof Error ? err.message : 'failed to destroy container')
+      }
+    }, [container.id, onRefresh]),
+  )
 
   async function handleCreateSession() {
     const name = newSessionName.trim()
@@ -87,6 +124,40 @@ export function ContainerCard({ container, onRefresh, onAttach, expanded, onTogg
               <span className="text-overlay-0 w-20 shrink-0">path</span>
               <span className="text-subtext-1 truncate font-mono">{container.project_path}</span>
             </div>
+          </div>
+
+          {/* Container lifecycle actions */}
+          <div className="flex items-center gap-2 mb-2">
+            {container.state === 'running' ? (
+              <>
+                <button
+                  onClick={handleStop}
+                  disabled={actionLoading}
+                  className="text-xs px-2 py-1 rounded bg-surface-1 text-text hover:bg-surface-2 disabled:opacity-40 transition-colors"
+                >
+                  Stop
+                </button>
+                <button
+                  onClick={destroyConfirm.handleClick}
+                  disabled={destroyConfirm.state === 'executing' || actionLoading}
+                  className={`text-xs px-2 py-1 rounded transition-colors ${
+                    destroyConfirm.state === 'confirming'
+                      ? 'bg-red text-crust'
+                      : 'bg-surface-1 text-red hover:bg-surface-2'
+                  } disabled:opacity-40`}
+                >
+                  {destroyConfirm.state === 'executing' ? '…' : destroyConfirm.state === 'confirming' ? 'Confirm?' : 'Destroy'}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={handleStart}
+                disabled={actionLoading}
+                className="text-xs px-2 py-1 rounded bg-blue text-crust font-medium hover:opacity-80 disabled:opacity-40 transition-opacity"
+              >
+                Start
+              </button>
+            )}
           </div>
 
           {/* Error message */}

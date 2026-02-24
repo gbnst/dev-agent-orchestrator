@@ -39,7 +39,7 @@
           pname = "devagent-frontend";
           inherit version;
           src = ./internal/web/frontend;
-          npmDepsHash = "sha256-KyaxBD/tYyTrXqHfVtZpPMUNEOMegkqxqmhBKNdb300=";
+          npmDepsHash = "sha256-GN10VImnQabNiJ4IipSMmnm2XOY50FXOjnNQSrDKT4I=";
           buildPhase = ''
             npm run build
           '';
