@@ -88,4 +88,3 @@ func TestWriteComposeOverride_SanitizesName(t *testing.T) {
 		t.Errorf("expected sanitized name, got:\n%s", string(data))
 	}
 }
-
