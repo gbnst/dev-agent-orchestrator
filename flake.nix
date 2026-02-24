@@ -18,7 +18,6 @@
         inputs.flake-parts.flakeModules.partitions
       ];
       systems = [
-        "x86_64-darwin"
         "x86_64-linux"
         "aarch64-darwin"
         "aarch64-linux"
@@ -77,27 +76,44 @@
         overlayAttrs = {
           inherit (config.packages) devagent;
         };
-        packages = {
-          default = config.packages.devagent;
-          devagent = let
-            unwrapped = pkgs.buildGo124Module {
-              pname = "devagent";
+        packages =
+          {
+            default = config.packages.devagent;
+            devagent = let
+              unwrapped = pkgs.buildGo124Module {
+                pname = "devagent";
+                inherit version;
+                vendorHash = builtins.readFile ./devagent.sri;
+                src = goSrc;
+                ldflags = [
+                  "-s"
+                  "-w"
+                  "-X main.version=${version}"
+                ];
+              };
+              tsnsrvPkg = inputs.tsnsrv.packages.${pkgs.system}.tsnsrv;
+            in
+              pkgs.symlinkJoin {
+                name = "devagent";
+                paths = [unwrapped tsnsrvPkg];
+              };
+          }
+          // lib.optionalAttrs pkgs.stdenv.isLinux {
+            devagent-windows = pkgs.buildGo124Module {
+              pname = "devagent-windows";
               inherit version;
               vendorHash = builtins.readFile ./devagent.sri;
               src = goSrc;
+              CGO_ENABLED = 0;
+              GOOS = "windows";
+              GOARCH = "amd64";
               ldflags = [
                 "-s"
                 "-w"
                 "-X main.version=${version}"
               ];
             };
-            tsnsrvPkg = inputs.tsnsrv.packages.${pkgs.system}.tsnsrv;
-          in
-            pkgs.symlinkJoin {
-              name = "devagent";
-              paths = [unwrapped tsnsrvPkg];
-            };
-        };
+          };
 
         formatter = pkgs.alejandra;
       };

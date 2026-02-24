@@ -11,13 +11,19 @@ jobs:
         include:
           - os: ubuntu-latest
             system: x86_64-linux
-            suffix: linux-amd64
+            package: devagent
+            binary: devagent
+            artifact: devagent-linux-amd64
           - os: macos-latest
             system: aarch64-darwin
-            suffix: darwin-arm64
-          - os: macos-13
-            system: x86_64-darwin
-            suffix: darwin-amd64
+            package: devagent
+            binary: devagent
+            artifact: devagent-darwin-arm64
+          - os: ubuntu-latest
+            system: x86_64-linux
+            package: devagent-windows
+            binary: devagent.exe
+            artifact: devagent-windows-amd64.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -30,15 +36,15 @@ jobs:
         run: echo "${GITHUB_REF_NAME#v}" > .version
 
       - name: Build
-        run: nix build .#packages.${{ matrix.system }}.devagent
+        run: nix build .#packages.${{ matrix.system }}.${{ matrix.package }}
 
       - name: Rename binary
-        run: cp result/bin/devagent devagent-${{ matrix.suffix }}
+        run: cp result/bin/${{ matrix.binary }} ${{ matrix.artifact }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: devagent-${{ matrix.suffix }}
-          path: devagent-${{ matrix.suffix }}
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
 
   release:
     needs: build
