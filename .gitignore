@@ -42,3 +42,6 @@ work/
 # Frontend
 internal/web/frontend/node_modules/
 internal/web/frontend/dist/
+
+# CI-only version file
+.version

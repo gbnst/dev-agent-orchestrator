@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            system: x86_64-linux
+            suffix: linux-amd64
+          - os: macos-latest
+            system: aarch64-darwin
+            suffix: darwin-arm64
+          - os: macos-13
+            system: x86_64-darwin
+            suffix: darwin-amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Set version
+        run: echo "${GITHUB_REF_NAME#v}" > .version
+
+      - name: Build
+        run: nix build .#packages.${{ matrix.system }}.devagent
+
+      - name: Rename binary
+        run: cp result/bin/devagent devagent-${{ matrix.suffix }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: devagent-${{ matrix.suffix }}
+          path: devagent-${{ matrix.suffix }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -name 'devagent-*' -type f -exec mv {} . \;
+          sha256sum devagent-* > checksums.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/devagent-*
+            artifacts/checksums.txt
+          generate_release_notes: true

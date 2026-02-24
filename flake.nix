@@ -28,7 +28,52 @@
         lib,
         pkgs,
         ...
-      }: {
+      }: let
+        version = let
+          versionFile = ./. + "/.version";
+        in
+          if builtins.pathExists versionFile
+          then builtins.replaceStrings ["\n"] [""] (builtins.readFile versionFile)
+          else "0.1.0-dev";
+
+        frontend = pkgs.buildNpmPackage {
+          pname = "devagent-frontend";
+          inherit version;
+          src = ./internal/web/frontend;
+          npmDepsHash = "sha256-KyaxBD/tYyTrXqHfVtZpPMUNEOMegkqxqmhBKNdb300=";
+          buildPhase = ''
+            npm run build
+          '';
+          installPhase = ''
+            cp -r dist $out
+          '';
+        };
+
+        goSrc = let
+          cleanedGoSrc = lib.sources.cleanSourceWith {
+            src = lib.sources.cleanSource ./.;
+            filter = path: type: let
+              baseName = builtins.baseNameOf path;
+              relPath = lib.removePrefix (toString ./. + "/") (toString path);
+            in
+              # Exclude frontend source (we inject the built dist separately)
+              !(lib.hasPrefix "internal/web/frontend" relPath)
+              # Exclude dev/docs/CI artifacts
+              && baseName != ".direnv"
+              && baseName != ".worktrees"
+              && baseName != "work"
+              && baseName != "result"
+              && baseName != "docs"
+              && baseName != ".github";
+          };
+        in
+          pkgs.runCommand "devagent-src" {} ''
+            cp -r ${cleanedGoSrc} $out
+            chmod -R u+w $out
+            mkdir -p $out/internal/web/frontend
+            cp -r ${frontend} $out/internal/web/frontend/dist
+          '';
+      in {
         overlayAttrs = {
           inherit (config.packages) devagent;
         };
@@ -37,16 +82,13 @@
           devagent = let
             unwrapped = pkgs.buildGo124Module {
               pname = "devagent";
-              version = "0.1.0";
+              inherit version;
               vendorHash = builtins.readFile ./devagent.sri;
-              src = lib.sourceFilesBySuffices (lib.sources.cleanSource ./.) [
-                ".go"
-                ".mod"
-                ".sum"
-              ];
+              src = goSrc;
               ldflags = [
                 "-s"
                 "-w"
+                "-X main.version=${version}"
               ];
             };
             tsnsrvPkg = inputs.tsnsrv.packages.${pkgs.system}.tsnsrv;

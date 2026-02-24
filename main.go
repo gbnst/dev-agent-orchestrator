@@ -23,14 +23,17 @@ import (
 	"devagent/internal/web"
 )
 
+var version = "dev"
+
 func main() {
 	configDir := flag.String("config-dir", "", "config directory (default: ~/.config/devagent)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: devagent [options] [command]\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  list    Output JSON data about all managed containers\n")
-		fmt.Fprintf(os.Stderr, "  (none)  Launch interactive TUI\n\n")
+		fmt.Fprintf(os.Stderr, "  list      Output JSON data about all managed containers\n")
+		fmt.Fprintf(os.Stderr, "  version   Print version and exit\n")
+		fmt.Fprintf(os.Stderr, "  (none)    Launch interactive TUI\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 	}
@@ -42,6 +45,9 @@ func main() {
 		switch args[0] {
 		case "list":
 			runListCommand(*configDir)
+			return
+		case "version":
+			fmt.Println(version)
 			return
 		}
 	}
