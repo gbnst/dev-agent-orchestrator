@@ -28,7 +28,7 @@ Last verified: 2026-02-25
 - `make frontend-dev` - Run frontend dev server (hot reload)
 - `make frontend-test` - Run frontend tests (vitest)
 - `make lint` - Run linter (golangci-lint, configured via `.golangci.yml`)
-- `devagent list` - Output JSON data about all managed containers (delegates to running instance via HTTP)
+- `devagent list` - Output JSON data about all managed containers (delegates to running instance via HTTP if available, falls back to direct runtime query)
 - `devagent cleanup` - Remove stale lock/port files from a crashed instance
 
 ## Project Structure
