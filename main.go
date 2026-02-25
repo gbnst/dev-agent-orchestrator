@@ -17,6 +17,7 @@ import (
 	"devagent/internal/container"
 	"devagent/internal/discovery"
 	"devagent/internal/events"
+	"devagent/internal/instance"
 	"devagent/internal/logging"
 	"devagent/internal/process"
 	"devagent/internal/tsnsrv"
@@ -179,6 +180,15 @@ func runTUI(configDir string) {
 		os.Exit(1)
 	}
 	dataDir := filepath.Join(home, ".config", "devagent")
+
+	// Acquire single-instance lock
+	fl, err := instance.Lock(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	defer instance.Cleanup(dataDir, fl)
+
 	logPath := filepath.Join(dataDir, "orchestrator.log")
 
 	logManager, err := logging.NewManager(logging.Config{
@@ -215,64 +225,70 @@ func runTUI(configDir string) {
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
-	if cfg.Web.Port > 0 {
-		webServer := web.New(
-			web.Config{Bind: cfg.Web.Bind, Port: cfg.Web.Port},
-			model.Manager(),
-			func(msg any) { p.Send(msg) },
-			logManager,
-			scannerFn,
-		)
-		ln, err := webServer.Listen()
-		if err != nil {
-			appLogger.Error("web server listen error", "error", err)
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+	// Web server always starts (ephemeral port if not configured)
+	webServer := web.New(
+		web.Config{Bind: cfg.Web.Bind, Port: cfg.Web.Port},
+		model.Manager(),
+		func(msg any) { p.Send(msg) },
+		logManager,
+		scannerFn,
+	)
+	ln, err := webServer.Listen()
+	if err != nil {
+		appLogger.Error("web server listen error", "error", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Write port file for CLI discovery
+	if err := instance.WritePort(dataDir, webServer.Addr()); err != nil {
+		appLogger.Error("failed to write port file", "error", err)
+	}
+
+	webURL := fmt.Sprintf("http://%s", webServer.Addr())
+	go func() {
+		p.Send(events.WebListenURLMsg{URL: webURL})
+	}()
+
+	go func() {
+		if err := webServer.Serve(ln); err != nil && err != http.ErrServerClosed {
+			appLogger.Error("web server error", "error", err)
 		}
-		webURL := fmt.Sprintf("http://%s", webServer.Addr())
-		go func() {
-			p.Send(events.WebListenURLMsg{URL: webURL})
-		}()
+	}()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := webServer.Shutdown(ctx); err != nil {
+			appLogger.Error("web server shutdown error", "error", err)
+		}
+	}()
 
-		go func() {
-			if err := webServer.Serve(ln); err != nil && err != http.ErrServerClosed {
-				appLogger.Error("web server error", "error", err)
-			}
-		}()
-		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := webServer.Shutdown(ctx); err != nil {
-				appLogger.Error("web server shutdown error", "error", err)
-			}
-		}()
+	// Tailscale only when web port is explicitly configured
+	if cfg.Web.Port > 0 && cfg.Tailscale.Enabled {
+		supervisor, err := startTsnsrv(&cfg, webServer.Addr(), logManager)
+		if err != nil {
+			appLogger.Warn("tsnsrv failed to start (continuing without tailscale)", "error", err)
+		} else {
+			defer supervisor.Stop()
 
-		if cfg.Tailscale.Enabled {
-			supervisor, err := startTsnsrv(&cfg, webServer.Addr(), logManager)
-			if err != nil {
-				appLogger.Warn("tsnsrv failed to start (continuing without tailscale)", "error", err)
-			} else {
-				defer supervisor.Stop()
-
-				// Poll for tailscale FQDN in background
-				stateDir := cfg.ResolveTokenPath(cfg.Tailscale.StateDir)
-				tc := cfg.Tailscale
-				go func() {
-					for i := 0; i < 30; i++ {
-						url, ok := tsnsrv.ReadServiceURL(stateDir, tc)
-						if ok {
-							appLogger.Info("tailscale URL resolved", "url", url)
-							p.Send(events.TailscaleURLMsg{URL: url})
-							return
-						}
-						time.Sleep(1 * time.Second)
+			// Poll for tailscale FQDN in background
+			stateDir := cfg.ResolveTokenPath(cfg.Tailscale.StateDir)
+			tc := cfg.Tailscale
+			go func() {
+				for i := 0; i < 30; i++ {
+					url, ok := tsnsrv.ReadServiceURL(stateDir, tc)
+					if ok {
+						appLogger.Info("tailscale URL resolved", "url", url)
+						p.Send(events.TailscaleURLMsg{URL: url})
+						return
 					}
-					// Timed out, send fallback
-					fallback, _ := tsnsrv.ReadServiceURL(stateDir, tc)
-					appLogger.Warn("tailscale URL resolution timed out, using fallback", "url", fallback)
-					p.Send(events.TailscaleURLMsg{URL: fallback})
-				}()
-			}
+					time.Sleep(1 * time.Second)
+				}
+				// Timed out, send fallback
+				fallback, _ := tsnsrv.ReadServiceURL(stateDir, tc)
+				appLogger.Warn("tailscale URL resolution timed out, using fallback", "url", fallback)
+				p.Send(events.TailscaleURLMsg{URL: fallback})
+			}()
 		}
 	}
 
