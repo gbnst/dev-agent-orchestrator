@@ -14,6 +14,7 @@ Last verified: 2026-02-25
 - Tailscale Exposure: tsnsrv (optional, proxies web UI onto tailnet)
 - Process Supervision: internal/process (restart policies, graceful shutdown)
 - Terminal Bridge: coder/websocket + creack/pty
+- File Locking: gofrs/flock (cross-platform file-based locking for single-instance enforcement)
 
 ## Commands
 - `make build` - Build binary
@@ -34,6 +35,7 @@ Last verified: 2026-02-25
 - `internal/tui/` - Bubbletea TUI with tree navigation, detail panel, log panel
 - `internal/container/` - Container lifecycle management (see internal/container/CLAUDE.md for contracts)
 - `internal/events/` - Shared message types between web and tui packages (WebSessionActionMsg, WebListenURLMsg, TailscaleURLMsg)
+- `internal/instance/` - Single-instance enforcement, instance discovery, and HTTP client (file locking, port discovery, health checks)
 - `internal/tmux/` - Tmux session management within containers (see internal/tmux/CLAUDE.md)
 - `internal/config/` - Configuration loading and validation (see internal/config/CLAUDE.md for contracts)
 - `internal/discovery/` - Project scanner for scan_paths directories (see internal/discovery/CLAUDE.md)
