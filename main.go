@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -14,7 +13,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/config"
-	"devagent/internal/container"
 	"devagent/internal/discovery"
 	"devagent/internal/events"
 	"devagent/internal/instance"
@@ -34,6 +32,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: devagent [options] [command]\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
 		fmt.Fprintf(os.Stderr, "  list      Output JSON data about all managed containers\n")
+		fmt.Fprintf(os.Stderr, "  cleanup   Remove stale lock/port files from a crashed instance\n")
 		fmt.Fprintf(os.Stderr, "  version   Print version and exit\n")
 		fmt.Fprintf(os.Stderr, "  (none)    Launch interactive TUI\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
@@ -48,6 +47,9 @@ func main() {
 		case "list":
 			runListCommand(*configDir)
 			return
+		case "cleanup":
+			runCleanupCommand(*configDir)
+			return
 		case "version":
 			fmt.Println(version)
 			return
@@ -57,101 +59,51 @@ func main() {
 	runTUI(*configDir)
 }
 
-// ProjectInfo represents a project with its devcontainer and optional sidecar.
-type ProjectInfo struct {
-	ProjectPath  string               `json:"project_path"`
-	Template     string               `json:"template"`
-	Devcontainer ProjectContainerInfo `json:"devcontainer"`
-	ProxySidecar *ProjectSidecarInfo  `json:"proxy_sidecar,omitempty"`
-}
-
-// ProjectContainerInfo represents container data in JSON output.
-type ProjectContainerInfo struct {
-	ID        string                `json:"id"`
-	Name      string                `json:"name"`
-	State     string                `json:"state"`
-	CreatedAt time.Time             `json:"created_at"`
-	Mounts    []container.MountInfo `json:"mounts,omitempty"`
-}
-
-// ProjectSidecarInfo represents a sidecar container in JSON output.
-type ProjectSidecarInfo struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	State string `json:"state"`
-}
-
-// runListCommand outputs JSON data about all managed containers grouped by project.
-func runListCommand(configDir string) {
-	ctx := context.Background()
-
-	cfg, err := loadConfig(configDir)
+// resolveDataDir returns the data directory for lock/port files.
+// If configDir is specified, uses that; otherwise uses ~/.config/devagent.
+func resolveDataDir(configDir string) string {
+	if configDir != "" {
+		return configDir
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return filepath.Join(".config", "devagent")
+	}
+	return filepath.Join(home, ".config", "devagent")
+}
+
+// runListCommand delegates to the running devagent instance via HTTP.
+func runListCommand(configDir string) {
+	dataDir := resolveDataDir(configDir)
+	baseURL, err := instance.Discover(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := cfg.ValidateRuntime(); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	client := instance.NewClient(baseURL)
+	data, err := client.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Create Manager with minimal dependencies
-	rt := container.NewRuntime(cfg.DetectedRuntime())
-	manager := container.NewManager(container.ManagerOptions{
-		Config:  &cfg,
-		Runtime: rt,
-	})
+	os.Stdout.Write(data)
+}
 
-	// Refresh to populate container state
-	if err := manager.Refresh(ctx); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
+// runCleanupCommand removes stale lock and port files from a crashed instance.
+func runCleanupCommand(configDir string) {
+	dataDir := resolveDataDir(configDir)
+
+	// Try to acquire the lock to verify no instance is actually running
+	fl, err := instance.Lock(dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: a devagent instance appears to be running. Stop it first.\n")
 		os.Exit(1)
 	}
-
-	// Get all containers (Manager.List() already excludes sidecars)
-	containers := manager.List()
-
-	// Build project-grouped output
-	output := make([]ProjectInfo, 0, len(containers))
-	for _, c := range containers {
-		mounts, _ := rt.GetMounts(ctx, c.ID)
-
-		project := ProjectInfo{
-			ProjectPath: c.ProjectPath,
-			Template:    c.Template,
-			Devcontainer: ProjectContainerInfo{
-				ID:        c.ID,
-				Name:      c.Name,
-				State:     string(c.State),
-				CreatedAt: c.CreatedAt,
-				Mounts:    mounts,
-			},
-		}
-
-		// Get sidecars for this project
-		sidecars := manager.GetSidecarsForProject(c.ProjectPath)
-		for _, sidecar := range sidecars {
-			// Find the proxy sidecar (if any)
-			if sidecar.Type == "proxy" {
-				project.ProxySidecar = &ProjectSidecarInfo{
-					ID:    sidecar.ID,
-					Name:  sidecar.Name,
-					State: string(sidecar.State),
-				}
-				break
-			}
-		}
-
-		output = append(output, project)
-	}
-
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(output); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "error encoding JSON: %v\n", err)
-		os.Exit(1)
-	}
+	// We got the lock — no instance is running. Clean up and release.
+	instance.Cleanup(dataDir, fl)
+	fmt.Println("Cleaned up stale lock and port files.")
 }
 
 // loadConfig loads the configuration from the specified directory or default location.
@@ -174,12 +126,7 @@ func runTUI(configDir string) {
 		os.Exit(1)
 	}
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", err)
-		os.Exit(1)
-	}
-	dataDir := filepath.Join(home, ".config", "devagent")
+	dataDir := resolveDataDir(configDir)
 
 	// Acquire single-instance lock
 	fl, err := instance.Lock(dataDir)
