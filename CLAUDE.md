@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-02-24
+Last verified: 2026-02-25
 
 ## Tech Stack
 - Language: Go 1.21+
@@ -33,7 +33,8 @@ Last verified: 2026-02-24
 - `internal/logging/` - Structured logging with dual sinks (file + TUI channel)
 - `internal/tui/` - Bubbletea TUI with tree navigation, detail panel, log panel
 - `internal/container/` - Container lifecycle management (see internal/container/CLAUDE.md for contracts)
-- `internal/tmux/` - Tmux session management within containers
+- `internal/events/` - Shared message types between web and tui packages (WebSessionActionMsg, WebListenURLMsg, TailscaleURLMsg)
+- `internal/tmux/` - Tmux session management within containers (see internal/tmux/CLAUDE.md)
 - `internal/config/` - Configuration loading and validation (see internal/config/CLAUDE.md for contracts)
 - `internal/discovery/` - Project scanner for scan_paths directories (see internal/discovery/CLAUDE.md)
 - `internal/worktree/` - Git worktree lifecycle management (see internal/worktree/CLAUDE.md)

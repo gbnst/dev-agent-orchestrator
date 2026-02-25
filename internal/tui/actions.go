@@ -58,8 +58,3 @@ func GenerateVSCodeCommand(projectPath, workspacePath string) string {
 	uri := fmt.Sprintf("vscode-remote://dev-container+%s%s", hexPath, workspacePath)
 	return fmt.Sprintf("code --folder-uri %s", uri)
 }
-
-// GetVSCodePaletteInstructions returns instructions for using VS Code command palette.
-func GetVSCodePaletteInstructions() string {
-	return "In VS Code: Cmd+Shift+P > \"Dev Containers: Attach to Running Container...\""
-}

@@ -9,6 +9,7 @@ import (
 	"devagent/internal/config"
 	"devagent/internal/container"
 	"devagent/internal/logging"
+	"devagent/internal/tmux"
 )
 
 func newTestModelWithContainers(t *testing.T) Model {
@@ -44,7 +45,7 @@ func TestSessionView_PressEnter_ExpandsContainer(t *testing.T) {
 			ID:    "abc123",
 			Name:  "test-container",
 			State: container.StateRunning,
-			Sessions: []container.Session{
+			Sessions: []tmux.Session{
 				{Name: "dev", ContainerID: "abc123"},
 				{Name: "main", ContainerID: "abc123"},
 			},
@@ -82,7 +83,7 @@ func TestSessionView_PressEscape_ClosesSessionView(t *testing.T) {
 			ID:    "abc123",
 			Name:  "test-container",
 			State: container.StateRunning,
-			Sessions: []container.Session{
+			Sessions: []tmux.Session{
 				{Name: "dev", ContainerID: "abc123"},
 			},
 		},
@@ -114,7 +115,7 @@ func TestSessionView_SelectedSession(t *testing.T) {
 			ID:    "abc123",
 			Name:  "test-container",
 			State: container.StateRunning,
-			Sessions: []container.Session{
+			Sessions: []tmux.Session{
 				{Name: "dev", ContainerID: "abc123"},
 				{Name: "main", ContainerID: "abc123"},
 			},
@@ -148,7 +149,7 @@ func TestSessionView_NoSessionsMessage(t *testing.T) {
 			ID:       "abc123",
 			Name:     "test-container",
 			State:    container.StateRunning,
-			Sessions: []container.Session{},
+			Sessions: []tmux.Session{},
 		},
 	}
 	updated, _ := m.Update(containersRefreshedMsg{containers: containers})
@@ -173,7 +174,7 @@ func TestSessionView_AttachCommand(t *testing.T) {
 			ID:    "abc123def456",
 			Name:  "test-container",
 			State: container.StateRunning,
-			Sessions: []container.Session{
+			Sessions: []tmux.Session{
 				{Name: "dev", ContainerID: "abc123def456"},
 			},
 		},

@@ -1,17 +1,17 @@
 # TUI Domain
 
-Last verified: 2026-02-24
+Last verified: 2026-02-25
 
 ## Purpose
 Provides terminal UI for orchestrating development containers and git worktrees. Tree-based navigation showing projects with nested worktrees, containers, and sessions. Optional detail panel, live log panel with selectable entries, and log details panel for HTTP request inspection. Supports worktree creation/destruction within projects.
 
 ## Contracts
-- **Exposes**: `Model`, `NewModel()`, `NewModelWithTemplates()`, `SetDiscoveredProjects()`, `StatusLevel`, `TreeItemType`, `TreeItem`, `PanelFocus`, `ActionCommand`, `GenerateContainerActions`, `GenerateVSCodeCommand`, `WebSessionActionMsg`, `WebListenURLMsg`, `TailscaleURLMsg`
+- **Exposes**: `Model`, `NewModel()`, `NewModelWithTemplates()`, `SetDiscoveredProjects()`, `StatusLevel`, `TreeItemType`, `TreeItem`, `PanelFocus`, `ActionCommand`, `GenerateContainerActions`, `GenerateVSCodeCommand`
 - **Guarantees**: Operations show immediate visual feedback (spinners). Log panel filters by current context (both container.* and proxy.* scopes). Log entries are selectable with details panel for HTTP request inspection. Forms are modal overlays. Destructive operations require confirmation. Container creation and worktree creation show forms with input validation. Header displays active listen URLs (web + tailscale).
 - **Expects**: Valid config and LogManager. Container runtime available for operations. Git binary available for worktree operations.
 
 ## Dependencies
-- **Uses**: logging.Manager (required), container.Manager, config.Config, discovery.Scanner, worktree package
+- **Uses**: logging.Manager (required), container.Manager, config.Config, discovery.Scanner, worktree package (via DestroyWorktreeWithContainer compound operation)
 - **Used by**: main.go, web.Server (via WebSessionActionMsg)
 - **Boundary**: UI layer; delegates all business logic to container/tmux/worktree/discovery packages
 
@@ -20,7 +20,7 @@ Provides terminal UI for orchestrating development containers and git worktrees.
 - Tree structure (Phase 3): Projects at top level, worktrees nested under projects (including "main" branch), containers nested under worktrees. "Other" group for unmatched containers when projects exist.
 - Form overlay strategy: worktreeFormOpen checked BEFORE formOpen in Update() so worktree form takes precedence
 - Worktree form: Simpler than container form (just branch name input), reuses form styling
-- Worktree deletion: Only allowed for non-main worktrees (W key, shows confirmation)
+- Worktree deletion: Only allowed for non-main worktrees (W key, shows confirmation). Uses shared worktree.DestroyWorktreeWithContainer function to perform compound stop+destroy+remove operation, aligning semantics with Web API.
 - Project scanning: async rescanProjects() command after worktree create/destroy to refresh tree
 - 40/60 split: Tree/detail panel when detail panel open; also 40/60 for log list/log details
 - Ring buffer (1000): Bounds log memory in TUI

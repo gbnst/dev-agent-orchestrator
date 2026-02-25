@@ -13,12 +13,10 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"devagent/internal/container"
 	"devagent/internal/discovery"
+	"devagent/internal/events"
 	"devagent/internal/logging"
-	"devagent/internal/tui"
 	"devagent/internal/web"
 )
 
@@ -31,12 +29,6 @@ type apiMockRuntime struct {
 func (m *apiMockRuntime) ListContainers(_ context.Context) ([]container.Container, error) {
 	return m.containers, nil
 }
-
-func (m *apiMockRuntime) StartContainer(_ context.Context, _ string) error { return nil }
-
-func (m *apiMockRuntime) StopContainer(_ context.Context, _ string) error { return nil }
-
-func (m *apiMockRuntime) RemoveContainer(_ context.Context, _ string) error { return nil }
 
 func (m *apiMockRuntime) Exec(_ context.Context, _ string, _ []string) (string, error) {
 	return m.execOutput, nil
@@ -71,10 +63,6 @@ type mutationMockRuntime struct {
 func (m *mutationMockRuntime) ListContainers(_ context.Context) ([]container.Container, error) {
 	return m.containers, nil
 }
-
-func (m *mutationMockRuntime) StartContainer(_ context.Context, _ string) error  { return nil }
-func (m *mutationMockRuntime) StopContainer(_ context.Context, _ string) error   { return nil }
-func (m *mutationMockRuntime) RemoveContainer(_ context.Context, _ string) error { return nil }
 
 func (m *mutationMockRuntime) Exec(_ context.Context, _ string, _ []string) (string, error) {
 	return "", nil
@@ -136,14 +124,17 @@ func mockCommandExecutor(ctx context.Context, name string, args ...string) (stri
 }
 
 // startWorktreeTestServer creates a test server with a configurable mock worktreeOps.
-func startWorktreeTestServer(t *testing.T, containers []container.Container, wt *mockWorktreeOps, notifyTUI func(tea.Msg)) string {
+func startWorktreeTestServer(t *testing.T, containers []container.Container, wt *mockWorktreeOps, notifyTUI func(any)) string {
 	t.Helper()
 	runtime := &mutationMockRuntime{containers: containers}
 
 	// Create DevcontainerCLI with mock executor to avoid actual container creation
 	devCLI := container.NewDevcontainerCLIWithExecutor(mockCommandExecutor)
 
-	mgr := container.NewManagerWithDeps(runtime, nil, devCLI)
+	mgr := container.NewManager(container.ManagerOptions{
+		Runtime: runtime,
+		DevCLI:  devCLI,
+	})
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager.Refresh() error = %v", err)
 	}
@@ -170,7 +161,7 @@ func startWorktreeTestServer(t *testing.T, containers []container.Container, wt 
 }
 
 // startMutationTestServer creates a test server using mutationMockRuntime and an optional notifyTUI callback.
-func startMutationTestServer(t *testing.T, containers []container.Container, outputsByCmd map[string]string, notifyTUI func(tea.Msg)) string {
+func startMutationTestServer(t *testing.T, containers []container.Container, outputsByCmd map[string]string, notifyTUI func(any)) string {
 	t.Helper()
 
 	runtime := &mutationMockRuntime{
@@ -178,7 +169,7 @@ func startMutationTestServer(t *testing.T, containers []container.Container, out
 		outputsByCmd: outputsByCmd,
 	}
 
-	mgr := container.NewManagerWithRuntime(runtime)
+	mgr := container.NewManager(container.ManagerOptions{Runtime: runtime})
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager.Refresh() error = %v", err)
 	}
@@ -218,7 +209,7 @@ func startAPITestServer(t *testing.T, containers []container.Container, sessionO
 		execOutput: sessionOutput,
 	}
 
-	mgr := container.NewManagerWithRuntime(runtime)
+	mgr := container.NewManager(container.ManagerOptions{Runtime: runtime})
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager.Refresh() error = %v", err)
 	}
@@ -275,7 +266,7 @@ func startProjectsTestServer(t *testing.T, containers []container.Container, ses
 		execOutput: sessionOutput,
 	}
 
-	mgr := container.NewManagerWithRuntime(runtime)
+	mgr := container.NewManager(container.ManagerOptions{Runtime: runtime})
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager.Refresh() error = %v", err)
 	}
@@ -556,8 +547,8 @@ func TestHandleCreateSession_GH17AC21(t *testing.T) {
 		"new-session":   "",
 	}
 
-	notifyCh := make(chan tea.Msg, 1)
-	notifyFn := func(msg tea.Msg) { notifyCh <- msg }
+	notifyCh := make(chan any, 1)
+	notifyFn := func(msg any) { notifyCh <- msg }
 
 	base := startMutationTestServer(t, containers, outputsByCmd, notifyFn)
 
@@ -579,9 +570,9 @@ func TestHandleCreateSession_GH17AC21(t *testing.T) {
 	// GH-17.AC2.5: verify TUI notification was sent
 	select {
 	case msg := <-notifyCh:
-		wsm, ok := msg.(tui.WebSessionActionMsg)
+		wsm, ok := msg.(events.WebSessionActionMsg)
 		if !ok {
-			t.Fatalf("notifyTUI got %T, want tui.WebSessionActionMsg", msg)
+			t.Fatalf("notifyTUI got %T, want events.WebSessionActionMsg", msg)
 		}
 		if wsm.ContainerID != "abc123" {
 			t.Errorf("ContainerID = %q, want %q", wsm.ContainerID, "abc123")
@@ -598,8 +589,8 @@ func TestHandleDestroySession_GH17AC22(t *testing.T) {
 		"kill-session": "",
 	}
 
-	notifyCh := make(chan tea.Msg, 1)
-	notifyFn := func(msg tea.Msg) { notifyCh <- msg }
+	notifyCh := make(chan any, 1)
+	notifyFn := func(msg any) { notifyCh <- msg }
 
 	base := startMutationTestServer(t, containers, outputsByCmd, notifyFn)
 
@@ -621,9 +612,9 @@ func TestHandleDestroySession_GH17AC22(t *testing.T) {
 	// GH-17.AC2.5: verify TUI notification was sent
 	select {
 	case msg := <-notifyCh:
-		wsm, ok := msg.(tui.WebSessionActionMsg)
+		wsm, ok := msg.(events.WebSessionActionMsg)
 		if !ok {
-			t.Fatalf("notifyTUI got %T, want tui.WebSessionActionMsg", msg)
+			t.Fatalf("notifyTUI got %T, want events.WebSessionActionMsg", msg)
 		}
 		if wsm.ContainerID != "abc123" {
 			t.Errorf("ContainerID = %q, want %q", wsm.ContainerID, "abc123")
@@ -962,8 +953,8 @@ func TestHandleStartContainer_AC21(t *testing.T) {
 		},
 	}
 
-	notifyCh := make(chan tea.Msg, 1)
-	notifyFn := func(msg tea.Msg) { notifyCh <- msg }
+	notifyCh := make(chan any, 1)
+	notifyFn := func(msg any) { notifyCh <- msg }
 
 	base := startMutationTestServer(t, containers, map[string]string{}, notifyFn)
 
@@ -985,9 +976,9 @@ func TestHandleStartContainer_AC21(t *testing.T) {
 	// Verify TUI notification was sent
 	select {
 	case msg := <-notifyCh:
-		wsm, ok := msg.(tui.WebSessionActionMsg)
+		wsm, ok := msg.(events.WebSessionActionMsg)
 		if !ok {
-			t.Fatalf("notifyTUI got %T, want tui.WebSessionActionMsg", msg)
+			t.Fatalf("notifyTUI got %T, want events.WebSessionActionMsg", msg)
 		}
 		if wsm.ContainerID != "abc123" {
 			t.Errorf("ContainerID = %q, want %q", wsm.ContainerID, "abc123")
@@ -1010,8 +1001,8 @@ func TestHandleStopContainer_AC22(t *testing.T) {
 		},
 	}
 
-	notifyCh := make(chan tea.Msg, 1)
-	notifyFn := func(msg tea.Msg) { notifyCh <- msg }
+	notifyCh := make(chan any, 1)
+	notifyFn := func(msg any) { notifyCh <- msg }
 
 	base := startMutationTestServer(t, containers, map[string]string{}, notifyFn)
 
@@ -1033,9 +1024,9 @@ func TestHandleStopContainer_AC22(t *testing.T) {
 	// Verify TUI notification was sent
 	select {
 	case msg := <-notifyCh:
-		wsm, ok := msg.(tui.WebSessionActionMsg)
+		wsm, ok := msg.(events.WebSessionActionMsg)
 		if !ok {
-			t.Fatalf("notifyTUI got %T, want tui.WebSessionActionMsg", msg)
+			t.Fatalf("notifyTUI got %T, want events.WebSessionActionMsg", msg)
 		}
 		if wsm.ContainerID != "abc123" {
 			t.Errorf("ContainerID = %q, want %q", wsm.ContainerID, "abc123")
@@ -1058,8 +1049,8 @@ func TestHandleDestroyContainer_AC23(t *testing.T) {
 		},
 	}
 
-	notifyCh := make(chan tea.Msg, 1)
-	notifyFn := func(msg tea.Msg) { notifyCh <- msg }
+	notifyCh := make(chan any, 1)
+	notifyFn := func(msg any) { notifyCh <- msg }
 
 	base := startMutationTestServer(t, containers, map[string]string{}, notifyFn)
 
@@ -1081,9 +1072,9 @@ func TestHandleDestroyContainer_AC23(t *testing.T) {
 	// Verify TUI notification was sent
 	select {
 	case msg := <-notifyCh:
-		wsm, ok := msg.(tui.WebSessionActionMsg)
+		wsm, ok := msg.(events.WebSessionActionMsg)
 		if !ok {
-			t.Fatalf("notifyTUI got %T, want tui.WebSessionActionMsg", msg)
+			t.Fatalf("notifyTUI got %T, want events.WebSessionActionMsg", msg)
 		}
 		if wsm.ContainerID != "abc123" {
 			t.Errorf("ContainerID = %q, want %q", wsm.ContainerID, "abc123")
@@ -1396,16 +1387,6 @@ func (m *startWorktreeContainerMockRuntime) ListContainers(_ context.Context) ([
 	return m.initialContainers, nil
 }
 
-func (m *startWorktreeContainerMockRuntime) StartContainer(_ context.Context, _ string) error {
-	return nil
-}
-func (m *startWorktreeContainerMockRuntime) StopContainer(_ context.Context, _ string) error {
-	return nil
-}
-func (m *startWorktreeContainerMockRuntime) RemoveContainer(_ context.Context, _ string) error {
-	return nil
-}
-
 func (m *startWorktreeContainerMockRuntime) Exec(_ context.Context, _ string, _ []string) (string, error) {
 	return "", nil
 }
@@ -1447,7 +1428,7 @@ func startWorktreeContainerTestServer(
 	initialContainers []container.Container,
 	afterUpContainers []container.Container,
 	wt *mockWorktreeOps,
-	notifyTUI func(tea.Msg),
+	notifyTUI func(any),
 ) string {
 	t.Helper()
 	runtime := &startWorktreeContainerMockRuntime{
@@ -1459,7 +1440,10 @@ func startWorktreeContainerTestServer(
 	// Create DevcontainerCLI with mock executor
 	devCLI := container.NewDevcontainerCLIWithExecutor(mockCommandExecutor)
 
-	mgr := container.NewManagerWithDeps(runtime, nil, devCLI)
+	mgr := container.NewManager(container.ManagerOptions{
+		Runtime: runtime,
+		DevCLI:  devCLI,
+	})
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager.Refresh() error = %v", err)
 	}
@@ -1575,8 +1559,8 @@ func TestHandleStartWorktreeContainer_AC23(t *testing.T) {
 		},
 	}
 
-	notifyCh := make(chan tea.Msg, 1)
-	notifyFn := func(msg tea.Msg) { notifyCh <- msg }
+	notifyCh := make(chan any, 1)
+	notifyFn := func(msg any) { notifyCh <- msg }
 
 	base := startWorktreeContainerTestServer(t, []container.Container{}, afterUpContainers, wt, notifyFn)
 
@@ -1594,7 +1578,7 @@ func TestHandleStartWorktreeContainer_AC23(t *testing.T) {
 	// Verify TUI was notified
 	select {
 	case msg := <-notifyCh:
-		if actionMsg, ok := msg.(tui.WebSessionActionMsg); !ok || actionMsg.ContainerID == "" {
+		if actionMsg, ok := msg.(events.WebSessionActionMsg); !ok || actionMsg.ContainerID == "" {
 			t.Errorf("expected WebSessionActionMsg with non-empty ContainerID, got %T", msg)
 		}
 	case <-time.After(1 * time.Second):

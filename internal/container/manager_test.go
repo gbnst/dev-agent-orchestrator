@@ -38,18 +38,6 @@ func (m *mockRuntime) ListContainers(ctx context.Context) ([]Container, error) {
 	return m.containers, nil
 }
 
-func (m *mockRuntime) StartContainer(ctx context.Context, id string) error {
-	return nil
-}
-
-func (m *mockRuntime) StopContainer(ctx context.Context, id string) error {
-	return nil
-}
-
-func (m *mockRuntime) RemoveContainer(ctx context.Context, id string) error {
-	return nil
-}
-
 func (m *mockRuntime) Exec(ctx context.Context, id string, cmd []string) (string, error) {
 	return "", nil
 }
@@ -92,7 +80,7 @@ func (m *mockRuntime) ComposeDown(ctx context.Context, projectDir string, projec
 
 func TestList_Empty(t *testing.T) {
 	mock := &mockRuntime{containers: []Container{}}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 
 	containers := mgr.List()
 	if len(containers) != 0 {
@@ -107,7 +95,7 @@ func TestList_AfterRefresh(t *testing.T) {
 			{ID: "def456", Name: "container-2", State: StateStopped},
 		},
 	}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 
 	// Before refresh, should be empty
 	if len(mgr.List()) != 0 {
@@ -135,7 +123,7 @@ func TestList_ReturnsDeterministicOrder(t *testing.T) {
 			{ID: "bbb", Name: "bravo", State: StateStopped},
 		},
 	}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 	ctx := context.Background()
 	if err := mgr.Refresh(ctx); err != nil {
 		t.Fatalf("Refresh failed: %v", err)
@@ -160,7 +148,7 @@ func TestGet_Found(t *testing.T) {
 			{ID: "abc123", Name: "container-1", State: StateRunning},
 		},
 	}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 	ctx := context.Background()
 	_ = mgr.Refresh(ctx)
 
@@ -175,7 +163,7 @@ func TestGet_Found(t *testing.T) {
 
 func TestGet_NotFound(t *testing.T) {
 	mock := &mockRuntime{containers: []Container{}}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 	ctx := context.Background()
 	_ = mgr.Refresh(ctx)
 
@@ -189,7 +177,7 @@ func TestRefresh_Error(t *testing.T) {
 	mock := &mockRuntime{
 		listErr: errors.New("docker not running"),
 	}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 	ctx := context.Background()
 
 	err := mgr.Refresh(ctx)
@@ -200,7 +188,7 @@ func TestRefresh_Error(t *testing.T) {
 
 func TestManager_GetSidecarsForProject(t *testing.T) {
 	mock := &mockRuntime{}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 
 	// Simulate containers with compose project labels
 	mgr.containers["app-1"] = &Container{
@@ -263,7 +251,7 @@ func TestManager_GetSidecarsForProject(t *testing.T) {
 
 func TestManager_RefreshSidecars(t *testing.T) {
 	mock := &mockRuntime{}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 
 	// Simulate containers returned from ListContainers
 	allContainers := []Container{
@@ -387,7 +375,12 @@ volumes:
 
 	// Create a manager with all dependencies for testing compose generation.
 	// Pass nil for devCLI since we're testing file generation, not container creation.
-	mgr := NewManagerWithAllDeps(cfg, templates, mock, nil)
+	mgr := NewManager(ManagerOptions{
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   mock,
+		DevCLI:    nil,
+	})
 
 	// Manually set the containers map to simulate devCLI.Up() success
 	// This avoids needing a mock CLI - we're testing file generation
@@ -424,7 +417,7 @@ func TestStartWithCompose_CallsRuntimeCompose(t *testing.T) {
 	projectDir := t.TempDir()
 
 	mock := &mockRuntime{}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 	mgr.containers["test-id"] = &Container{
 		ID:          "test-id",
 		Name:        "test-container",
@@ -451,7 +444,7 @@ func TestStopWithCompose_CallsRuntimeCompose(t *testing.T) {
 	projectDir := t.TempDir()
 
 	mock := &mockRuntime{}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 	mgr.containers["test-id"] = &Container{
 		ID:          "test-id",
 		Name:        "test-container",
@@ -478,7 +471,7 @@ func TestDestroyWithCompose_CallsRuntimeCompose(t *testing.T) {
 	projectDir := t.TempDir()
 
 	mock := &mockRuntime{}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 	mgr.containers["test-id"] = &Container{
 		ID:          "test-id",
 		Name:        "test-container",
@@ -503,7 +496,7 @@ func TestDestroyWithCompose_CallsRuntimeCompose(t *testing.T) {
 
 func TestStartWithCompose_NotFound(t *testing.T) {
 	mock := &mockRuntime{}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 
 	err := mgr.StartWithCompose(context.Background(), "nonexistent")
 	if err == nil {
@@ -520,7 +513,7 @@ func TestManager_ConcurrentRefreshAndGet(t *testing.T) {
 			{ID: "abc123", Name: "container-1", State: StateRunning},
 		},
 	}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 	ctx := context.Background()
 	_ = mgr.Refresh(ctx)
 
@@ -549,7 +542,7 @@ func TestManager_ConcurrentRefreshAndList(t *testing.T) {
 			{ID: "def456", Name: "container-2", State: StateStopped},
 		},
 	}
-	mgr := NewManagerWithRuntime(mock)
+	mgr := NewManager(ManagerOptions{Runtime: mock})
 	ctx := context.Background()
 	_ = mgr.Refresh(ctx)
 

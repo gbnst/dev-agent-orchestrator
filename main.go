@@ -16,6 +16,7 @@ import (
 	"devagent/internal/config"
 	"devagent/internal/container"
 	"devagent/internal/discovery"
+	"devagent/internal/events"
 	"devagent/internal/logging"
 	"devagent/internal/process"
 	"devagent/internal/tsnsrv"
@@ -55,8 +56,16 @@ func main() {
 	runTUI(*configDir)
 }
 
-// ContainerInfo represents container data for JSON output.
-type ContainerInfo struct {
+// ProjectInfo represents a project with its devcontainer and optional sidecar.
+type ProjectInfo struct {
+	ProjectPath  string               `json:"project_path"`
+	Template     string               `json:"template"`
+	Devcontainer ProjectContainerInfo `json:"devcontainer"`
+	ProxySidecar *ProjectSidecarInfo  `json:"proxy_sidecar,omitempty"`
+}
+
+// ProjectContainerInfo represents container data in JSON output.
+type ProjectContainerInfo struct {
 	ID        string                `json:"id"`
 	Name      string                `json:"name"`
 	State     string                `json:"state"`
@@ -64,19 +73,11 @@ type ContainerInfo struct {
 	Mounts    []container.MountInfo `json:"mounts,omitempty"`
 }
 
-// SidecarInfo represents a sidecar container in JSON output.
-type SidecarInfo struct {
+// ProjectSidecarInfo represents a sidecar container in JSON output.
+type ProjectSidecarInfo struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	State string `json:"state"`
-}
-
-// ProjectInfo represents a project with its devcontainer and optional sidecar.
-type ProjectInfo struct {
-	ProjectPath  string        `json:"project_path"`
-	Template     string        `json:"template"`
-	Devcontainer ContainerInfo `json:"devcontainer"`
-	ProxySidecar *SidecarInfo  `json:"proxy_sidecar,omitempty"`
 }
 
 // runListCommand outputs JSON data about all managed containers grouped by project.
@@ -94,39 +95,31 @@ func runListCommand(configDir string) {
 		os.Exit(1)
 	}
 
+	// Create Manager with minimal dependencies
 	rt := container.NewRuntime(cfg.DetectedRuntime())
+	manager := container.NewManager(container.ManagerOptions{
+		Config:  &cfg,
+		Runtime: rt,
+	})
 
-	containers, err := rt.ListContainers(ctx)
-	if err != nil {
+	// Refresh to populate container state
+	if err := manager.Refresh(ctx); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Separate devcontainers from sidecars
-	// Sidecars have LabelSidecarType label, devcontainers don't
-	devcontainers := make([]container.Container, 0)
-	sidecars := make(map[string]container.Container) // keyed by compose project name
-
-	for _, c := range containers {
-		if _, ok := c.Labels[container.LabelSidecarType]; ok {
-			composeProject := c.Labels[container.LabelComposeProject]
-			if composeProject != "" {
-				sidecars[composeProject] = c
-			}
-		} else {
-			devcontainers = append(devcontainers, c)
-		}
-	}
+	// Get all containers (Manager.List() already excludes sidecars)
+	containers := manager.List()
 
 	// Build project-grouped output
-	output := make([]ProjectInfo, 0, len(devcontainers))
-	for _, c := range devcontainers {
+	output := make([]ProjectInfo, 0, len(containers))
+	for _, c := range containers {
 		mounts, _ := rt.GetMounts(ctx, c.ID)
 
 		project := ProjectInfo{
 			ProjectPath: c.ProjectPath,
 			Template:    c.Template,
-			Devcontainer: ContainerInfo{
+			Devcontainer: ProjectContainerInfo{
 				ID:        c.ID,
 				Name:      c.Name,
 				State:     string(c.State),
@@ -135,15 +128,17 @@ func runListCommand(configDir string) {
 			},
 		}
 
-		// Find matching sidecar by compose project label
-		composeProject := c.Labels[container.LabelComposeProject]
-		if composeProject != "" {
-			if sidecar, ok := sidecars[composeProject]; ok {
-				project.ProxySidecar = &SidecarInfo{
+		// Get sidecars for this project
+		sidecars := manager.GetSidecarsForProject(c.ProjectPath)
+		for _, sidecar := range sidecars {
+			// Find the proxy sidecar (if any)
+			if sidecar.Type == "proxy" {
+				project.ProxySidecar = &ProjectSidecarInfo{
 					ID:    sidecar.ID,
 					Name:  sidecar.Name,
 					State: string(sidecar.State),
 				}
+				break
 			}
 		}
 
@@ -224,7 +219,7 @@ func runTUI(configDir string) {
 		webServer := web.New(
 			web.Config{Bind: cfg.Web.Bind, Port: cfg.Web.Port},
 			model.Manager(),
-			p.Send,
+			func(msg any) { p.Send(msg) },
 			logManager,
 			scannerFn,
 		)
@@ -236,7 +231,7 @@ func runTUI(configDir string) {
 		}
 		webURL := fmt.Sprintf("http://%s", webServer.Addr())
 		go func() {
-			p.Send(tui.WebListenURLMsg{URL: webURL})
+			p.Send(events.WebListenURLMsg{URL: webURL})
 		}()
 
 		go func() {
@@ -267,7 +262,7 @@ func runTUI(configDir string) {
 						url, ok := tsnsrv.ReadServiceURL(stateDir, tc)
 						if ok {
 							appLogger.Info("tailscale URL resolved", "url", url)
-							p.Send(tui.TailscaleURLMsg{URL: url})
+							p.Send(events.TailscaleURLMsg{URL: url})
 							return
 						}
 						time.Sleep(1 * time.Second)
@@ -275,7 +270,7 @@ func runTUI(configDir string) {
 					// Timed out, send fallback
 					fallback, _ := tsnsrv.ReadServiceURL(stateDir, tc)
 					appLogger.Warn("tailscale URL resolution timed out, using fallback", "url", fallback)
-					p.Send(tui.TailscaleURLMsg{URL: fallback})
+					p.Send(events.TailscaleURLMsg{URL: fallback})
 				}()
 			}
 		}

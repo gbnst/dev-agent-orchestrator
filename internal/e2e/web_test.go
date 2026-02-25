@@ -39,7 +39,11 @@ func testWebContainerAPI(t *testing.T, runtime string) {
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
 	logMgr := TestLogManager(t)
-	mgr := container.NewManagerWithConfigAndLogger(cfg, templates, logMgr)
+	mgr := container.NewManager(container.ManagerOptions{
+		Config:     cfg,
+		Templates:  templates,
+		LogManager: logMgr,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -229,7 +233,11 @@ func testWebTerminal(t *testing.T, runtime string) {
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
 	logMgr := TestLogManager(t)
-	mgr := container.NewManagerWithConfigAndLogger(cfg, templates, logMgr)
+	mgr := container.NewManager(container.ManagerOptions{
+		Config:     cfg,
+		Templates:  templates,
+		LogManager: logMgr,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

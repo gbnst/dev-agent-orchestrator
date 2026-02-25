@@ -14,6 +14,7 @@ import (
 
 	"devagent/internal/container"
 	"devagent/internal/discovery"
+	"devagent/internal/events"
 	"devagent/internal/logging"
 	"devagent/internal/worktree"
 )
@@ -75,12 +76,6 @@ type worktreeContainerMsg struct {
 // projectsRefreshedMsg is sent when projects are rescanned.
 type projectsRefreshedMsg struct {
 	projects []discovery.DiscoveredProject
-}
-
-// WebSessionActionMsg is sent by the web server after session mutations.
-// It triggers a session refresh to keep the TUI tree in sync.
-type WebSessionActionMsg struct {
-	ContainerID string
 }
 
 // Update handles messages and updates the model.
@@ -680,15 +675,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncSelectionFromTree()
 		return m, m.refreshContainers()
 
-	case WebListenURLMsg:
+	case events.WebListenURLMsg:
 		m.listenURLs = append(m.listenURLs, msg.URL)
 		return m, nil
 
-	case TailscaleURLMsg:
+	case events.TailscaleURLMsg:
 		m.listenURLs = append(m.listenURLs, msg.URL)
 		return m, nil
 
-	case WebSessionActionMsg:
+	case events.WebSessionActionMsg:
 		return m, m.refreshAllSessions()
 
 	case sessionsRefreshedMsg:
@@ -1079,6 +1074,9 @@ func (m Model) fetchIsolationInfo(containerID string) tea.Cmd {
 	}
 }
 
+// Note: TUI calls worktree functions directly (unlike web which uses an interface).
+// This is intentional — Bubbletea's architecture makes interface injection less practical here.
+
 // createWorktree returns a command to create a worktree.
 func (m Model) createWorktree(projectPath, name string) tea.Cmd {
 	return func() tea.Msg {
@@ -1087,10 +1085,12 @@ func (m Model) createWorktree(projectPath, name string) tea.Cmd {
 	}
 }
 
-// destroyWorktree returns a command to destroy a worktree.
+// destroyWorktree returns a command to destroy a worktree and its container (if any).
 func (m Model) destroyWorktree(projectPath, name string) tea.Cmd {
 	return func() tea.Msg {
-		err := worktree.Destroy(projectPath, name)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+		err := worktree.DestroyWorktreeWithContainer(ctx, m.manager, projectPath, name, nil)
 		return worktreeActionMsg{action: "destroy", name: name, projectPath: projectPath, err: err}
 	}
 }

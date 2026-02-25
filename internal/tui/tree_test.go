@@ -12,6 +12,7 @@ import (
 	"devagent/internal/container"
 	"devagent/internal/discovery"
 	"devagent/internal/logging"
+	"devagent/internal/tmux"
 )
 
 func TestTreeItemType_Container(t *testing.T) {
@@ -103,7 +104,7 @@ func TestRebuildTreeItems_ExpandedContainer(t *testing.T) {
 	c1 := &container.Container{
 		ID:   "c1",
 		Name: "container-1",
-		Sessions: []container.Session{
+		Sessions: []tmux.Session{
 			{Name: "dev", ContainerID: "c1"},
 			{Name: "test", ContainerID: "c1"},
 		},
@@ -149,14 +150,14 @@ func TestRebuildTreeItems_MixedExpansion(t *testing.T) {
 	c1 := &container.Container{
 		ID:   "c1",
 		Name: "container-1",
-		Sessions: []container.Session{
+		Sessions: []tmux.Session{
 			{Name: "dev", ContainerID: "c1"},
 		},
 	}
 	c2 := &container.Container{
 		ID:   "c2",
 		Name: "container-2",
-		Sessions: []container.Session{
+		Sessions: []tmux.Session{
 			{Name: "prod", ContainerID: "c2"},
 		},
 	}
@@ -212,7 +213,7 @@ func TestRebuildTreeItems_ExpandedState(t *testing.T) {
 	c1 := &container.Container{
 		ID:       "c1",
 		Name:     "container-1",
-		Sessions: []container.Session{},
+		Sessions: []tmux.Session{},
 	}
 	items := []list.Item{containerItem{container: c1}}
 	m.containerList.SetItems(items)
@@ -237,7 +238,7 @@ func newTreeTestModelWithContainers(t *testing.T, count int) Model {
 		c := &container.Container{
 			ID:   fmt.Sprintf("c%d", i+1),
 			Name: fmt.Sprintf("container-%d", i+1),
-			Sessions: []container.Session{
+			Sessions: []tmux.Session{
 				{Name: "dev", ContainerID: fmt.Sprintf("c%d", i+1)},
 				{Name: "test", ContainerID: fmt.Sprintf("c%d", i+1)},
 			},
@@ -449,7 +450,7 @@ func TestRenderTree_ShowsExpandedContainerWithSessions(t *testing.T) {
 	c := &container.Container{
 		ID:   "c1",
 		Name: "my-container",
-		Sessions: []container.Session{
+		Sessions: []tmux.Session{
 			{Name: "dev", ContainerID: "c1"},
 			{Name: "test", ContainerID: "c1"},
 		},
@@ -540,7 +541,7 @@ func TestRenderDetailPanel_Container(t *testing.T) {
 		State:       container.StateRunning,
 		ProjectPath: "/path/to/project",
 		Template:    "go-project",
-		Sessions: []container.Session{
+		Sessions: []tmux.Session{
 			{Name: "dev", ContainerID: "c1"},
 			{Name: "test", ContainerID: "c1"},
 		},
@@ -573,7 +574,7 @@ func TestRenderDetailPanel_Session(t *testing.T) {
 	c := &container.Container{
 		ID:   "c1",
 		Name: "my-container",
-		Sessions: []container.Session{
+		Sessions: []tmux.Session{
 			{Name: "dev", ContainerID: "c1", Attached: true, Windows: 3},
 		},
 	}
@@ -603,7 +604,7 @@ func TestRenderDetailPanel_ShowsContainerForSession(t *testing.T) {
 	c := &container.Container{
 		ID:   "c1",
 		Name: "my-container",
-		Sessions: []container.Session{
+		Sessions: []tmux.Session{
 			{Name: "dev", ContainerID: "c1"},
 		},
 	}
@@ -745,7 +746,7 @@ func TestContainerAction_NoOpWhenAllSelected(t *testing.T) {
 func TestRenderAllContainersDetailContent(t *testing.T) {
 	m := newTreeTestModel(t)
 	containers := []*container.Container{
-		{ID: "c1", Name: "running-1", State: container.StateRunning, Sessions: []container.Session{
+		{ID: "c1", Name: "running-1", State: container.StateRunning, Sessions: []tmux.Session{
 			{Name: "dev", ContainerID: "c1"},
 		}},
 		{ID: "c2", Name: "stopped-1", State: container.StateStopped},
@@ -1077,7 +1078,7 @@ func TestRebuildTreeItems_ContainerExpansionUnderWorktree(t *testing.T) {
 		ID:          "c1",
 		Name:        "container-1",
 		ProjectPath: "/projects/proj1/feature-x",
-		Sessions: []container.Session{
+		Sessions: []tmux.Session{
 			{Name: "dev", ContainerID: "c1"},
 			{Name: "test", ContainerID: "c1"},
 		},

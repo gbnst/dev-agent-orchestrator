@@ -1,13 +1,13 @@
 # Tmux Domain
 
-Last verified: 2026-02-01
+Last verified: 2026-02-25
 
 ## Purpose
 Wraps tmux commands executed inside containers via a ContainerExecutor function. Provides session listing, creation, destruction, and pane capture.
 
 ## Contracts
-- **Exposes**: `Client`, `Session`, `Pane`, `ContainerExecutor` type
-- **Guarantees**: ListSessions returns empty slice (not error) when no tmux server. Parsing handles malformed output gracefully.
+- **Exposes**: `Client`, `Session`, `ContainerExecutor` type, `ParseListSessions(containerID, output string) []Session` function
+- **Guarantees**: ListSessions returns empty slice (not error) when no tmux server. ParseListSessions and Client.ListSessions handle malformed output gracefully. ParseListSessions can be used to parse tmux list-sessions output from any source (containers or host). Session.ContainerID is populated with the containerID parameter passed to ParseListSessions.
 - **Expects**: ContainerExecutor that can run commands inside containers. Tmux installed in target containers.
 
 ## Dependencies
@@ -27,7 +27,9 @@ Wraps tmux commands executed inside containers via a ContainerExecutor function.
 
 ## Key Files
 - `client.go` - Client struct, all tmux operations
-- `types.go` - Session and Pane types with helper methods
+- `parse.go` - Consolidated ParseListSessions parser (used by Client.ListSessions and web/host.go)
+- `parse_test.go` - Tests for ParseListSessions covering edge cases and real-world tmux output
+- `types.go` - Session type with helper methods
 
 ## Gotchas
 - Session.AttachCommand(runtime, user) needs runtime name (docker/podman) and user (typically "vscode") from caller

@@ -11,6 +11,7 @@ import (
 
 	"devagent/internal/container"
 	"devagent/internal/logging"
+	"devagent/internal/tmux"
 )
 
 // truncateString truncates a string to fit within maxWidth, correctly handling
@@ -497,11 +498,6 @@ func (m Model) renderActionMenu() string {
 		cmd := m.styles.InfoStyle().Render("  " + action.Command)
 		lines = append(lines, label, cmd, "")
 	}
-
-	// Add VS Code palette instructions as the last option
-	paletteLabel := m.styles.AccentStyle().Render("VS Code Command Palette")
-	paletteCmd := m.styles.InfoStyle().Render("  " + GetVSCodePaletteInstructions())
-	lines = append(lines, paletteLabel, paletteCmd)
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 
@@ -1018,7 +1014,7 @@ func (m Model) renderContainerTreeItem(item TreeItem, cursor string, selected bo
 // renderSessionTreeItem renders a session in the tree (indented under container).
 func (m Model) renderSessionTreeItem(idx int, item TreeItem, cursor string) string {
 	// Find the session
-	var sess *container.Session
+	var sess *tmux.Session
 	for _, listItem := range m.containerList.Items() {
 		if ci, ok := listItem.(containerItem); ok {
 			if ci.container.ID == item.ContainerID {

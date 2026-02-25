@@ -3,10 +3,7 @@
 package tmux
 
 import (
-	"bufio"
 	"context"
-	"strconv"
-	"strings"
 
 	"devagent/internal/logging"
 )
@@ -22,14 +19,6 @@ type Client struct {
 
 // NewClient creates a new tmux Client.
 func NewClient(exec ContainerExecutor) *Client {
-	return &Client{
-		exec:   exec,
-		logger: logging.NopLogger(),
-	}
-}
-
-// NewClientWithExecutor creates a new Client with the given executor (for testing).
-func NewClientWithExecutor(exec ContainerExecutor) *Client {
 	return &Client{
 		exec:   exec,
 		logger: logging.NopLogger(),
@@ -58,55 +47,9 @@ func (c *Client) ListSessions(ctx context.Context, containerID string) ([]Sessio
 		return []Session{}, nil
 	}
 
-	sessions := c.parseSessions(containerID, output)
+	sessions := ParseListSessions(containerID, output)
 	c.logger.Debug("sessions listed", "containerID", containerID, "count", len(sessions))
 	return sessions, nil
-}
-
-// parseSessions parses tmux list-sessions output.
-// Format: "name: N windows (created DATE) [(attached)]"
-func (c *Client) parseSessions(containerID, output string) []Session {
-	var sessions []Session
-
-	scanner := bufio.NewScanner(strings.NewReader(output))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		session := c.parseSessionLine(containerID, line)
-		if session.Name != "" {
-			sessions = append(sessions, session)
-		}
-	}
-
-	return sessions
-}
-
-// parseSessionLine parses a single line from list-sessions.
-func (c *Client) parseSessionLine(containerID, line string) Session {
-	session := Session{ContainerID: containerID}
-
-	// Split on ": " to get name
-	parts := strings.SplitN(line, ": ", 2)
-	if len(parts) < 2 {
-		return session
-	}
-	session.Name = parts[0]
-
-	// Parse windows count
-	rest := parts[1]
-	if idx := strings.Index(rest, " windows"); idx > 0 {
-		if n, err := strconv.Atoi(rest[:idx]); err == nil {
-			session.Windows = n
-		}
-	}
-
-	// Check if attached
-	session.Attached = strings.Contains(line, "(attached)")
-
-	return session
 }
 
 // CreateSession creates a new detached tmux session.

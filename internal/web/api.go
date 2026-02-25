@@ -14,7 +14,8 @@ import (
 
 	"devagent/internal/container"
 	"devagent/internal/discovery"
-	"devagent/internal/tui"
+	"devagent/internal/events"
+	"devagent/internal/worktree"
 )
 
 // ContainerResponse is the JSON representation of a container.
@@ -205,7 +206,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(tui.WebSessionActionMsg{ContainerID: id})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: id})
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"name": req.Name})
 }
@@ -234,7 +235,7 @@ func (s *Server) handleDestroySession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(tui.WebSessionActionMsg{ContainerID: id})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: id})
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "destroyed"})
 }
@@ -262,7 +263,7 @@ func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(tui.WebSessionActionMsg{ContainerID: id})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: id})
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
 }
@@ -290,7 +291,7 @@ func (s *Server) handleStopContainer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(tui.WebSessionActionMsg{ContainerID: id})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: id})
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
@@ -313,7 +314,7 @@ func (s *Server) handleDestroyContainer(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(tui.WebSessionActionMsg{ContainerID: id})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: id})
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "destroyed"})
 }
@@ -360,7 +361,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(tui.WebSessionActionMsg{ContainerID: containerID})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: containerID})
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -382,35 +383,14 @@ func (s *Server) handleDeleteWorktree(w http.ResponseWriter, r *http.Request) {
 
 	name := r.PathValue("name")
 
-	// Find container for this worktree path
-	wtPath := s.worktreeOps.WorktreeDir(projectPath, name)
-	containers := s.manager.List()
-	for _, c := range containers {
-		if c.ProjectPath == wtPath {
-			// Stop if running
-			if c.IsRunning() {
-				if err := s.manager.StopWithCompose(r.Context(), c.ID); err != nil {
-					writeError(w, http.StatusInternalServerError, "failed to stop container: "+err.Error())
-					return
-				}
-			}
-			// Destroy container
-			if err := s.manager.DestroyWithCompose(r.Context(), c.ID); err != nil {
-				writeError(w, http.StatusInternalServerError, "failed to destroy container: "+err.Error())
-				return
-			}
-			break
-		}
-	}
-
-	// Remove git worktree and branch
-	if err := s.worktreeOps.Destroy(projectPath, name); err != nil {
+	// Use shared function for compound destroy operation
+	if err := worktree.DestroyWorktreeWithContainer(r.Context(), s.manager, projectPath, name, s.worktreeOps); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(tui.WebSessionActionMsg{ContainerID: ""})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: ""})
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -457,7 +437,7 @@ func (s *Server) handleStartWorktreeContainer(w http.ResponseWriter, r *http.Req
 
 	// Notify TUI
 	if s.notifyTUI != nil {
-		s.notifyTUI(tui.WebSessionActionMsg{ContainerID: containerID})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: containerID})
 	}
 
 	// Build container response

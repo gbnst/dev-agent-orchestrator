@@ -125,15 +125,3 @@ func TestGenerateVSCodeCommand(t *testing.T) {
 		t.Errorf("command should end with workspace path: %s", cmd)
 	}
 }
-
-func TestGetVSCodePaletteInstructions(t *testing.T) {
-	instructions := GetVSCodePaletteInstructions()
-
-	if !strings.Contains(instructions, "Dev Containers: Attach to Running Container") {
-		t.Errorf("instructions should mention attach command: %s", instructions)
-	}
-
-	if !strings.Contains(instructions, "Cmd+Shift+P") {
-		t.Errorf("instructions should mention command palette shortcut: %s", instructions)
-	}
-}

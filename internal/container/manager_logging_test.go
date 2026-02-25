@@ -17,7 +17,10 @@ func TestManager_LogsInitialization(t *testing.T) {
 		},
 	}
 
-	_ = NewManagerWithRuntimeAndLogger(mockRuntime, lm)
+	_ = NewManager(ManagerOptions{
+		Runtime:    mockRuntime,
+		LogManager: lm,
+	})
 
 	// Should have logged initialization
 	select {
@@ -40,7 +43,10 @@ func TestManager_LogsRefresh(t *testing.T) {
 		},
 	}
 
-	manager := NewManagerWithRuntimeAndLogger(mockRuntime, lm)
+	manager := NewManager(ManagerOptions{
+		Runtime:    mockRuntime,
+		LogManager: lm,
+	})
 
 	// Drain initialization log
 	<-lm.Channel()

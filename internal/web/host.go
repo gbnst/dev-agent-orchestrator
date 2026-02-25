@@ -7,35 +7,24 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
-	"regexp"
-	"strconv"
 	"strings"
 
-	"devagent/internal/tui"
+	"devagent/internal/events"
+	"devagent/internal/tmux"
 )
 
-// hostSessionPattern matches tmux list-sessions output lines:
-// sessionname: N windows (created ...) [optional attached flags]
-var hostSessionPattern = regexp.MustCompile(`^(.+?):\s+(\d+)\s+windows?\s+\(created\s+[^)]+\)`)
-
 // parseHostSessions parses tmux list-sessions output into SessionResponse slices.
+// Uses the consolidated tmux.ParseListSessions parser with an empty containerID
+// for host sessions (which have no container).
 func parseHostSessions(output string) []SessionResponse {
-	var sessions []SessionResponse
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+	tmuxSessions := tmux.ParseListSessions("", output)
+	sessions := make([]SessionResponse, len(tmuxSessions))
+	for i, ts := range tmuxSessions {
+		sessions[i] = SessionResponse{
+			Name:     ts.Name,
+			Windows:  ts.Windows,
+			Attached: ts.Attached,
 		}
-		m := hostSessionPattern.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		windows, _ := strconv.Atoi(m[2])
-		sessions = append(sessions, SessionResponse{
-			Name:     m[1],
-			Windows:  windows,
-			Attached: strings.Contains(line, "(attached)"),
-		})
 	}
 	return sessions
 }
@@ -94,7 +83,7 @@ func (s *Server) handleCreateHostSession(w http.ResponseWriter, r *http.Request)
 
 	s.events.Notify()
 	if s.notifyTUI != nil {
-		s.notifyTUI(tui.WebSessionActionMsg{ContainerID: "__host__"})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: "__host__"})
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"name": req.Name})
 }
@@ -115,7 +104,7 @@ func (s *Server) handleDestroyHostSession(w http.ResponseWriter, r *http.Request
 
 	s.events.Notify()
 	if s.notifyTUI != nil {
-		s.notifyTUI(tui.WebSessionActionMsg{ContainerID: "__host__"})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: "__host__"})
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "destroyed"})
 }

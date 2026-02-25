@@ -43,7 +43,7 @@ func TestClient_ListSessions_ParsesOutput(t *testing.T) {
 	mock.outputs["container1:tmux"] = `dev: 2 windows (created Mon Jan 20 10:00:00 2025)
 main: 1 windows (created Mon Jan 20 09:00:00 2025) (attached)
 `
-	client := NewClientWithExecutor(mock.exec)
+	client := NewClient(mock.exec)
 
 	sessions, err := client.ListSessions(context.Background(), "container1")
 	if err != nil {
@@ -80,7 +80,7 @@ main: 1 windows (created Mon Jan 20 09:00:00 2025) (attached)
 func TestClient_ListSessions_EmptyOutput(t *testing.T) {
 	mock := newMockExec()
 	mock.outputs["container1:tmux"] = ""
-	client := NewClientWithExecutor(mock.exec)
+	client := NewClient(mock.exec)
 
 	sessions, err := client.ListSessions(context.Background(), "container1")
 	if err != nil {
@@ -96,7 +96,7 @@ func TestClient_ListSessions_NoServer(t *testing.T) {
 	mock := newMockExec()
 	// tmux returns error when no server is running
 	mock.errors["container1:tmux"] = errors.New("no server running on /tmp/tmux-1000/default")
-	client := NewClientWithExecutor(mock.exec)
+	client := NewClient(mock.exec)
 
 	sessions, err := client.ListSessions(context.Background(), "container1")
 	// Should return empty list, not error (no server = no sessions)
@@ -110,7 +110,7 @@ func TestClient_ListSessions_NoServer(t *testing.T) {
 
 func TestClient_CreateSession(t *testing.T) {
 	mock := newMockExec()
-	client := NewClientWithExecutor(mock.exec)
+	client := NewClient(mock.exec)
 
 	err := client.CreateSession(context.Background(), "container1", "dev")
 	if err != nil {
@@ -141,7 +141,7 @@ func TestClient_CreateSession(t *testing.T) {
 
 func TestClient_KillSession(t *testing.T) {
 	mock := newMockExec()
-	client := NewClientWithExecutor(mock.exec)
+	client := NewClient(mock.exec)
 
 	err := client.KillSession(context.Background(), "container1", "dev")
 	if err != nil {
@@ -167,7 +167,7 @@ func TestClient_KillSession(t *testing.T) {
 func TestClient_CapturePane(t *testing.T) {
 	mock := newMockExec()
 	mock.outputs["container1:tmux"] = "$ echo hello\nhello\n$ "
-	client := NewClientWithExecutor(mock.exec)
+	client := NewClient(mock.exec)
 
 	content, err := client.CapturePane(context.Background(), "container1", "dev")
 	if err != nil {
@@ -194,7 +194,7 @@ func TestClient_CapturePane(t *testing.T) {
 
 func TestClient_SendKeys(t *testing.T) {
 	mock := newMockExec()
-	client := NewClientWithExecutor(mock.exec)
+	client := NewClient(mock.exec)
 
 	err := client.SendKeys(context.Background(), "container1", "dev", "echo hello")
 	if err != nil {

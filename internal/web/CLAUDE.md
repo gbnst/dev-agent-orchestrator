@@ -1,6 +1,6 @@
 # Web Domain
 
-Last verified: 2026-02-24
+Last verified: 2026-02-25
 
 ## Purpose
 HTTP/WebSocket server providing a REST API and embedded React SPA for managing containers and terminal sessions from a browser.
@@ -33,9 +33,9 @@ HTTP/WebSocket server providing a REST API and embedded React SPA for managing c
 - `GET /` (and fallback) - Embedded SPA
 
 ## Dependencies
-- **Uses**: container.Manager, logging.LoggerProvider, tui.WebSessionActionMsg, discovery.DiscoveredProject, worktree (via worktreeOps interface), coder/websocket, creack/pty, os/exec (host tmux)
+- **Uses**: container.Manager, logging.LoggerProvider, events.WebSessionActionMsg, discovery.DiscoveredProject, worktree (via worktreeOps interface and DestroyWorktreeWithContainer function), tmux.ParseListSessions, coder/websocket, creack/pty, os/exec (host tmux)
 - **Used by**: main.go only
-- **Boundary**: HTTP layer; delegates container business logic to container/tmux packages; worktree operations abstracted behind `worktreeOps` interface for testability; host tmux operations call `tmux` CLI directly via `os/exec`
+- **Boundary**: HTTP layer; delegates container business logic to container/tmux packages; worktree operations abstracted behind `worktreeOps` interface for testability and delegated to shared worktree.DestroyWorktreeWithContainer function; host tmux operations call `tmux` CLI directly via `os/exec`
 
 ## Key Decisions
 - Listen/Serve split: Allows tests to obtain ephemeral port before blocking
@@ -44,7 +44,7 @@ HTTP/WebSocket server providing a REST API and embedded React SPA for managing c
 - Binary frames for terminal data, text frames for control messages (resize)
 - SPA fallback: All non-file paths serve index.html for client-side routing
 - Frontend embedded at build time via `//go:embed frontend/dist`
-- SSE push via Manager.OnChange: Server registers `eventBroker.Notify` as the Manager's onChange callback; eventBroker fans out to all SSE subscribers; frontend `useServerEvents` hook auto-refetches on each event
+- SSE push via Manager.SetOnChange: Server registers `eventBroker.Notify` as the Manager's onChange callback; eventBroker fans out to all SSE subscribers; frontend `useServerEvents` hook auto-refetches on each event
 - Smart actions: Pluggable detector system scans terminal buffer text for patterns and shows floating overlay with one-click actions; detectors registered in `frontend/src/lib/detectors/index.ts`; `typeAndSubmit()` helper delays Enter keystroke to avoid Claude Code autocomplete interception
 - worktreeOps interface: Abstracts worktree package functions (ValidateName, Create, Destroy, WorktreeDir) so handlers are unit-testable without git; `realWorktreeOps` delegates to worktree package; tests inject mocks via `SetWorktreeOpsForTest`
 - Project path encoding: Project paths in URLs are base64-URL-encoded to avoid path separator issues; `decodeProjectPath` helper decodes them in handlers
@@ -52,7 +52,7 @@ HTTP/WebSocket server providing a REST API and embedded React SPA for managing c
 
 ## Invariants
 - Server only starts when `config.Web.Port > 0`
-- Session mutations always send `tui.WebSessionActionMsg` to keep TUI in sync (host sessions use `ContainerID: "__host__"`)
+- Session mutations always send `events.WebSessionActionMsg` to keep TUI in sync (host sessions use `ContainerID: "__host__"`)
 - WebSocket uses `context.Background()` (not request context) after upgrade
 - PTY read limit: 1 MB per WebSocket message
 - Container lifecycle endpoints validate state before acting (start rejects running, stop rejects stopped)
@@ -64,7 +64,7 @@ HTTP/WebSocket server providing a REST API and embedded React SPA for managing c
 - `api.go` - REST handlers for containers, sessions, projects, worktrees, and container lifecycle; JSON response types; project-container matching logic
 - `events.go` - SSE event broker (subscribe/notify fan-out) and `/api/events` handler
 - `terminal.go` - WebSocket terminal bridge with PTY I/O and resize (`bridgePTYWebSocket` shared helper, `HandleTerminal` for containers, `HandleHostTerminal` for host)
-- `host.go` - Host tmux session handlers (list/create/destroy via `os/exec`); `parseHostSessions` parses `tmux list-sessions` output
+- `host.go` - Host tmux session handlers (list/create/destroy via `os/exec`); `parseHostSessions` uses consolidated `tmux.ParseListSessions` to parse output
 - `host_test.go` - Tests for `parseHostSessions`
 - `embed.go` - `//go:embed` directive for frontend/dist
 - `frontend/` - React SPA (Vite + React + TypeScript + Tailwind)

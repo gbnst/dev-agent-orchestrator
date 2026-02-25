@@ -1,14 +1,14 @@
 # Container Domain
 
-Last verified: 2026-02-21
+Last verified: 2026-02-25
 
 ## Purpose
 Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker Compose, and tmux session management within containers. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking. Integrates proxy log tailing for real-time HTTP request visibility in TUI.
 
 ## Contracts
-- **Exposes**: `Manager`, `Manager.OnChange()`, `Container`, `Session`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `HashTruncLen`, `MountInfo`
-- **Note**: `NewComposeGenerator(cfg, templates, logger)` requires a `*config.Config` and `*logging.ScopedLogger` parameter (use `&config.Config{}` and `logging.NopLogger()` in tests)
-- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via entrypoint.sh (runs before VS Code connects). Proxy service healthcheck gates app startup on cert existence. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on destroy. GitHub token injected into containers when available (non-blocking on missing token). Template files are copied via generic directory walk (`copyTemplateDir`) — adding new template files requires zero Go code changes. State-change callback (`OnChange`) fires after Refresh, Start, Stop, Destroy, CreateSession, and KillSession to enable push notifications (e.g., SSE).
+- **Exposes**: `Manager`, `ManagerOptions`, `NewManager(opts)`, `Manager.SetOnChange()`, `Container`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `HashTruncLen`, `MountInfo`
+- **Note**: `NewManager(ManagerOptions{...})` is the single constructor; requires Runtime or Config (auto-creates Runtime from Config if nil). Other fields (Templates, LogManager, etc.) have sensible defaults. `NewComposeGenerator(cfg, templates, logger)` requires a `*config.Config` and `*logging.ScopedLogger` parameter (use `&config.Config{}` and `logging.NopLogger()` in tests)
+- **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via entrypoint.sh (runs before VS Code connects). Proxy service healthcheck gates app startup on cert existence. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on destroy. GitHub token injected into containers when available (non-blocking on missing token). Template files are copied via generic directory walk (`copyTemplateDir`) — adding new template files requires zero Go code changes. State-change callback (`SetOnChange`) fires after Refresh, Start, Stop, Destroy, CreateSession, and KillSession to enable push notifications (e.g., SSE).
 - **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation. For compose mode: docker-compose or podman-compose available. LogManager must implement GetChannelSink() for proxy log integration.
 
 ## Dependencies
@@ -17,7 +17,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - **Boundary**: Container operations only; no UI concerns
 
 ## Key Decisions
-- RuntimeInterface abstraction: Enables mock testing without real containers; includes network ops (CreateNetwork, RemoveNetwork, RunContainer) and compose lifecycle ops (ComposeUp, ComposeStart, ComposeStop, ComposeDown)
+- RuntimeInterface abstraction: Enables mock testing without real containers; includes query ops (ListContainers, InspectContainer, GetIsolationInfo, Exec, ExecAs) and compose lifecycle ops (ComposeUp, ComposeStart, ComposeStop, ComposeDown). Container-level start/stop/remove operations are kept on the concrete Runtime struct but not exposed via the interface — Manager always uses Compose-based operations for lifecycle
 - Devcontainer CLI for creation: Handles complex setup (features, mounts, env); supports both image-based and dockerComposeFile modes
 - Compose orchestration: When CreateOptions.UseCompose is true, generates docker-compose.yml with app service (devcontainer) + proxy service (mitmproxy) in isolated network; uses devcontainer CLI's dockerComposeFile property
 - Compose file generation: ComposeGenerator.Generate() returns TemplateData; DevcontainerGenerator.WriteToProject() walks template's `.devcontainer/` subtree via `copyTemplateDir()`, processing `.tmpl` files and copying all others; WriteAll() delegates to WriteToProject with TemplateData from ComposeResult
@@ -27,7 +27,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Auth token auto-provisioning: `ensureClaudeToken(path)` reads existing token or runs `claude setup-token` if missing (non-blocking on error); `ensureGitHubToken(path)` reads token or returns empty (no auto-provisioning)
 - Token injection via bind mount: Token file mounted read-only to `/run/secrets/claude-token`, shell profiles export CLAUDE_CODE_OAUTH_TOKEN from mounted file (not via containerEnv)
 - GitHub CLI authentication: Token file mounted read-only to `/run/secrets/github-token`; shell profiles export GH_TOKEN (with `-s` file-size check to avoid exporting empty string); falls back to /dev/null mount if token file missing (non-blocking, warns via logger); gh CLI installed in all template Dockerfiles
-- OnChange callback: `Manager.OnChange(fn func())` registers a single callback invoked after any state mutation (Refresh, Start, Stop, Destroy, CreateSession, KillSession); must be set before concurrent access; used by web.Server to drive SSE event broker
+- SetOnChange callback: `Manager.SetOnChange(fn func())` registers a single callback invoked after any state mutation (Refresh, Start, Stop, Destroy, CreateSession, KillSession); must be set before concurrent access; used by web.Server to drive SSE event broker
 - Sidecar architecture: Proxy sidecars use compose project name as ParentRef (from com.docker.compose.project label); both app and proxy containers share this label automatically via Docker Compose
 - Network isolation via mitmproxy: Proxy uses mitmproxy/mitmproxy:latest image; filter.py (from template) controls traffic with hardcoded allowlist and passthrough domains via the filter script's `load()` hook using `ctx.options.ignore_hosts`; CA cert installed in devcontainer via entrypoint.sh (runs before VS Code connects, installs to system trust store)
 - GitHub PR merge blocking: When BLOCK_GITHUB_PR_MERGE enabled in filter.py, filter script blocks PUT to /repos/.*/pulls/\d+/merge and POST /graphql with mergePullRequest
@@ -46,15 +46,15 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 
 ## Key Files
 - `manager.go` - Manager struct, compose-based lifecycle operations (CreateWithCompose, StartWithCompose, StopWithCompose, DestroyWithCompose), session management, sidecar lifecycle, GetContainerIsolationInfo()
-- `runtime.go` - RuntimeInterface impl for Docker/Podman CLI, ExecAs for user-specific commands, CreateNetwork, RemoveNetwork, RunContainer, InspectContainer(), GetIsolationInfo(), GetMounts(), ComposeUp/Start/Stop/Down
+- `runtime.go` - RuntimeInterface impl for Docker/Podman CLI: ListContainers, Exec, ExecAs, InspectContainer, GetIsolationInfo, ComposeUp/Start/Stop/Down; also provides (not exposed via interface) StartContainer, StopContainer, RemoveContainer, GetMounts for potential future use
 - `compose.go` - ComposeGenerator with buildTemplateData(), processTemplate(); TemplateData (ProjectPath, ProjectName, WorkspaceFolder, ClaudeTokenPath, GitHubTokenPath, TemplateName, ContainerName, ProxyImage, ProxyPort, RemoteUser, ProxyLogPath); ComposeResult (TemplateData only); ComposeOptions
 - `devcontainer.go` - DevcontainerGenerator, GenerateResult (TemplatePath only), DevcontainerCLI; WriteToProject() uses copyTemplateDir() to walk template's .devcontainer/ subtree (processes .tmpl files, copies others); WriteAll() delegates to WriteToProject with ComposeResult.TemplateData
 - `proxy.go` - Mitmproxy utility functions: proxy cert directory management (GetProxyCertDir, GetProxyCACertPath, ProxyCertExists), allowlist parsing from filter script (ReadAllowlistFromFilterScript, parseAllowlistFromScript), CleanupProxyConfigs
-- `types.go` - Container, Session, Sidecar, CreateOptions (UseCompose flag), IsolationInfo, MountInfo (with JSON tags for external tool output), DevcontainerJSON (DockerComposeFile, Service, RemoteUser fields), BuildConfig, ProgressStep, ProgressCallback, HashTruncLen, state constants, label constants
+- `types.go` - Container, Session, Sidecar (ID, Name, Type, ParentRef, State), CreateOptions (UseCompose flag), IsolationInfo, MountInfo (with JSON tags for external tool output), DevcontainerJSON (DockerComposeFile, Service, RemoteUser fields), BuildConfig, ProgressStep, ProgressCallback, HashTruncLen, state constants, label constants
 
 ## Gotchas
 - Container IDs may be truncated; Create() does prefix matching on refresh
-- Session is duplicated from tmux package to avoid import cycles
+- Container.Sessions uses `tmux.Session` directly (no duplication); Manager delegates session operations to `tmux.Client`
 - RuntimePath() returns full binary path to bypass shell aliases
 - Session.AttachCommand(runtime, user) requires both runtime and user parameters
 - Token paths are configured via `config.yaml` (`claude_token_path`, `github_token_path`); omitting a path skips that token entirely

@@ -36,7 +36,11 @@ func testCreateWithCompose(t *testing.T, runtime string) {
 	logMgr := TestLogManager(t)
 
 	// Create manager
-	mgr := container.NewManagerWithConfigAndLogger(cfg, templates, logMgr)
+	mgr := container.NewManager(container.ManagerOptions{
+		Config:     cfg,
+		Templates:  templates,
+		LogManager: logMgr,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
@@ -134,7 +138,11 @@ func testCreateWithComposeTemplate(t *testing.T, runtime, templateName string) {
 	// Create logging manager for the container manager
 	logMgr := TestLogManager(t)
 
-	mgr := container.NewManagerWithConfigAndLogger(cfg, templates, logMgr)
+	mgr := container.NewManager(container.ManagerOptions{
+		Config:     cfg,
+		Templates:  templates,
+		LogManager: logMgr,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -204,7 +212,11 @@ func testComposeLifecycle(t *testing.T, runtime string) {
 	// Create logging manager for the container manager
 	logMgr := TestLogManager(t)
 
-	mgr := container.NewManagerWithConfigAndLogger(cfg, templates, logMgr)
+	mgr := container.NewManager(container.ManagerOptions{
+		Config:     cfg,
+		Templates:  templates,
+		LogManager: logMgr,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

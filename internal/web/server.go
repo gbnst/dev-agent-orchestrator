@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"devagent/internal/container"
 	"devagent/internal/discovery"
 	"devagent/internal/logging"
@@ -51,7 +49,7 @@ func (realWorktreeOps) WorktreeDir(projectPath, name string) string {
 type Server struct {
 	httpServer  *http.Server
 	manager     *container.Manager
-	notifyTUI   func(tea.Msg)
+	notifyTUI   func(any)
 	logger      *logging.ScopedLogger
 	addr        string
 	listener    net.Listener
@@ -72,7 +70,7 @@ type Config struct {
 // *logging.TestLogManager satisfy this interface).
 // scanner is an optional function for project discovery; if nil, the /api/projects endpoint
 // will return only unmatched containers.
-func New(cfg Config, manager *container.Manager, notifyTUI func(tea.Msg), logProvider logging.LoggerProvider, scanner func(context.Context) []discovery.DiscoveredProject) *Server {
+func New(cfg Config, manager *container.Manager, notifyTUI func(any), logProvider logging.LoggerProvider, scanner func(context.Context) []discovery.DiscoveredProject) *Server {
 	logger := logProvider.For("web")
 	addr := fmt.Sprintf("%s:%d", cfg.Bind, cfg.Port)
 
@@ -80,7 +78,7 @@ func New(cfg Config, manager *container.Manager, notifyTUI func(tea.Msg), logPro
 
 	events := newEventBroker()
 	if manager != nil {
-		manager.OnChange(events.Notify)
+		manager.SetOnChange(events.Notify)
 	}
 
 	s := &Server{

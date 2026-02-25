@@ -12,14 +12,12 @@ import (
 
 	"devagent/internal/config"
 	"devagent/internal/logging"
+	"devagent/internal/tmux"
 )
 
 // RuntimeInterface abstracts container runtime operations for testing.
 type RuntimeInterface interface {
 	ListContainers(ctx context.Context) ([]Container, error)
-	StartContainer(ctx context.Context, id string) error
-	StopContainer(ctx context.Context, id string) error
-	RemoveContainer(ctx context.Context, id string) error
 	Exec(ctx context.Context, id string, cmd []string) (string, error)
 	ExecAs(ctx context.Context, id string, user string, cmd []string) (string, error)
 	InspectContainer(ctx context.Context, id string) (ContainerState, error)
@@ -42,19 +40,18 @@ type Manager struct {
 	generator        *DevcontainerGenerator
 	composeGenerator *ComposeGenerator // for compose-based orchestration
 	devCLI           *DevcontainerCLI
+	tmuxClient       *tmux.Client
 	containers       map[string]*Container
 	sidecars         map[string]*Sidecar // Maps sidecar container ID to Sidecar
 	logger           *logging.ScopedLogger
-	logManager       interface {
-		For(string) *logging.ScopedLogger
-	} // for per-container loggers
-	proxyLogCancels map[string]context.CancelFunc // proxyLogPath -> cancel func
-	onChange        func()                        // called after state changes (e.g. to notify SSE clients)
+	logManager       logging.LoggerProvider        // for per-container loggers
+	proxyLogCancels  map[string]context.CancelFunc // proxyLogPath -> cancel func
+	onChange         func()                        // called after state changes (e.g. to notify SSE clients)
 }
 
-// OnChange registers a callback invoked after container/session state changes.
+// SetOnChange registers a callback invoked after container/session state changes.
 // Must be set before any concurrent access to Manager (e.g. before goroutines call Refresh).
-func (m *Manager) OnChange(fn func()) {
+func (m *Manager) SetOnChange(fn func()) {
 	m.onChange = fn
 }
 
@@ -65,101 +62,94 @@ func (m *Manager) notifyChange() {
 	}
 }
 
-// NewManagerWithRuntime creates a Manager with a mock runtime for testing.
-func NewManagerWithRuntime(runtime RuntimeInterface) *Manager {
-	return &Manager{
-		runtime:    runtime,
-		containers: make(map[string]*Container),
-		sidecars:   make(map[string]*Sidecar),
-		logger:     logging.NopLogger(),
-	}
+// ManagerOptions holds all configuration options for creating a Manager.
+type ManagerOptions struct {
+	Config      *config.Config
+	Templates   []config.Template
+	Runtime     RuntimeInterface
+	Generator   *DevcontainerGenerator
+	ComposeGen  *ComposeGenerator
+	DevCLI      *DevcontainerCLI
+	LogManager  logging.LoggerProvider
+	RuntimeName string // "docker" or "podman" - used for attach commands
+	RuntimePath string // full path to binary - bypasses shell aliases
 }
 
-// NewManagerWithDeps creates a Manager with all dependencies injected for testing.
-func NewManagerWithDeps(runtime RuntimeInterface, generator *DevcontainerGenerator, devCLI *DevcontainerCLI) *Manager {
-	return &Manager{
-		runtime:    runtime,
-		generator:  generator,
-		devCLI:     devCLI,
-		containers: make(map[string]*Container),
-		sidecars:   make(map[string]*Sidecar),
-		logger:     logging.NopLogger(),
-	}
+// nopLoggerProvider is a no-op LoggerProvider that returns NopLogger for all scopes.
+type nopLoggerProvider struct{}
+
+func (n *nopLoggerProvider) For(scope string) *logging.ScopedLogger {
+	return logging.NopLogger()
 }
 
-// NewManagerWithAllDeps creates a Manager with all dependencies including composeGenerator for testing.
-// This is used by tests that need to verify compose-based operations.
-func NewManagerWithAllDeps(cfg *config.Config, templates []config.Template, runtime RuntimeInterface, devCLI *DevcontainerCLI) *Manager {
-	generator := NewDevcontainerGenerator(cfg, templates)
-	composeGenerator := NewComposeGenerator(cfg, templates, logging.NopLogger())
-
-	return &Manager{
-		cfg:              cfg,
-		runtime:          runtime,
-		runtimeName:      cfg.DetectedRuntime(),
-		runtimePath:      cfg.DetectedRuntimePath(),
-		generator:        generator,
-		composeGenerator: composeGenerator,
-		devCLI:           devCLI,
-		containers:       make(map[string]*Container),
-		sidecars:         make(map[string]*Sidecar),
-		logger:           logging.NopLogger(),
+// NewManager creates a Manager with the provided options.
+// Required fields: Runtime or Config (if Runtime is nil, it is auto-created from Config).
+// Other fields are optional and created with sensible defaults if not provided.
+func NewManager(opts ManagerOptions) *Manager {
+	// Default runtime name/path from config if available
+	if opts.RuntimeName == "" && opts.Config != nil {
+		opts.RuntimeName = opts.Config.DetectedRuntime()
 	}
-}
+	if opts.RuntimePath == "" && opts.Config != nil {
+		opts.RuntimePath = opts.Config.DetectedRuntimePath()
+	}
 
-// NewManagerWithRuntimeAndLogger creates a Manager with a mock runtime and logger for testing.
-// Accepts any type with a For(scope string) -> *ScopedLogger method.
-func NewManagerWithRuntimeAndLogger(runtime RuntimeInterface, logManager interface {
-	For(string) *logging.ScopedLogger
-}) *Manager {
+	// Auto-create runtime from config if not provided
+	if opts.Runtime == nil && opts.Config != nil {
+		opts.Runtime = NewRuntime(opts.RuntimeName)
+	}
+
+	// Default logger to NopLogger
+	var logManager logging.LoggerProvider = opts.LogManager
+	if logManager == nil {
+		logManager = &nopLoggerProvider{}
+	}
 	logger := logManager.For("container")
-	logger.Debug("container manager initialized")
 
-	return &Manager{
-		runtime:    runtime,
-		containers: make(map[string]*Container),
-		sidecars:   make(map[string]*Sidecar),
-		logger:     logger,
-		logManager: logManager,
-	}
-}
-
-// NewManagerWithConfigAndLogger creates a Manager with config, templates, and logger.
-// Used by TUI to create a fully-initialized manager with logging.
-func NewManagerWithConfigAndLogger(cfg *config.Config, templates []config.Template, logManager interface {
-	For(string) *logging.ScopedLogger
-}) *Manager {
-	runtimeName := cfg.DetectedRuntime()
-	runtimePath := cfg.DetectedRuntimePath()
-	runtime := NewRuntime(runtimeName)
-	generator := NewDevcontainerGenerator(cfg, templates)
-	composeGenerator := NewComposeGenerator(cfg, templates, logManager.For("compose"))
-
-	// Use explicit runtime for devcontainer CLI if configured
-	var devCLI *DevcontainerCLI
-	if cfg.Runtime != "" {
-		devCLI = NewDevcontainerCLIWithRuntime(cfg.Runtime)
-	} else {
-		devCLI = NewDevcontainerCLI()
+	// Log initialization (skip for nop logger)
+	if _, isNop := logManager.(*nopLoggerProvider); !isNop {
+		logger.Debug("container manager initialized")
 	}
 
-	logger := logManager.For("container")
-	logger.Debug("container manager initialized")
+	// Create generators if config and templates are provided but generators aren't
+	if opts.Generator == nil && opts.Config != nil && opts.Templates != nil {
+		opts.Generator = NewDevcontainerGenerator(opts.Config, opts.Templates)
+	}
+	if opts.ComposeGen == nil && opts.Config != nil && opts.Templates != nil {
+		opts.ComposeGen = NewComposeGenerator(opts.Config, opts.Templates, logManager.For("compose"))
+	}
 
-	return &Manager{
-		cfg:              cfg,
-		runtimeName:      runtimeName,
-		runtimePath:      runtimePath,
-		runtime:          runtime,
-		generator:        generator,
-		composeGenerator: composeGenerator,
-		devCLI:           devCLI,
+	// Create DevcontainerCLI if config is provided but CLI isn't
+	if opts.DevCLI == nil && opts.Config != nil {
+		if opts.Config.Runtime != "" {
+			opts.DevCLI = NewDevcontainerCLIWithRuntime(opts.Config.Runtime)
+		} else {
+			opts.DevCLI = NewDevcontainerCLI()
+		}
+	}
+
+	m := &Manager{
+		cfg:              opts.Config,
+		runtime:          opts.Runtime,
+		runtimeName:      opts.RuntimeName,
+		runtimePath:      opts.RuntimePath,
+		generator:        opts.Generator,
+		composeGenerator: opts.ComposeGen,
+		devCLI:           opts.DevCLI,
 		containers:       make(map[string]*Container),
 		sidecars:         make(map[string]*Sidecar),
 		logger:           logger,
 		logManager:       logManager,
 		proxyLogCancels:  make(map[string]context.CancelFunc),
 	}
+
+	// Create tmux.Client with executor that wraps runtime.ExecAs with user lookup
+	m.tmuxClient = tmux.NewClient(func(ctx context.Context, containerID string, cmd []string) (string, error) {
+		user := m.getContainerUser(containerID)
+		return m.runtime.ExecAs(ctx, containerID, user, cmd)
+	})
+
+	return m
 }
 
 // Refresh updates the container list from the runtime.
@@ -248,6 +238,7 @@ func (m *Manager) refreshSidecars(allContainers []Container) {
 
 		sidecar := &Sidecar{
 			ID:        c.ID,
+			Name:      c.Name,
 			Type:      sidecarType,
 			ParentRef: composeProject, // Compose project name for grouping
 			State:     c.State,
@@ -675,14 +666,13 @@ func (m *Manager) CreateSession(ctx context.Context, containerID, sessionName st
 	scopedLogger := m.containerLogger(containerName).With("containerID", containerID, "session", sessionName)
 	scopedLogger.Info("creating tmux session")
 
-	user := m.getContainerUser(containerID)
-	_, err := m.runtime.ExecAs(ctx, containerID, user, []string{"tmux", "-u", "new-session", "-d", "-s", sessionName})
-	if err != nil {
+	// Delegate to tmux.Client
+	if err := m.tmuxClient.CreateSession(ctx, containerID, sessionName); err != nil {
 		scopedLogger.Error("failed to create session", "error", err)
 		return err
 	}
 
-	scopedLogger.Info("session created", "user", user)
+	scopedLogger.Info("session created")
 	m.notifyChange()
 	return nil
 }
@@ -693,9 +683,8 @@ func (m *Manager) KillSession(ctx context.Context, containerID, sessionName stri
 	scopedLogger := m.containerLogger(containerName).With("containerID", containerID, "session", sessionName)
 	scopedLogger.Info("killing tmux session")
 
-	user := m.getContainerUser(containerID)
-	_, err := m.runtime.ExecAs(ctx, containerID, user, []string{"tmux", "kill-session", "-t", sessionName})
-	if err != nil {
+	// Delegate to tmux.Client
+	if err := m.tmuxClient.KillSession(ctx, containerID, sessionName); err != nil {
 		scopedLogger.Error("failed to kill session", "error", err)
 		return err
 	}
@@ -706,56 +695,18 @@ func (m *Manager) KillSession(ctx context.Context, containerID, sessionName stri
 }
 
 // ListSessions lists tmux sessions inside a container.
-func (m *Manager) ListSessions(ctx context.Context, containerID string) ([]Session, error) {
+func (m *Manager) ListSessions(ctx context.Context, containerID string) ([]tmux.Session, error) {
 	containerName := m.getContainerName(containerID)
 	scopedLogger := m.containerLogger(containerName).With("containerID", containerID)
 	scopedLogger.Debug("listing tmux sessions")
 
-	user := m.getContainerUser(containerID)
-	output, err := m.runtime.ExecAs(ctx, containerID, user, []string{"tmux", "list-sessions"})
+	// Delegate to tmux.Client
+	sessions, err := m.tmuxClient.ListSessions(ctx, containerID)
 	if err != nil {
-		// No tmux server running = no sessions
-		scopedLogger.Debug("no tmux server running or no sessions", "error", err)
-		return []Session{}, nil
+		scopedLogger.Error("failed to list sessions", "error", err)
+		return nil, err
 	}
 
-	sessions := parseTmuxSessions(containerID, output)
 	scopedLogger.Debug("sessions listed", "count", len(sessions))
 	return sessions, nil
-}
-
-// parseTmuxSessions parses tmux list-sessions output.
-func parseTmuxSessions(containerID, output string) []Session {
-	var sessions []Session
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		// Format: "name: N windows (created DATE) [(attached)]"
-		parts := strings.SplitN(line, ": ", 2)
-		if len(parts) < 2 {
-			continue
-		}
-
-		session := Session{
-			Name:        parts[0],
-			ContainerID: containerID,
-			Attached:    strings.Contains(line, "(attached)"),
-		}
-
-		// Parse window count from "N windows" part
-		// parts[1] looks like "1 windows (created Mon Jan 27 10:00:00 2025)"
-		if len(parts) > 1 {
-			var windows int
-			// Try to parse "N windows" at the start (ignore parse errors - windows defaults to 0)
-			_, _ = fmt.Sscanf(parts[1], "%d windows", &windows)
-			session.Windows = windows
-		}
-
-		sessions = append(sessions, session)
-	}
-
-	return sessions
 }

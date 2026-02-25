@@ -8,6 +8,7 @@ import (
 
 	"devagent/internal/container"
 	"devagent/internal/logging"
+	"devagent/internal/tmux"
 )
 
 // Tab tests removed - tabs replaced by tree view
@@ -199,7 +200,7 @@ func TestSetLogFilterFromContext_SessionSelected(t *testing.T) {
 	m.selectedContainer = &container.Container{
 		ID:   "abc123456789abcdef",
 		Name: "test-container",
-		Sessions: []container.Session{
+		Sessions: []tmux.Session{
 			{Name: "dev", Windows: 1},
 			{Name: "build", Windows: 2},
 		},
@@ -228,7 +229,7 @@ func TestSetLogFilterFromContext_ContainerWithoutSessions(t *testing.T) {
 	m.selectedContainer = &container.Container{
 		ID:       "abc123456789abcdef",
 		Name:     "test-container",
-		Sessions: []container.Session{},
+		Sessions: []tmux.Session{},
 	}
 	m.selectedSessionIdx = 0
 
@@ -429,7 +430,7 @@ func TestSyncSelectionFromTree_PreservesCacheForSameContainer(t *testing.T) {
 	cont := &container.Container{
 		ID:   "container1",
 		Name: "test",
-		Sessions: []container.Session{
+		Sessions: []tmux.Session{
 			{Name: "dev"},
 		},
 	}

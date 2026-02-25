@@ -2,7 +2,6 @@ package tmux
 
 import (
 	"testing"
-	"time"
 )
 
 func TestSession_AttachCommand(t *testing.T) {
@@ -30,36 +29,5 @@ func TestSession_AttachCommand_Podman(t *testing.T) {
 
 	if got != want {
 		t.Errorf("AttachCommand() = %q, want %q", got, want)
-	}
-}
-
-func TestSession_IsActive(t *testing.T) {
-	tests := []struct {
-		name     string
-		attached bool
-		want     bool
-	}{
-		{"attached session is active", true, true},
-		{"detached session is not active", false, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			session := Session{Attached: tt.attached}
-			if got := session.IsActive(); got != tt.want {
-				t.Errorf("IsActive() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestSession_Age(t *testing.T) {
-	session := Session{
-		CreatedAt: time.Now().Add(-5 * time.Minute),
-	}
-
-	age := session.Age()
-	if age < 4*time.Minute || age > 6*time.Minute {
-		t.Errorf("Age() = %v, expected around 5 minutes", age)
 	}
 }

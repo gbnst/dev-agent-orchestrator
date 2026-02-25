@@ -18,6 +18,7 @@ import (
 	"devagent/internal/container"
 	"devagent/internal/discovery"
 	"devagent/internal/logging"
+	"devagent/internal/tmux"
 )
 
 // FormStatusStep represents a completed step during form submission.
@@ -233,7 +234,11 @@ func (m *Model) SetDiscoveredProjects(projects []discovery.DiscoveredProject) {
 // NewModelWithTemplates creates a new TUI model with explicit templates (for testing).
 func NewModelWithTemplates(cfg *config.Config, templates []config.Template, logManager *logging.Manager) Model {
 	// Create container manager with logger
-	mgr := container.NewManagerWithConfigAndLogger(cfg, templates, logManager)
+	mgr := container.NewManager(container.ManagerOptions{
+		Config:     cfg,
+		Templates:  templates,
+		LogManager: logManager,
+	})
 
 	// Create container list
 	delegate := newContainerDelegate(NewStyles(cfg.Theme))
@@ -312,7 +317,7 @@ func (m Model) tick() tea.Cmd {
 // sessionsRefreshedMsg is sent when session list is updated.
 type sessionsRefreshedMsg struct {
 	containerID string
-	sessions    []container.Session
+	sessions    []tmux.Session
 }
 
 // refreshSessions returns a command to refresh sessions for the selected container.
@@ -341,7 +346,7 @@ func (m Model) refreshSessions() tea.Cmd {
 
 // allSessionsRefreshedMsg is sent when sessions for all containers are updated.
 type allSessionsRefreshedMsg struct {
-	sessionsByContainer map[string][]container.Session
+	sessionsByContainer map[string][]tmux.Session
 }
 
 // refreshAllSessions returns a command to refresh sessions for all running containers.
@@ -360,7 +365,7 @@ func (m Model) refreshAllSessions() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		result := make(map[string][]container.Session)
+		result := make(map[string][]tmux.Session)
 		for _, id := range runningIDs {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			sessions, err := m.manager.ListSessions(ctx, id)
@@ -420,7 +425,7 @@ func (m Model) VisibleSessionCount() int {
 }
 
 // SelectedSession returns the currently selected session, or nil if none.
-func (m Model) SelectedSession() *container.Session {
+func (m Model) SelectedSession() *tmux.Session {
 	if m.selectedContainer == nil || len(m.selectedContainer.Sessions) == 0 {
 		return nil
 	}
@@ -457,12 +462,6 @@ func (m *Model) closeSessionView() {
 	m.sessionCreatedOpen = false
 	m.sessionCreatedName = ""
 }
-
-// WebListenURLMsg is sent when the web server starts listening.
-type WebListenURLMsg struct{ URL string }
-
-// TailscaleURLMsg is sent when the tailscale FQDN becomes available.
-type TailscaleURLMsg struct{ URL string }
 
 // IsActionMenuOpen returns whether the action menu is open.
 func (m Model) IsActionMenuOpen() bool {
