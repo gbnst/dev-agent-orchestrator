@@ -28,14 +28,15 @@ Last verified: 2026-02-25
 - `make frontend-dev` - Run frontend dev server (hot reload)
 - `make frontend-test` - Run frontend tests (vitest)
 - `make lint` - Run linter (golangci-lint, configured via `.golangci.yml`)
-- `devagent list` - Output JSON data about all managed containers (for external tool integration)
+- `devagent list` - Output JSON data about all managed containers (delegates to running instance via HTTP)
+- `devagent cleanup` - Remove stale lock/port files from a crashed instance
 
 ## Project Structure
 - `internal/logging/` - Structured logging with dual sinks (file + TUI channel)
 - `internal/tui/` - Bubbletea TUI with tree navigation, detail panel, log panel
 - `internal/container/` - Container lifecycle management (see internal/container/CLAUDE.md for contracts)
 - `internal/events/` - Shared message types between web and tui packages (WebSessionActionMsg, WebListenURLMsg, TailscaleURLMsg)
-- `internal/instance/` - Single-instance enforcement, instance discovery, and HTTP client (file locking, port discovery, health checks)
+- `internal/instance/` - Single-instance enforcement, instance discovery, and HTTP client (see internal/instance/CLAUDE.md)
 - `internal/tmux/` - Tmux session management within containers (see internal/tmux/CLAUDE.md)
 - `internal/config/` - Configuration loading and validation (see internal/config/CLAUDE.md for contracts)
 - `internal/discovery/` - Project scanner for scan_paths directories (see internal/discovery/CLAUDE.md)
