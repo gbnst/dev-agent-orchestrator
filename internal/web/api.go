@@ -176,6 +176,10 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if !validSessionName.MatchString(req.Name) {
+		writeError(w, http.StatusBadRequest, "name must contain only alphanumeric characters, hyphens, and underscores")
+		return
+	}
 
 	c, ok := s.manager.Get(id)
 	if !ok {
@@ -483,11 +487,16 @@ func (s *Server) handleGetProjects(w http.ResponseWriter, r *http.Request) {
 // buildProjectResponses assembles ProjectsListResponse by matching containers to worktrees by path.
 // Containers not matched to any project worktree appear in the Unmatched list.
 func (s *Server) buildProjectResponses(ctx context.Context, projects []discovery.DiscoveredProject, containers []*container.Container) ProjectsListResponse {
-	// Index containers by ProjectPath for O(1) lookup
+	// Index containers by ProjectPath for O(1) lookup.
+	// When multiple containers share the same path, prefer running ones.
 	containersByPath := make(map[string]*container.Container, len(containers))
 	matched := make(map[string]bool, len(containers))
 	for _, c := range containers {
-		if c.ProjectPath != "" {
+		if c.ProjectPath == "" {
+			continue
+		}
+		existing, exists := containersByPath[c.ProjectPath]
+		if !exists || (c.IsRunning() && !existing.IsRunning()) {
 			containersByPath[c.ProjectPath] = c
 		}
 	}

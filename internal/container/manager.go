@@ -454,14 +454,19 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 // If devcontainer up fails but the container was created (e.g. postCreateCommand error),
 // the container ID is returned along with the error.
 func (m *Manager) StartWorktreeContainer(ctx context.Context, wtPath string) (string, error) {
-	containerID, err := m.devCLI.Up(ctx, wtPath)
-	if err != nil && containerID == "" {
-		return "", fmt.Errorf("failed to start worktree container: %w", err)
+	containerID, upErr := m.devCLI.Up(ctx, wtPath)
+	if upErr != nil && containerID == "" {
+		return "", fmt.Errorf("failed to start worktree container: %w", upErr)
+	}
+	if upErr != nil {
+		// Container was created but postCreateCommand or similar failed.
+		// Log but continue — the container is usable.
+		m.logger.Warn("worktree container started with error (postCreateCommand may have failed)", "error", upErr)
 	}
 	if err := m.Refresh(ctx); err != nil {
 		m.logger.Warn("failed to refresh after worktree container start", "error", err)
 	}
-	return containerID, nil
+	return containerID, upErr
 }
 
 // composeProjectName returns the compose project name for a container.
@@ -581,6 +586,12 @@ func (m *Manager) StopWithCompose(ctx context.Context, containerID string) error
 
 	m.mu.Lock()
 	c.State = StateStopped
+	// Stop proxy log reader — container is no longer running
+	proxyLogPath := filepath.Join(c.ProjectPath, ".devcontainer", "containers", "proxy", "opt", "devagent-proxy", "logs", "requests.jsonl")
+	if cancel, ok := m.proxyLogCancels[proxyLogPath]; ok {
+		cancel()
+		delete(m.proxyLogCancels, proxyLogPath)
+	}
 	m.mu.Unlock()
 
 	logger.Info("compose container stopped")

@@ -7,11 +7,15 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"devagent/internal/events"
 	"devagent/internal/tmux"
 )
+
+// validSessionName matches alphanumeric names with hyphens and underscores.
+var validSessionName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // parseHostSessions parses tmux list-sessions output into SessionResponse slices.
 // Uses the consolidated tmux.ParseListSessions parser with an empty containerID
@@ -61,6 +65,10 @@ func (s *Server) handleCreateHostSession(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if !validSessionName.MatchString(req.Name) {
+		writeError(w, http.StatusBadRequest, "name must contain only alphanumeric characters, hyphens, and underscores")
+		return
+	}
 
 	// Check for duplicate
 	sessions, err := listHostSessions()
@@ -91,6 +99,10 @@ func (s *Server) handleCreateHostSession(w http.ResponseWriter, r *http.Request)
 // handleDestroyHostSession handles DELETE /api/host/sessions/{name}.
 func (s *Server) handleDestroyHostSession(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if !validSessionName.MatchString(name) {
+		writeError(w, http.StatusBadRequest, "invalid session name")
+		return
+	}
 
 	out, err := exec.Command("tmux", "kill-session", "-t", name).CombinedOutput()
 	if err != nil {
