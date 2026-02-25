@@ -7,10 +7,10 @@ import (
 )
 
 func TestClient_List(t *testing.T) {
-	// Mock server that returns container JSON
-	want := `[{"id":"abc123","name":"test"}]`
+	// Mock server that returns project JSON
+	want := `{"projects":[],"unmatched":[]}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/containers" && r.Method == "GET" {
+		if r.URL.Path == "/api/projects" && r.Method == "GET" {
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(want))
 			return

@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -14,7 +13,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"devagent/internal/config"
-	"devagent/internal/container"
 	"devagent/internal/discovery"
 	"devagent/internal/events"
 	"devagent/internal/instance"
@@ -74,117 +72,25 @@ func resolveDataDir(configDir string) string {
 	return filepath.Join(home, ".config", "devagent")
 }
 
-// runListCommand outputs JSON data about all managed containers.
-// If a TUI instance is running, delegates via HTTP for a consistent view.
-// Otherwise, falls back to querying the container runtime directly.
+// runListCommand delegates to the running devagent instance via HTTP.
+// Requires a running TUI instance — outputs the same project hierarchy
+// available at GET /api/projects.
 func runListCommand(configDir string) {
 	dataDir := resolveDataDir(configDir)
 	baseURL, err := instance.Discover(dataDir)
-	if err == nil {
-		// Running instance found — delegate via HTTP
-		client := instance.NewClient(baseURL)
-		data, err := client.List()
-		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-		os.Stdout.Write(data)
-		return
-	}
-
-	// No running instance — query container runtime directly
-	runListStandalone(configDir)
-}
-
-// ProjectInfo represents a project with its devcontainer and optional sidecar.
-type ProjectInfo struct {
-	ProjectPath  string               `json:"project_path"`
-	Template     string               `json:"template"`
-	Devcontainer ProjectContainerInfo `json:"devcontainer"`
-	ProxySidecar *ProjectSidecarInfo  `json:"proxy_sidecar,omitempty"`
-}
-
-// ProjectContainerInfo represents container data in JSON output.
-type ProjectContainerInfo struct {
-	ID        string                `json:"id"`
-	Name      string                `json:"name"`
-	State     string                `json:"state"`
-	CreatedAt time.Time             `json:"created_at"`
-	Mounts    []container.MountInfo `json:"mounts,omitempty"`
-}
-
-// ProjectSidecarInfo represents a sidecar container in JSON output.
-type ProjectSidecarInfo struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	State string `json:"state"`
-}
-
-// runListStandalone queries the container runtime directly without a running TUI instance.
-func runListStandalone(configDir string) {
-	ctx := context.Background()
-
-	cfg, err := loadConfig(configDir)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	if err := cfg.ValidateRuntime(); err != nil {
+	client := instance.NewClient(baseURL)
+	data, err := client.List()
+	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 
-	rt := container.NewRuntime(cfg.DetectedRuntime())
-	manager := container.NewManager(container.ManagerOptions{
-		Config:  &cfg,
-		Runtime: rt,
-	})
-
-	if err := manager.Refresh(ctx); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	containers := manager.List()
-
-	output := make([]ProjectInfo, 0, len(containers))
-	for _, c := range containers {
-		mounts, _ := rt.GetMounts(ctx, c.ID)
-
-		project := ProjectInfo{
-			ProjectPath: c.ProjectPath,
-			Template:    c.Template,
-			Devcontainer: ProjectContainerInfo{
-				ID:        c.ID,
-				Name:      c.Name,
-				State:     string(c.State),
-				CreatedAt: c.CreatedAt,
-				Mounts:    mounts,
-			},
-		}
-
-		sidecars := manager.GetSidecarsForProject(c.ProjectPath)
-		for _, sidecar := range sidecars {
-			if sidecar.Type == "proxy" {
-				project.ProxySidecar = &ProjectSidecarInfo{
-					ID:    sidecar.ID,
-					Name:  sidecar.Name,
-					State: string(sidecar.State),
-				}
-				break
-			}
-		}
-
-		output = append(output, project)
-	}
-
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(output); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "error encoding JSON: %v\n", err)
-		os.Exit(1)
-	}
+	os.Stdout.Write(data)
 }
 
 // runCleanupCommand removes stale lock and port files from a crashed instance.

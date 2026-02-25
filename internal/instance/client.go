@@ -22,10 +22,16 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
-// List fetches the container list from the running instance.
-// Returns raw JSON bytes (preserving the existing output format).
+// List fetches the project list from the running instance.
+// Returns raw JSON bytes from GET /api/projects (projects with worktrees
+// and matched containers, plus unmatched containers).
 func (c *Client) List() ([]byte, error) {
-	resp, err := c.httpClient.Get(c.baseURL + "/api/containers")
+	return c.get("/api/projects")
+}
+
+// get performs a GET request and returns the response body.
+func (c *Client) get(path string) ([]byte, error) {
+	resp, err := c.httpClient.Get(c.baseURL + path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to devagent: %w", err)
 	}

@@ -8,7 +8,7 @@ Single-instance enforcement and CLI-to-TUI IPC. Ensures only one devagent TUI ru
 ## Contracts
 - **Exposes**: `Lock()`, `WritePort()`, `Cleanup()`, `Discover()`, `NewClient()`, `Client.List()`
 - **Guarantees**: Lock() uses exclusive file lock (gofrs/flock TryLock) -- non-blocking, returns immediately. Discover() verifies instance is running via lock check + port file read + /api/health probe. Cleanup() removes port file and releases lock (safe to call even if files are missing).
-- **Expects**: dataDir exists and is writable. Running instance has a web server with /api/health and /api/containers endpoints.
+- **Expects**: dataDir exists and is writable. Running instance has a web server with /api/health and /api/projects endpoints.
 
 ## Dependencies
 - **Uses**: gofrs/flock, net/http
