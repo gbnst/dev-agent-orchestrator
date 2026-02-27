@@ -75,7 +75,7 @@ func (s *Server) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	sessionName := r.PathValue("name")
 
 	// Validate container exists and is running
-	c, ok := s.manager.Get(containerID)
+	c, ok := s.manager.GetByNameOrID(containerID)
 	if !ok {
 		http.Error(w, "container not found", http.StatusNotFound)
 		return
@@ -86,7 +86,7 @@ func (s *Server) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Verify session exists by listing sessions
-	sessions, err := s.manager.ListSessions(r.Context(), containerID)
+	sessions, err := s.manager.ListSessions(r.Context(), c.ID)
 	if err != nil {
 		http.Error(w, "failed to list sessions", http.StatusInternalServerError)
 		return
@@ -126,7 +126,7 @@ func (s *Server) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 		"-u", remoteUser,
 		"-e", "TERM=xterm-256color",
 		"-e", "COLORTERM=truecolor",
-		containerID,
+		c.ID,
 		"tmux", "-u", "attach-session", "-t", sessionName,
 	)
 

@@ -335,6 +335,28 @@ func (m *Manager) Get(id string) (*Container, bool) {
 	return c, ok
 }
 
+// GetByNameOrID looks up a container by ID first, then falls back to matching
+// by Docker container name. Returns (nil, false) if no match is found.
+// pattern: Functional Core
+func (m *Manager) GetByNameOrID(ref string) (*Container, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Fast path: exact ID match
+	if c, ok := m.containers[ref]; ok {
+		return c, true
+	}
+
+	// Slow path: match by container name
+	for _, c := range m.containers {
+		if c.Name == ref {
+			return c, true
+		}
+	}
+
+	return nil, false
+}
+
 // CreateWithCompose creates a new devcontainer using docker-compose orchestration.
 func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*Container, error) {
 	// Ensure ProjectPath is absolute (relative paths break Docker Compose volume mounts —
@@ -709,4 +731,63 @@ func (m *Manager) ListSessions(ctx context.Context, containerID string) ([]tmux.
 
 	scopedLogger.Debug("sessions listed", "count", len(sessions))
 	return sessions, nil
+}
+
+// CaptureSession captures pane content from a tmux session in a container.
+func (m *Manager) CaptureSession(ctx context.Context, containerID, sessionName string, opts tmux.CaptureOpts) (string, error) {
+	containerName := m.getContainerName(containerID)
+	scopedLogger := m.containerLogger(containerName).With("containerID", containerID, "session", sessionName)
+	scopedLogger.Debug("capturing tmux session")
+
+	content, err := m.tmuxClient.CapturePane(ctx, containerID, sessionName, opts)
+	if err != nil {
+		scopedLogger.Error("failed to capture session", "error", err)
+		return "", err
+	}
+
+	return content, nil
+}
+
+// CaptureSessionLines captures the last N lines from a tmux session's scrollback history.
+func (m *Manager) CaptureSessionLines(ctx context.Context, containerID, sessionName string, lines int) (string, error) {
+	containerName := m.getContainerName(containerID)
+	scopedLogger := m.containerLogger(containerName).With("containerID", containerID, "session", sessionName)
+	scopedLogger.Debug("capturing tmux session lines", "lines", lines)
+
+	content, err := m.tmuxClient.CaptureLines(ctx, containerID, sessionName, lines)
+	if err != nil {
+		scopedLogger.Error("failed to capture session lines", "error", err)
+		return "", err
+	}
+
+	return content, nil
+}
+
+// CursorPosition returns the cursor row position for a tmux session.
+func (m *Manager) CursorPosition(ctx context.Context, containerID, sessionName string) (int, error) {
+	containerName := m.getContainerName(containerID)
+	scopedLogger := m.containerLogger(containerName).With("containerID", containerID, "session", sessionName)
+	scopedLogger.Debug("getting cursor position")
+
+	pos, err := m.tmuxClient.CursorPosition(ctx, containerID, sessionName)
+	if err != nil {
+		scopedLogger.Error("failed to get cursor position", "error", err)
+		return 0, err
+	}
+
+	return pos, nil
+}
+
+// SendToSession sends keystrokes to a tmux session in a container.
+func (m *Manager) SendToSession(ctx context.Context, containerID, sessionName, text string) error {
+	containerName := m.getContainerName(containerID)
+	scopedLogger := m.containerLogger(containerName).With("containerID", containerID, "session", sessionName)
+	scopedLogger.Info("sending keys to tmux session")
+
+	if err := m.tmuxClient.SendKeys(ctx, containerID, sessionName, text); err != nil {
+		scopedLogger.Error("failed to send keys", "error", err)
+		return err
+	}
+
+	return nil
 }

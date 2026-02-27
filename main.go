@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,7 +10,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	flag "github.com/spf13/pflag"
 
+	"devagent/internal/cli"
 	"devagent/internal/config"
 	"devagent/internal/discovery"
 	"devagent/internal/events"
@@ -26,86 +27,32 @@ import (
 var version = "dev"
 
 func main() {
-	configDir := flag.String("config-dir", "", "config directory (default: ~/.config/devagent)")
+	// Stop parsing flags after the first non-flag arg (the subcommand),
+	// so that --help after a subcommand is handled by the subcommand.
+	flag.CommandLine.SetInterspersed(false)
 
+	configDir := flag.StringP("config-dir", "c", "", "config directory (default: ~/.config/devagent)")
+	agentHelp := flag.Bool("agent-help", false, "print agent orchestration guide")
+
+	// Override flag.Usage before Parse so --help uses the CLI app's help
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: devagent [options] [command]\n\n")
-		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  list      Output JSON data about all managed containers\n")
-		fmt.Fprintf(os.Stderr, "  cleanup   Remove stale lock/port files from a crashed instance\n")
-		fmt.Fprintf(os.Stderr, "  version   Print version and exit\n")
-		fmt.Fprintf(os.Stderr, "  (none)    Launch interactive TUI\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
+		app := cli.BuildApp(version, *configDir)
+		app.PrintHelp(os.Stderr)
 		flag.PrintDefaults()
 	}
 
 	flag.Parse()
 
-	args := flag.Args()
-	if len(args) > 0 {
-		switch args[0] {
-		case "list":
-			runListCommand(*configDir)
-			return
-		case "cleanup":
-			runCleanupCommand(*configDir)
-			return
-		case "version":
-			fmt.Println(version)
-			return
-		}
+	app := cli.BuildApp(version, *configDir)
+
+	if *agentHelp {
+		app.PrintAgentHelp(os.Stdout)
+		return
 	}
 
-	runTUI(*configDir)
-}
-
-// resolveDataDir returns the data directory for lock/port files.
-// If configDir is specified, uses that; otherwise uses ~/.config/devagent.
-func resolveDataDir(configDir string) string {
-	if configDir != "" {
-		return configDir
+	if app.Execute(flag.Args()) {
+		runTUI(*configDir)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".config", "devagent")
-	}
-	return filepath.Join(home, ".config", "devagent")
-}
-
-// runListCommand delegates to the running devagent instance via HTTP.
-// Requires a running TUI instance — outputs the same project hierarchy
-// available at GET /api/projects.
-func runListCommand(configDir string) {
-	dataDir := resolveDataDir(configDir)
-	baseURL, err := instance.Discover(dataDir)
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	client := instance.NewClient(baseURL)
-	data, err := client.List()
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
-
-	os.Stdout.Write(data)
-}
-
-// runCleanupCommand removes stale lock and port files from a crashed instance.
-func runCleanupCommand(configDir string) {
-	dataDir := resolveDataDir(configDir)
-
-	// Try to acquire the lock to verify no instance is actually running
-	fl, err := instance.Lock(dataDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: a devagent instance appears to be running. Stop it first.\n")
-		os.Exit(1)
-	}
-	// We got the lock — no instance is running. Clean up and release.
-	instance.Cleanup(dataDir, fl)
-	fmt.Println("Cleaned up stale lock and port files.")
 }
 
 // loadConfig loads the configuration from the specified directory or default location.
@@ -128,7 +75,7 @@ func runTUI(configDir string) {
 		os.Exit(1)
 	}
 
-	dataDir := resolveDataDir(configDir)
+	dataDir := cli.ResolveDataDir(configDir)
 
 	// Acquire single-instance lock
 	fl, err := instance.Lock(dataDir)

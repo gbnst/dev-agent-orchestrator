@@ -563,3 +563,89 @@ func TestManager_ConcurrentRefreshAndList(t *testing.T) {
 
 	<-done
 }
+
+func TestGetByNameOrID_MatchesByID(t *testing.T) {
+	mock := &mockRuntime{}
+	mgr := NewManager(ManagerOptions{Runtime: mock})
+
+	// Simulate a container in the map
+	mgr.containers["abc123"] = &Container{
+		ID:    "abc123",
+		Name:  "my-container",
+		State: StateRunning,
+	}
+
+	c, found := mgr.GetByNameOrID("abc123")
+	if !found {
+		t.Error("Expected to find container by ID")
+	}
+	if c.Name != "my-container" {
+		t.Errorf("Name: got %q, want %q", c.Name, "my-container")
+	}
+}
+
+func TestGetByNameOrID_MatchesByName(t *testing.T) {
+	mock := &mockRuntime{}
+	mgr := NewManager(ManagerOptions{Runtime: mock})
+
+	// Simulate a container in the map with a specific name
+	mgr.containers["abc123"] = &Container{
+		ID:    "abc123",
+		Name:  "my-project-app-1",
+		State: StateRunning,
+	}
+
+	c, found := mgr.GetByNameOrID("my-project-app-1")
+	if !found {
+		t.Error("Expected to find container by name")
+	}
+	if c.ID != "abc123" {
+		t.Errorf("ID: got %q, want %q", c.ID, "abc123")
+	}
+}
+
+func TestGetByNameOrID_IDTakesPrecedence(t *testing.T) {
+	mock := &mockRuntime{}
+	mgr := NewManager(ManagerOptions{Runtime: mock})
+
+	// Create two containers — one with ID "abc" and another with Name "abc"
+	mgr.containers["abc"] = &Container{
+		ID:    "abc",
+		Name:  "container-1",
+		State: StateRunning,
+	}
+	mgr.containers["def"] = &Container{
+		ID:    "def",
+		Name:  "abc", // Same as the first container's ID
+		State: StateRunning,
+	}
+
+	c, found := mgr.GetByNameOrID("abc")
+	if !found {
+		t.Error("Expected to find container")
+	}
+	// Should return the container matched by ID, not by name
+	if c.ID != "abc" {
+		t.Errorf("Expected ID match to take precedence; got container with ID %q", c.ID)
+	}
+}
+
+func TestGetByNameOrID_NotFound(t *testing.T) {
+	mock := &mockRuntime{}
+	mgr := NewManager(ManagerOptions{Runtime: mock})
+
+	// Add some containers to ensure we're not just returning empty
+	mgr.containers["abc123"] = &Container{
+		ID:    "abc123",
+		Name:  "my-container",
+		State: StateRunning,
+	}
+
+	c, found := mgr.GetByNameOrID("nonexistent")
+	if found {
+		t.Error("Should not find nonexistent container")
+	}
+	if c != nil {
+		t.Errorf("Expected nil container, got %v", c)
+	}
+}

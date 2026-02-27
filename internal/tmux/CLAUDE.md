@@ -1,13 +1,13 @@
 # Tmux Domain
 
-Last verified: 2026-02-25
+Last verified: 2026-02-26
 
 ## Purpose
-Wraps tmux commands executed inside containers via a ContainerExecutor function. Provides session listing, creation, destruction, and pane capture.
+Wraps tmux commands executed inside containers via a ContainerExecutor function. Provides session listing, creation, destruction, pane capture with offset support, and cursor position queries.
 
 ## Contracts
-- **Exposes**: `Client`, `Session`, `ContainerExecutor` type, `ParseListSessions(containerID, output string) []Session` function
-- **Guarantees**: ListSessions returns empty slice (not error) when no tmux server. ParseListSessions and Client.ListSessions handle malformed output gracefully. ParseListSessions can be used to parse tmux list-sessions output from any source (containers or host). Session.ContainerID is populated with the containerID parameter passed to ParseListSessions.
+- **Exposes**: `Client`, `Session`, `CaptureOpts`, `ContainerExecutor` type, `ParseListSessions(containerID, output string) []Session` function
+- **Guarantees**: ListSessions returns empty slice (not error) when no tmux server. ParseListSessions and Client.ListSessions handle malformed output gracefully. ParseListSessions can be used to parse tmux list-sessions output from any source (containers or host). Session.ContainerID is populated with the containerID parameter passed to ParseListSessions. CapturePane accepts CaptureOpts: Lines limits output to last N lines (trimmed in Go after capture); FromCursor captures from an absolute position by computing scrollback offset (set to -1 to disable). CaptureLines captures last N lines from scrollback history using `tmux capture-pane -S -N -p` (distinct from CapturePane which captures visible pane). CursorPosition returns absolute position (history_size + cursor_y) via `tmux display-message`, ensuring monotonic increase as output scrolls past the visible pane.
 - **Expects**: ContainerExecutor that can run commands inside containers. Tmux installed in target containers.
 
 ## Dependencies

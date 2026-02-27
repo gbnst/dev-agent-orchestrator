@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"devagent/internal/container"
 	"devagent/internal/discovery"
 	"devagent/internal/events"
+	"devagent/internal/tmux"
 	"devagent/internal/worktree"
 )
 
@@ -108,7 +110,7 @@ func (s *Server) handleListContainers(w http.ResponseWriter, r *http.Request) {
 // Returns single container JSON including sessions. Returns 404 for unknown IDs.
 func (s *Server) handleGetContainer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	c, ok := s.manager.Get(id)
+	c, ok := s.manager.GetByNameOrID(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "container not found")
 		return
@@ -121,13 +123,13 @@ func (s *Server) handleGetContainer(w http.ResponseWriter, r *http.Request) {
 // Returns sessions for a container. Returns 404 for unknown container IDs.
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	_, ok := s.manager.Get(id)
+	c, ok := s.manager.GetByNameOrID(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "container not found")
 		return
 	}
 
-	sessions, err := s.manager.ListSessions(r.Context(), id)
+	sessions, err := s.manager.ListSessions(r.Context(), c.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list sessions")
 		return
@@ -152,7 +154,8 @@ type CreateSessionRequest struct {
 
 // CreateWorktreeRequest is the JSON body for creating a git worktree.
 type CreateWorktreeRequest struct {
-	Name string `json:"name"`
+	Name    string `json:"name"`
+	NoStart bool   `json:"no_start"`
 }
 
 // decodeProjectPath decodes a base64-URL-encoded project path from the URL.
@@ -177,7 +180,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	c, ok := s.manager.Get(id)
+	c, ok := s.manager.GetByNameOrID(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "container not found")
 		return
@@ -188,7 +191,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessions, err := s.manager.ListSessions(r.Context(), id)
+	sessions, err := s.manager.ListSessions(r.Context(), c.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list sessions")
 		return
@@ -200,13 +203,13 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.manager.CreateSession(r.Context(), id, req.Name); err != nil {
+	if err := s.manager.CreateSession(r.Context(), c.ID, req.Name); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create session")
 		return
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(events.WebSessionActionMsg{ContainerID: id})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: c.ID})
 	}
 	writeJSON(w, http.StatusCreated, map[string]string{"name": req.Name})
 }
@@ -218,7 +221,7 @@ func (s *Server) handleDestroySession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	name := r.PathValue("name")
 
-	c, ok := s.manager.Get(id)
+	c, ok := s.manager.GetByNameOrID(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "container not found")
 		return
@@ -229,13 +232,13 @@ func (s *Server) handleDestroySession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.manager.KillSession(r.Context(), id, name); err != nil {
+	if err := s.manager.KillSession(r.Context(), c.ID, name); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to destroy session")
 		return
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(events.WebSessionActionMsg{ContainerID: id})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: c.ID})
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "destroyed"})
 }
@@ -246,7 +249,7 @@ func (s *Server) handleDestroySession(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	c, ok := s.manager.Get(id)
+	c, ok := s.manager.GetByNameOrID(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "container not found")
 		return
@@ -257,13 +260,13 @@ func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.manager.StartWithCompose(r.Context(), id); err != nil {
+	if err := s.manager.StartWithCompose(r.Context(), c.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to start container")
 		return
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(events.WebSessionActionMsg{ContainerID: id})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: c.ID})
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "started"})
 }
@@ -274,7 +277,7 @@ func (s *Server) handleStartContainer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStopContainer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	c, ok := s.manager.Get(id)
+	c, ok := s.manager.GetByNameOrID(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "container not found")
 		return
@@ -285,13 +288,13 @@ func (s *Server) handleStopContainer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.manager.StopWithCompose(r.Context(), id); err != nil {
+	if err := s.manager.StopWithCompose(r.Context(), c.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to stop container")
 		return
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(events.WebSessionActionMsg{ContainerID: id})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: c.ID})
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "stopped"})
 }
@@ -302,19 +305,19 @@ func (s *Server) handleStopContainer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDestroyContainer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 
-	_, ok := s.manager.Get(id)
+	c, ok := s.manager.GetByNameOrID(id)
 	if !ok {
 		writeError(w, http.StatusNotFound, "container not found")
 		return
 	}
 
-	if err := s.manager.DestroyWithCompose(r.Context(), id); err != nil {
+	if err := s.manager.DestroyWithCompose(r.Context(), c.ID); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to destroy container")
 		return
 	}
 
 	if s.notifyTUI != nil {
-		s.notifyTUI(events.WebSessionActionMsg{ContainerID: id})
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: c.ID})
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "destroyed"})
 }
@@ -353,22 +356,27 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-start container for the new worktree
-	containerID, err := s.manager.StartWorktreeContainer(r.Context(), wtPath)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "worktree created but failed to start container: "+err.Error())
-		return
-	}
+	if !req.NoStart {
+		// Auto-start container for the new worktree
+		containerID, err := s.manager.StartWorktreeContainer(r.Context(), wtPath)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "worktree created but failed to start container: "+err.Error())
+			return
+		}
 
-	if s.notifyTUI != nil {
-		s.notifyTUI(events.WebSessionActionMsg{ContainerID: containerID})
-	}
+		if s.notifyTUI != nil {
+			s.notifyTUI(events.WebSessionActionMsg{ContainerID: containerID})
+		}
 
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"name":         req.Name,
-		"path":         wtPath,
-		"container_id": containerID,
-	})
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"name":         req.Name,
+			"path":         wtPath,
+			"container_id": containerID,
+		})
+	} else {
+		// Return response without container_id
+		writeJSON(w, http.StatusCreated, map[string]any{"name": req.Name, "path": wtPath})
+	}
 }
 
 // handleDeleteWorktree handles DELETE /api/projects/{encodedPath}/worktrees/{name}.
@@ -441,7 +449,7 @@ func (s *Server) handleStartWorktreeContainer(w http.ResponseWriter, r *http.Req
 	}
 
 	// Build container response
-	c, ok := s.manager.Get(containerID)
+	c, ok := s.manager.GetByNameOrID(containerID)
 	if !ok {
 		// Container was created but not found after refresh — return minimal response
 		writeJSON(w, http.StatusCreated, map[string]any{
@@ -452,6 +460,160 @@ func (s *Server) handleStartWorktreeContainer(w http.ResponseWriter, r *http.Req
 	}
 
 	writeJSON(w, http.StatusCreated, s.buildContainerResponse(r.Context(), c))
+}
+
+// handleCapturePane handles GET /api/containers/{id}/sessions/{name}/capture.
+// Captures pane content from a tmux session with optional query parameters.
+// Returns 200 with JSON containing content, cursor_y, and lines_requested.
+// Returns 400 if container is not running, 404 if container not found, 500 on error.
+func (s *Server) handleCapturePane(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	name := r.PathValue("name")
+
+	c, ok := s.manager.GetByNameOrID(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "container not found")
+		return
+	}
+
+	if !c.IsRunning() {
+		writeError(w, http.StatusBadRequest, "container is not running")
+		return
+	}
+
+	// Parse query parameters
+	var opts tmux.CaptureOpts
+	opts.FromCursor = -1 // disabled by default
+
+	if v := r.URL.Query().Get("lines"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeError(w, http.StatusBadRequest, "invalid lines parameter")
+			return
+		}
+		opts.Lines = n
+	}
+
+	if v := r.URL.Query().Get("from_cursor"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			writeError(w, http.StatusBadRequest, "invalid from_cursor parameter")
+			return
+		}
+		opts.FromCursor = n
+	}
+
+	// Use c.ID (the canonical container ID) rather than the raw path param,
+	// because GetByNameOrID may have resolved a container name to its ID.
+	content, err := s.manager.CaptureSession(r.Context(), c.ID, name, opts)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to capture pane")
+		return
+	}
+
+	cursorY, err := s.manager.CursorPosition(r.Context(), c.ID, name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to get cursor position")
+		return
+	}
+
+	linesRequested := opts.Lines
+	if linesRequested == 0 {
+		if opts.FromCursor >= 0 {
+			linesRequested = opts.FromCursor // report from_cursor as lines_requested
+		} else {
+			linesRequested = -1 // indicate "all visible" in response
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"content":         content,
+		"cursor_y":        cursorY,
+		"lines_requested": linesRequested,
+	})
+}
+
+// handleCaptureLines handles GET /api/containers/{id}/sessions/{name}/capture-lines.
+// Captures the last N lines from a tmux session's scrollback history.
+// Returns 200 with JSON containing content. Default lines is 20.
+// Returns 400 if container is not running or lines param is invalid, 404 if container not found, 500 on error.
+func (s *Server) handleCaptureLines(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	name := r.PathValue("name")
+
+	c, ok := s.manager.GetByNameOrID(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "container not found")
+		return
+	}
+
+	if !c.IsRunning() {
+		writeError(w, http.StatusBadRequest, "container is not running")
+		return
+	}
+
+	lines := 20 // default
+	if v := r.URL.Query().Get("lines"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, "invalid lines parameter")
+			return
+		}
+		lines = n
+	}
+
+	content, err := s.manager.CaptureSessionLines(r.Context(), c.ID, name, lines)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to capture lines")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"content": content,
+	})
+}
+
+// SendKeysRequest is the JSON body for sending keys to a tmux session.
+type SendKeysRequest struct {
+	Text string `json:"text"`
+}
+
+// handleSendKeys handles POST /api/containers/{id}/sessions/{name}/send.
+// Sends keystrokes to a tmux session. Returns 204 on success.
+// Returns 400 if container is not running or text is empty, 404 if container not found,
+// 500 on internal error.
+func (s *Server) handleSendKeys(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	name := r.PathValue("name")
+
+	c, ok := s.manager.GetByNameOrID(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, "container not found")
+		return
+	}
+
+	if !c.IsRunning() {
+		writeError(w, http.StatusBadRequest, "container is not running")
+		return
+	}
+
+	var req SendKeysRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Text == "" {
+		writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+
+	if err := s.manager.SendToSession(r.Context(), c.ID, name, req.Text); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to send keys")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // writeJSON writes v as JSON with the given HTTP status code.
