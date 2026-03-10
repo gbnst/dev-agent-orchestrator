@@ -14,7 +14,6 @@
   }:
     flake-parts.lib.mkFlake {inherit inputs;} {
       imports = [
-        inputs.flake-parts.flakeModules.easyOverlay
         inputs.flake-parts.flakeModules.partitions
       ];
       systems = [
@@ -73,9 +72,6 @@
             cp -r ${frontend} $out/internal/web/frontend/dist
           '';
       in {
-        overlayAttrs = {
-          inherit (config.packages) devagent;
-        };
         packages =
           {
             default = config.packages.devagent;
@@ -133,7 +129,9 @@
         module = ./dev/flake-part.nix;
       };
       flake = {
-        overlays.default = inputs.self.overlays.additions;
+        overlays.default = final: prev: {
+          devagent = self.packages.${prev.stdenv.hostPlatform.system}.devagent;
+        };
       };
     };
 }

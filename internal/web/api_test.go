@@ -1297,6 +1297,87 @@ func TestHandleCreateWorktree_AC33(t *testing.T) {
 	}
 }
 
+// TestHandleCreateWorktree_NoStart verifies POST /api/projects/{path}/worktrees with no_start=true
+// creates worktree WITHOUT starting a container and returns 201 without container_id.
+// web-lifecycle-ops.AC2.2: Create worktree with --no-start flag
+func TestHandleCreateWorktree_NoStart(t *testing.T) {
+	projectPath := "/home/user/myproject"
+	encodedPath := base64.URLEncoding.EncodeToString([]byte(projectPath))
+	wtPath := "/home/user/myproject/.git/worktrees/feature-x"
+
+	// Track whether the devcontainer executor was called
+	executorCalls := 0
+	executorFunc := func(ctx context.Context, name string, args ...string) (string, error) {
+		executorCalls++
+		return `{"containerId":"mock-container-abc123"}`, nil
+	}
+
+	wt := &mockWorktreeOps{
+		createPath: wtPath,
+	}
+
+	// Create a test server with the tracking executor
+	t.Helper()
+	runtime := &mutationMockRuntime{containers: []container.Container{}}
+
+	// Create DevcontainerCLI with tracking executor
+	devCLI := container.NewDevcontainerCLIWithExecutor(executorFunc)
+
+	mgr := container.NewManager(container.ManagerOptions{
+		Runtime: runtime,
+		DevCLI:  devCLI,
+	})
+	if err := mgr.Refresh(context.Background()); err != nil {
+		t.Fatalf("manager.Refresh() error = %v", err)
+	}
+	lm := logging.NewTestLogManager(10)
+	t.Cleanup(func() { _ = lm.Close() })
+
+	s := web.New(web.Config{Bind: "127.0.0.1", Port: 0}, mgr, nil, lm, nil)
+	// Override worktreeOps with mock
+	s.SetWorktreeOpsForTest(wt)
+
+	ln, err := s.Listen()
+	if err != nil {
+		t.Fatalf("Listen() error = %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ln) }()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+		<-done
+	})
+	base := "http://" + s.Addr()
+
+	// Send request with no_start=true
+	resp := postJSON(t, base+"/api/projects/"+encodedPath+"/worktrees", map[string]any{"name": "feature-x", "no_start": true})
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+		return
+	}
+
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	// Verify response has name and path but NOT container_id
+	checkStringField(t, body, "name", "feature-x")
+	checkStringField(t, body, "path", wtPath)
+	if _, hasContainerID := body["container_id"]; hasContainerID {
+		t.Errorf("response should not have container_id when no_start=true, but it does")
+	}
+
+	// Verify that the devcontainer executor was NOT called
+	if executorCalls > 0 {
+		t.Errorf("devcontainer executor should not be called when no_start=true, but was called %d times", executorCalls)
+	}
+}
+
 // TestHandleDeleteWorktree_AC34 verifies DELETE /api/projects/{path}/worktrees/{name}
 // performs stop + destroy + git worktree remove and returns 200.
 // web-lifecycle-ops.AC3.4: Delete worktree
@@ -1686,5 +1767,472 @@ func TestHandleStartWorktreeContainer_AC25(t *testing.T) {
 	}
 	if body["error"] != "worktree already has a container" {
 		t.Errorf("error = %q, want %q", body["error"], "worktree already has a container")
+	}
+}
+
+// TestAPI_GetContainer_ByName verifies that GET /api/containers/{name} resolves by container name.
+func TestAPI_GetContainer_ByName(t *testing.T) {
+	createdAt := time.Date(2025, 1, 27, 10, 0, 0, 0, time.UTC)
+
+	containers := []container.Container{
+		{
+			ID:          "abc123",
+			Name:        "my-project-app-1",
+			State:       container.StateRunning,
+			Template:    "go",
+			ProjectPath: "/home/user/myproject",
+			RemoteUser:  "vscode",
+			CreatedAt:   createdAt,
+			Labels:      map[string]string{},
+		},
+	}
+
+	// Provide canned tmux session output for the running container
+	sessionOutput := "main: 2 windows (created Mon Jan 27 10:00:00 2025)"
+
+	base := startAPITestServer(t, containers, sessionOutput)
+
+	// Request by container name instead of ID
+	resp, err := http.Get(base + "/api/containers/my-project-app-1")
+	if err != nil {
+		t.Fatalf("GET /api/containers/my-project-app-1 error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	checkStringField(t, result, "id", "abc123")
+	checkStringField(t, result, "name", "my-project-app-1")
+}
+
+// TestAPI_StartContainer_ByName verifies that POST /api/containers/{name}/start uses name resolution.
+func TestAPI_StartContainer_ByName(t *testing.T) {
+	containers := []container.Container{
+		{
+			ID:          "abc123",
+			Name:        "my-project-app-1",
+			State:       container.StateStopped,
+			Template:    "go",
+			ProjectPath: "/home/user/myproject",
+			RemoteUser:  "vscode",
+			CreatedAt:   time.Now(),
+			Labels:      map[string]string{},
+		},
+	}
+
+	base := startAPITestServer(t, containers, "")
+
+	// Start container by name instead of ID
+	resp, err := http.Post(base+"/api/containers/my-project-app-1/start", "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /api/containers/my-project-app-1/start error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["status"] != "started" {
+		t.Errorf("status = %q, want %q", result["status"], "started")
+	}
+}
+
+// TestAPI_GetContainer_NotFound verifies that GET /api/containers/nonexistent returns 404.
+func TestAPI_GetContainer_NotFound(t *testing.T) {
+	containers := []container.Container{
+		{
+			ID:          "abc123",
+			Name:        "my-project-app-1",
+			State:       container.StateRunning,
+			Template:    "go",
+			ProjectPath: "/home/user/myproject",
+			RemoteUser:  "vscode",
+			CreatedAt:   time.Now(),
+			Labels:      map[string]string{},
+		},
+	}
+
+	base := startAPITestServer(t, containers, "")
+
+	resp, err := http.Get(base + "/api/containers/nonexistent")
+	if err != nil {
+		t.Fatalf("GET /api/containers/nonexistent error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["error"] != "container not found" {
+		t.Errorf("error = %q, want %q", result["error"], "container not found")
+	}
+}
+
+// TestAPI_CapturePane_DefaultLines verifies GET /api/containers/{id}/sessions/{name}/capture
+// returns capture response with content, cursor_y, and lines_requested.
+func TestAPI_CapturePane_DefaultLines(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	// capture-pane returns pane content; display-message returns "history_size cursor_y"
+	outputsByCmd := map[string]string{
+		"capture-pane":    "line1\nline2\nline3",
+		"display-message": "0 5",
+	}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	resp, err := http.Get(base + "/api/containers/abc123/sessions/dev/capture")
+	if err != nil {
+		t.Fatalf("GET .../capture error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["content"] != "line1\nline2\nline3" {
+		t.Errorf("content = %q, want %q", result["content"], "line1\nline2\nline3")
+	}
+	if result["cursor_y"] != float64(5) {
+		t.Errorf("cursor_y = %v, want 5", result["cursor_y"])
+	}
+	if result["lines_requested"] != float64(-1) {
+		t.Errorf("lines_requested = %v, want -1", result["lines_requested"])
+	}
+}
+
+// TestAPI_CapturePane_WithLines verifies GET .../capture?lines=50 includes the lines param.
+func TestAPI_CapturePane_WithLines(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	outputsByCmd := map[string]string{
+		"capture-pane":    "line1\nline2",
+		"display-message": "0 2",
+	}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	resp, err := http.Get(base + "/api/containers/abc123/sessions/dev/capture?lines=50")
+	if err != nil {
+		t.Fatalf("GET .../capture?lines=50 error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["lines_requested"] != float64(50) {
+		t.Errorf("lines_requested = %v, want 50", result["lines_requested"])
+	}
+}
+
+// TestAPI_CapturePane_WithFromCursor verifies GET .../capture?from_cursor=12 includes the param.
+func TestAPI_CapturePane_WithFromCursor(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	outputsByCmd := map[string]string{
+		"capture-pane":    "line12\nline13",
+		"display-message": "0 13",
+	}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	resp, err := http.Get(base + "/api/containers/abc123/sessions/dev/capture?from_cursor=12")
+	if err != nil {
+		t.Fatalf("GET .../capture?from_cursor=12 error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["lines_requested"] != float64(12) {
+		t.Errorf("lines_requested = %v, want 12", result["lines_requested"])
+	}
+}
+
+// TestAPI_CapturePane_ContainerNotFound verifies 404 for nonexistent container.
+func TestAPI_CapturePane_ContainerNotFound(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	outputsByCmd := map[string]string{}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	resp, err := http.Get(base + "/api/containers/nonexistent/sessions/dev/capture")
+	if err != nil {
+		t.Fatalf("GET /api/containers/nonexistent/sessions/dev/capture error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["error"] != "container not found" {
+		t.Errorf("error = %q, want %q", result["error"], "container not found")
+	}
+}
+
+// TestAPI_CapturePane_ContainerStopped verifies 400 for stopped container.
+func TestAPI_CapturePane_ContainerStopped(t *testing.T) {
+	containers := []container.Container{stoppedContainer("abc123")}
+	outputsByCmd := map[string]string{}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	resp, err := http.Get(base + "/api/containers/abc123/sessions/dev/capture")
+	if err != nil {
+		t.Fatalf("GET .../capture (stopped) error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["error"] != "container is not running" {
+		t.Errorf("error = %q, want %q", result["error"], "container is not running")
+	}
+}
+
+// TestAPI_SendKeys_Success verifies POST /api/containers/{id}/sessions/{name}/send
+// sends keys and returns 204 No Content.
+func TestAPI_SendKeys_Success(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	outputsByCmd := map[string]string{
+		"send-keys": "",
+	}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	body := map[string]string{"text": "ls -la"}
+	resp := postJSON(t, base+"/api/containers/abc123/sessions/dev/send", body)
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNoContent)
+	}
+}
+
+// TestAPI_SendKeys_EmptyText verifies POST with empty text returns 400.
+func TestAPI_SendKeys_EmptyText(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	outputsByCmd := map[string]string{}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	body := map[string]string{"text": ""}
+	resp := postJSON(t, base+"/api/containers/abc123/sessions/dev/send", body)
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["error"] != "text is required" {
+		t.Errorf("error = %q, want %q", result["error"], "text is required")
+	}
+}
+
+// TestAPI_SendKeys_ContainerNotFound verifies 404 for nonexistent container.
+func TestAPI_SendKeys_ContainerNotFound(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	outputsByCmd := map[string]string{}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	body := map[string]string{"text": "ls"}
+	resp := postJSON(t, base+"/api/containers/nonexistent/sessions/dev/send", body)
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["error"] != "container not found" {
+		t.Errorf("error = %q, want %q", result["error"], "container not found")
+	}
+}
+
+// TestAPI_SendKeys_ContainerStopped verifies 400 for stopped container.
+func TestAPI_SendKeys_ContainerStopped(t *testing.T) {
+	containers := []container.Container{stoppedContainer("abc123")}
+	outputsByCmd := map[string]string{}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	body := map[string]string{"text": "ls"}
+	resp := postJSON(t, base+"/api/containers/abc123/sessions/dev/send", body)
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["error"] != "container is not running" {
+		t.Errorf("error = %q, want %q", result["error"], "container is not running")
+	}
+}
+
+// TestAPI_CaptureLines_Default verifies GET /api/containers/{id}/sessions/{name}/capture-lines
+// returns scrollback content with default 20 lines.
+func TestAPI_CaptureLines_Default(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	outputsByCmd := map[string]string{
+		"capture-pane": "scrollback line1\nscrollback line2",
+	}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	resp, err := http.Get(base + "/api/containers/abc123/sessions/dev/capture-lines")
+	if err != nil {
+		t.Fatalf("GET .../capture-lines error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode error = %v", err)
+	}
+
+	if result["content"] != "scrollback line1\nscrollback line2" {
+		t.Errorf("content = %q, want %q", result["content"], "scrollback line1\nscrollback line2")
+	}
+}
+
+// TestAPI_CaptureLines_WithCount verifies GET .../capture-lines?lines=100 passes the param.
+func TestAPI_CaptureLines_WithCount(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	outputsByCmd := map[string]string{
+		"capture-pane": "line1\nline2",
+	}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	resp, err := http.Get(base + "/api/containers/abc123/sessions/dev/capture-lines?lines=100")
+	if err != nil {
+		t.Fatalf("GET .../capture-lines?lines=100 error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
+// TestAPI_CaptureLines_InvalidLines verifies 400 for invalid lines parameter.
+func TestAPI_CaptureLines_InvalidLines(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	outputsByCmd := map[string]string{}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	resp, err := http.Get(base + "/api/containers/abc123/sessions/dev/capture-lines?lines=abc")
+	if err != nil {
+		t.Fatalf("GET error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+}
+
+// TestAPI_CaptureLines_ContainerNotFound verifies 404 for nonexistent container.
+func TestAPI_CaptureLines_ContainerNotFound(t *testing.T) {
+	containers := []container.Container{runningContainer("abc123")}
+	outputsByCmd := map[string]string{}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	resp, err := http.Get(base + "/api/containers/nonexistent/sessions/dev/capture-lines")
+	if err != nil {
+		t.Fatalf("GET error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+// TestAPI_CaptureLines_ContainerStopped verifies 400 for stopped container.
+func TestAPI_CaptureLines_ContainerStopped(t *testing.T) {
+	containers := []container.Container{stoppedContainer("abc123")}
+	outputsByCmd := map[string]string{}
+
+	base := startMutationTestServer(t, containers, outputsByCmd, nil)
+
+	resp, err := http.Get(base + "/api/containers/abc123/sessions/dev/capture-lines")
+	if err != nil {
+		t.Fatalf("GET error = %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
 	}
 }

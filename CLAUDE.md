@@ -2,6 +2,19 @@
 
 Last verified: 2026-02-25
 
+## CLI Commands
+- `devagent` - Launch interactive TUI (default, no arguments)
+- `devagent --agent-help` - Print agent orchestration guide (workflow, commands, patterns)
+- `devagent list` - Output JSON project hierarchy with containers (delegates to running instance)
+- `devagent cleanup` - Remove stale lock/port files from a crashed instance
+- `devagent version` - Print version and exit
+- `devagent container start|stop|destroy <id-or-name>` - Container lifecycle (delegates to running instance)
+- `devagent worktree create <project-path> <name> [--no-start]` - Create git worktree (delegates to running instance)
+- `devagent session create|destroy <container> <session>` - Session lifecycle (delegates to running instance)
+- `devagent session readlines <container> <session> [N]` - Read last N lines from scrollback (default: 20)
+- `devagent session send <container> <session> <text>` - Send input to session
+- `devagent session tail <container> <session> [--interval 1s] [--no-color]` - Tail session output
+
 ## Tech Stack
 - Language: Go 1.21+
 - TUI: Bubbletea + Bubbles + Lipgloss
@@ -16,7 +29,7 @@ Last verified: 2026-02-25
 - Terminal Bridge: coder/websocket + creack/pty
 - File Locking: gofrs/flock (cross-platform file-based locking for single-instance enforcement)
 
-## Commands
+## Build & Dev Commands
 - `make build` - Build binary
 - `make run` - Run with ~/.config/devagent/
 - `make dev` - Run with ./config/ (development)
@@ -28,13 +41,12 @@ Last verified: 2026-02-25
 - `make frontend-dev` - Run frontend dev server (hot reload)
 - `make frontend-test` - Run frontend tests (vitest)
 - `make lint` - Run linter (golangci-lint, configured via `.golangci.yml`)
-- `devagent list` - Output JSON project hierarchy with containers (requires running TUI instance, delegates via HTTP to GET /api/projects)
-- `devagent cleanup` - Remove stale lock/port files from a crashed instance
 
 ## Project Structure
 - `internal/logging/` - Structured logging with dual sinks (file + TUI channel)
 - `internal/tui/` - Bubbletea TUI with tree navigation, detail panel, log panel
 - `internal/container/` - Container lifecycle management (see internal/container/CLAUDE.md for contracts)
+- `internal/cli/` - CLI command dispatch, delegation to running instance, and session tailing (see internal/cli/CLAUDE.md)
 - `internal/events/` - Shared message types between web and tui packages (WebSessionActionMsg, WebListenURLMsg, TailscaleURLMsg)
 - `internal/instance/` - Single-instance enforcement, instance discovery, and HTTP client (see internal/instance/CLAUDE.md)
 - `internal/tmux/` - Tmux session management within containers (see internal/tmux/CLAUDE.md)
