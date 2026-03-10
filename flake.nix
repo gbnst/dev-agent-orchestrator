@@ -132,8 +132,6 @@
         extraInputsFlake = ./dev;
         module = ./dev/flake-part.nix;
       };
-      flake = {
-        overlays.default = inputs.self.overlays.additions;
-      };
+      flake = {};
     };
 }
