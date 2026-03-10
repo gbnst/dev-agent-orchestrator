@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 
 	"devagent/internal/config"
@@ -78,8 +79,11 @@ func (g *ComposeGenerator) Generate(opts ComposeOptions) (*ComposeResult, error)
 		return nil, fmt.Errorf("template not found: %s", opts.Template)
 	}
 
-	// Build and return template data
+	// Build and validate template data
 	data := g.buildTemplateData(opts, tmpl)
+	if err := validateTemplateData(data); err != nil {
+		return nil, fmt.Errorf("invalid template data: %w", err)
+	}
 	return &ComposeResult{
 		TemplateData: data,
 	}, nil
@@ -119,6 +123,30 @@ func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.T
 		RemoteUser:      DefaultRemoteUser,
 		ProxyLogPath:    "/opt/devagent-proxy/logs/requests.jsonl",
 	}
+}
+
+// validateTemplateData checks that template data values don't contain characters
+// that could produce malformed YAML when substituted into templates.
+func validateTemplateData(data TemplateData) error {
+	// Characters that are meaningful in YAML values and could cause injection
+	// when substituted unquoted into templates.
+	const yamlSpecial = `:{}[]|>&*!%#@`
+	check := func(name, value string) error {
+		if strings.ContainsAny(value, yamlSpecial) {
+			return fmt.Errorf("%s contains YAML-special characters: %q", name, value)
+		}
+		return nil
+	}
+	// ProjectPath is allowed to contain colons (Windows drive letters) and other
+	// path chars — templates should quote it. Validate the names that appear
+	// unquoted in YAML keys/values.
+	if err := check("ContainerName", data.ContainerName); err != nil {
+		return err
+	}
+	if err := check("ProjectName", data.ProjectName); err != nil {
+		return err
+	}
+	return nil
 }
 
 // processTemplate reads a template file and processes it with the given data.

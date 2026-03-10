@@ -66,24 +66,6 @@ func (r *Runtime) ListContainers(ctx context.Context) ([]Container, error) {
 	return r.parseContainerList(output)
 }
 
-// StartContainer starts a container by ID.
-func (r *Runtime) StartContainer(ctx context.Context, id string) error {
-	_, err := r.exec(ctx, r.executable, "start", id)
-	return err
-}
-
-// StopContainer stops a container by ID.
-func (r *Runtime) StopContainer(ctx context.Context, id string) error {
-	_, err := r.exec(ctx, r.executable, "stop", id)
-	return err
-}
-
-// RemoveContainer removes a container by ID.
-func (r *Runtime) RemoveContainer(ctx context.Context, id string) error {
-	_, err := r.exec(ctx, r.executable, "rm", id)
-	return err
-}
-
 // InspectContainer returns the state of a container.
 func (r *Runtime) InspectContainer(ctx context.Context, id string) (ContainerState, error) {
 	output, err := r.exec(ctx, r.executable, "inspect", "--format", "{{.State.Status}}", id)
@@ -172,8 +154,17 @@ func (cj *containerJSON) getCreatedAt() time.Time {
 	if cj.Created > 0 {
 		return time.Unix(cj.Created, 0)
 	}
-	t, _ := time.Parse(time.RFC3339, cj.CreatedAt)
-	return t
+	// Try multiple formats: Docker uses "2006-01-02 15:04:05 -0700 MST",
+	// but some versions may use RFC3339.
+	for _, layout := range []string{
+		"2006-01-02 15:04:05 -0700 MST",
+		time.RFC3339,
+	} {
+		if t, err := time.Parse(layout, cj.CreatedAt); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
 
 // parseContainerList parses JSON output from docker/podman ps.
