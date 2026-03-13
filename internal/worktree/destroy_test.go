@@ -11,16 +11,23 @@ import (
 // mockContainerOps is a mock implementation of ContainerOps for testing.
 type mockContainerOps struct {
 	containers            []*container.Container
+	getByComposeProject   *container.Container // return value for GetByComposeProject
 	stopWithComposeErr    error
 	destroyWithComposeErr error
 	stopCalled            bool
 	stopContainerID       string
 	destroyCalled         bool
 	destroyContainerID    string
+	getByComposeCalled    string // captured compose name argument
 }
 
 func (m *mockContainerOps) List() []*container.Container {
 	return m.containers
+}
+
+func (m *mockContainerOps) GetByComposeProject(composeName string) *container.Container {
+	m.getByComposeCalled = composeName
+	return m.getByComposeProject
 }
 
 func (m *mockContainerOps) StopWithCompose(ctx context.Context, containerID string) error {
@@ -55,7 +62,7 @@ func (m *mockWorktreeOps) Destroy(projectPath, name string) error {
 func TestDestroyWorktreeWithContainer_NoContainer(t *testing.T) {
 	ctx := context.Background()
 	containerOps := &mockContainerOps{
-		containers: []*container.Container{},
+		getByComposeProject: nil, // no container found
 	}
 
 	// Mock the Destroy function to avoid actual git operations
@@ -66,6 +73,12 @@ func TestDestroyWorktreeWithContainer_NoContainer(t *testing.T) {
 	// In real testing, this would be mocked at a lower level
 	if err == nil {
 		t.Errorf("expected error from git operations, got nil")
+	}
+
+	// Verify GetByComposeProject was called with correct compose name
+	expectedComposeName := container.SanitizeComposeName("project-feature-x")
+	if containerOps.getByComposeCalled != expectedComposeName {
+		t.Errorf("expected GetByComposeProject called with %q, got %q", expectedComposeName, containerOps.getByComposeCalled)
 	}
 
 	// Verify no container operations were attempted
@@ -82,13 +95,13 @@ func TestDestroyWorktreeWithContainer_WithRunningContainer(t *testing.T) {
 
 	// Create a mock running container for the worktree
 	runningContainer := &container.Container{
-		ID:          "test-container-123",
-		ProjectPath: "/home/user/project/.worktrees/feature-x",
-		State:       container.StateRunning,
+		ID:             "test-container-123",
+		ComposeProject: "project-feature-x",
+		State:          container.StateRunning,
 	}
 
 	containerOps := &mockContainerOps{
-		containers: []*container.Container{runningContainer},
+		getByComposeProject: runningContainer,
 	}
 
 	// Since DestroyWorktreeWithContainer calls the real Destroy function,
@@ -99,6 +112,12 @@ func TestDestroyWorktreeWithContainer_WithRunningContainer(t *testing.T) {
 	// Expect failure from git operations
 	if err == nil {
 		t.Errorf("expected error from git operations, got nil")
+	}
+
+	// Verify GetByComposeProject was called with correct compose name
+	expectedComposeName := container.SanitizeComposeName("project-feature-x")
+	if containerOps.getByComposeCalled != expectedComposeName {
+		t.Errorf("expected GetByComposeProject called with %q, got %q", expectedComposeName, containerOps.getByComposeCalled)
 	}
 
 	// Verify stop was called
@@ -123,13 +142,13 @@ func TestDestroyWorktreeWithContainer_WithStoppedContainer(t *testing.T) {
 
 	// Create a mock stopped container for the worktree
 	stoppedContainer := &container.Container{
-		ID:          "test-container-456",
-		ProjectPath: "/home/user/project/.worktrees/feature-y",
-		State:       container.StateStopped,
+		ID:             "test-container-456",
+		ComposeProject: "project-feature-y",
+		State:          container.StateStopped,
 	}
 
 	containerOps := &mockContainerOps{
-		containers: []*container.Container{stoppedContainer},
+		getByComposeProject: stoppedContainer,
 	}
 
 	err := DestroyWorktreeWithContainer(ctx, containerOps, "/home/user/project", "feature-y", nil)
@@ -137,6 +156,12 @@ func TestDestroyWorktreeWithContainer_WithStoppedContainer(t *testing.T) {
 	// Expect failure from git operations
 	if err == nil {
 		t.Errorf("expected error from git operations, got nil")
+	}
+
+	// Verify GetByComposeProject was called with correct compose name
+	expectedComposeName := container.SanitizeComposeName("project-feature-y")
+	if containerOps.getByComposeCalled != expectedComposeName {
+		t.Errorf("expected GetByComposeProject called with %q, got %q", expectedComposeName, containerOps.getByComposeCalled)
 	}
 
 	// Verify stop was NOT called (container already stopped)
@@ -157,14 +182,14 @@ func TestDestroyWorktreeWithContainer_StopError(t *testing.T) {
 	ctx := context.Background()
 
 	runningContainer := &container.Container{
-		ID:          "test-container-789",
-		ProjectPath: "/home/user/project/.worktrees/feature-z",
-		State:       container.StateRunning,
+		ID:             "test-container-789",
+		ComposeProject: "project-feature-z",
+		State:          container.StateRunning,
 	}
 
 	containerOps := &mockContainerOps{
-		containers:         []*container.Container{runningContainer},
-		stopWithComposeErr: errors.New("compose stop failed"),
+		getByComposeProject: runningContainer,
+		stopWithComposeErr:  errors.New("compose stop failed"),
 	}
 
 	err := DestroyWorktreeWithContainer(ctx, containerOps, "/home/user/project", "feature-z", nil)
@@ -177,6 +202,12 @@ func TestDestroyWorktreeWithContainer_StopError(t *testing.T) {
 		t.Errorf("expected error containing 'failed to stop container', got: %v", err)
 	}
 
+	// Verify GetByComposeProject was called with correct compose name
+	expectedComposeName := container.SanitizeComposeName("project-feature-z")
+	if containerOps.getByComposeCalled != expectedComposeName {
+		t.Errorf("expected GetByComposeProject called with %q, got %q", expectedComposeName, containerOps.getByComposeCalled)
+	}
+
 	// Verify destroy was NOT called (stopped early due to stop error)
 	if containerOps.destroyCalled {
 		t.Errorf("expected destroyWithCompose not to be called after stop error")
@@ -187,13 +218,13 @@ func TestDestroyWorktreeWithContainer_DestroyError(t *testing.T) {
 	ctx := context.Background()
 
 	stoppedContainer := &container.Container{
-		ID:          "test-container-999",
-		ProjectPath: "/home/user/project/.worktrees/feature-w",
-		State:       container.StateStopped,
+		ID:             "test-container-999",
+		ComposeProject: "project-feature-w",
+		State:          container.StateStopped,
 	}
 
 	containerOps := &mockContainerOps{
-		containers:            []*container.Container{stoppedContainer},
+		getByComposeProject:   stoppedContainer,
 		destroyWithComposeErr: errors.New("compose down failed"),
 	}
 
@@ -206,6 +237,12 @@ func TestDestroyWorktreeWithContainer_DestroyError(t *testing.T) {
 	if !errors.Is(err, containerOps.destroyWithComposeErr) && !errors.Is(errors.Unwrap(err), containerOps.destroyWithComposeErr) {
 		t.Errorf("expected error containing 'failed to destroy container', got: %v", err)
 	}
+
+	// Verify GetByComposeProject was called with correct compose name
+	expectedComposeName := container.SanitizeComposeName("project-feature-w")
+	if containerOps.getByComposeCalled != expectedComposeName {
+		t.Errorf("expected GetByComposeProject called with %q, got %q", expectedComposeName, containerOps.getByComposeCalled)
+	}
 }
 
 func TestDestroyWorktreeWithContainer_FullSuccess(t *testing.T) {
@@ -213,13 +250,13 @@ func TestDestroyWorktreeWithContainer_FullSuccess(t *testing.T) {
 
 	// Create a mock running container for the worktree
 	runningContainer := &container.Container{
-		ID:          "test-container-full-success",
-		ProjectPath: "/home/user/project/.worktrees/feature-full",
-		State:       container.StateRunning,
+		ID:             "test-container-full-success",
+		ComposeProject: "project-feature-full",
+		State:          container.StateRunning,
 	}
 
 	containerOps := &mockContainerOps{
-		containers: []*container.Container{runningContainer},
+		getByComposeProject: runningContainer,
 	}
 
 	wtOps := &mockWorktreeOps{}
@@ -232,12 +269,13 @@ func TestDestroyWorktreeWithContainer_FullSuccess(t *testing.T) {
 		t.Errorf("expected success, got error: %v", err)
 	}
 
-	// Verify WorktreeDir was called
-	if !wtOps.worktreeDirCalled {
-		t.Errorf("expected WorktreeDir to be called")
+	// Verify GetByComposeProject was called with correct compose name
+	expectedComposeName := container.SanitizeComposeName("project-feature-full")
+	if containerOps.getByComposeCalled != expectedComposeName {
+		t.Errorf("expected GetByComposeProject called with %q, got %q", expectedComposeName, containerOps.getByComposeCalled)
 	}
 
-	// Verify Destroy was called
+	// Verify Destroy was called (WorktreeDir is no longer called since we use compose project name)
 	if !wtOps.destroyCalled {
 		t.Errorf("expected Destroy to be called")
 	}
@@ -256,13 +294,13 @@ func TestDestroyWorktreeWithContainer_WorktreeDestroyError(t *testing.T) {
 
 	// Create a mock running container for the worktree
 	runningContainer := &container.Container{
-		ID:          "test-container-wtree-error",
-		ProjectPath: "/home/user/project/.worktrees/feature-err",
-		State:       container.StateRunning,
+		ID:             "test-container-wtree-error",
+		ComposeProject: "project-feature-err",
+		State:          container.StateRunning,
 	}
 
 	containerOps := &mockContainerOps{
-		containers: []*container.Container{runningContainer},
+		getByComposeProject: runningContainer,
 	}
 
 	wtOps := &mockWorktreeOps{
@@ -278,6 +316,12 @@ func TestDestroyWorktreeWithContainer_WorktreeDestroyError(t *testing.T) {
 	}
 	if !errors.Is(err, wtOps.destroyErr) {
 		t.Errorf("expected worktree destroy error, got: %v", err)
+	}
+
+	// Verify GetByComposeProject was called with correct compose name
+	expectedComposeName := container.SanitizeComposeName("project-feature-err")
+	if containerOps.getByComposeCalled != expectedComposeName {
+		t.Errorf("expected GetByComposeProject called with %q, got %q", expectedComposeName, containerOps.getByComposeCalled)
 	}
 
 	// Verify container operations were called (they should have succeeded)
