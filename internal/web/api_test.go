@@ -9,10 +9,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"devagent/internal/config"
 	"devagent/internal/container"
 	"devagent/internal/discovery"
 	"devagent/internal/events"
@@ -128,12 +130,46 @@ func mockCommandExecutor(ctx context.Context, name string, args ...string) (stri
 }
 
 // startWorktreeTestServer creates a test server with a configurable mock worktreeOps.
+// The server is set up with proper Config and Templates so that CreateWithCompose works.
 func startWorktreeTestServer(t *testing.T, containers []container.Container, wt *mockWorktreeOps, notifyTUI func(any)) string {
 	t.Helper()
 	runtime := &mutationMockRuntime{containers: containers}
 
+	// Create template directory with minimal .devcontainer structure for ComposeGenerator
+	templateDir := t.TempDir()
+	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
+	}
+
+	// Write minimal docker-compose.yml.tmpl
+	tmplContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
+	}
+
+	// Write minimal devcontainer.json.tmpl
+	devcontainerTmpl := `{
+  "name": "test",
+  "image": "ubuntu:22.04"
+}
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
+	}
+
+	// Create Config and Templates for ComposeGenerator
+	cfg := &config.Config{}
+	templates := []config.Template{{Name: "default", Path: templateDir}}
+
 	mgr := container.NewManager(container.ManagerOptions{
-		Runtime: runtime,
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   runtime,
 	})
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager.Refresh() error = %v", err)
@@ -1213,21 +1249,38 @@ func TestHandleStopContainer_AlreadyStopped(t *testing.T) {
 // creates worktree, starts container, and returns 201 with name, path, container_id.
 // web-lifecycle-ops.AC3.1: Create worktree and auto-start container
 func TestHandleCreateWorktree_AC31(t *testing.T) {
-	projectPath := "/home/user/myproject"
+	// Create project directory with proper .devcontainer structure
+	projectPath := setupProjectDirectory(t)
 	encodedPath := base64.URLEncoding.EncodeToString([]byte(projectPath))
-	wtPath := "/home/user/myproject/.git/worktrees/feature-x"
+	wtPath := filepath.Join(projectPath, ".git", "worktrees", "feature-x")
 
 	wt := &mockWorktreeOps{
 		createPath: wtPath,
 	}
 
-	base := startWorktreeTestServer(t, []container.Container{}, wt, nil)
+	// Provide initial container with the project path so findProjectTemplate returns "default"
+	initialContainers := []container.Container{
+		{
+			ID:          "existing-container",
+			Name:        "project-app-1",
+			State:       container.StateRunning,
+			Template:    "default",
+			ProjectPath: projectPath,
+			RemoteUser:  "vscode",
+			CreatedAt:   time.Now().UTC(),
+			Labels:      map[string]string{},
+		},
+	}
+
+	base := startWorktreeTestServer(t, initialContainers, wt, nil)
 
 	resp := postJSON(t, base+"/api/projects/"+encodedPath+"/worktrees", map[string]string{"name": "feature-x"})
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+		body, _ := io.ReadAll(resp.Body)
+		t.Logf("response body: %s", string(body))
 		return
 	}
 
@@ -1238,7 +1291,14 @@ func TestHandleCreateWorktree_AC31(t *testing.T) {
 
 	checkStringField(t, body, "name", "feature-x")
 	checkStringField(t, body, "path", wtPath)
-	checkStringField(t, body, "container_id", "mock-container-abc123")
+	// The container_id should be set in the response
+	if id, ok := body["container_id"]; !ok || id == "" {
+		t.Errorf("expected container_id in response, got: %v", body)
+	}
+	// Verify compose_project field is included
+	if cp, ok := body["compose_project"]; !ok || cp == "" {
+		t.Errorf("expected compose_project in response, got: %v", body)
+	}
 }
 
 // TestHandleCreateWorktree_AC32 verifies POST with invalid name returns 400.
@@ -1486,8 +1546,36 @@ func (m *startWorktreeContainerMockRuntime) ComposeDown(_ context.Context, _ str
 	return nil
 }
 
+// setupProjectDirectory creates a project directory with a .devcontainer/docker-compose.yml file
+// and returns the project path. This is needed for CreateWithCompose to succeed.
+func setupProjectDirectory(t *testing.T) string {
+	t.Helper()
+	projectDir := t.TempDir()
+
+	// Create .devcontainer directory with docker-compose.yml
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	// Create a minimal docker-compose.yml
+	composeContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+    command: ["sleep", "infinity"]
+`
+	composeFile := filepath.Join(devcontainerDir, "docker-compose.yml")
+	if err := os.WriteFile(composeFile, []byte(composeContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml: %v", err)
+	}
+
+	return projectDir
+}
+
 // startWorktreeContainerTestServer creates a test server with support for testing container creation.
 // It uses a special mock runtime that returns different containers before/after devcontainer up.
+// The server is set up with proper Config and Templates so that CreateWithCompose works.
 func startWorktreeContainerTestServer(
 	t *testing.T,
 	initialContainers []container.Container,
@@ -1502,8 +1590,41 @@ func startWorktreeContainerTestServer(
 		outputsByCmd:      make(map[string]string),
 	}
 
+	// Create template directory with minimal .devcontainer structure for ComposeGenerator
+	templateDir := t.TempDir()
+	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
+	}
+
+	// Write minimal docker-compose.yml.tmpl
+	tmplContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
+	}
+
+	// Write minimal devcontainer.json.tmpl
+	devcontainerTmpl := `{
+  "name": "test",
+  "image": "ubuntu:22.04"
+}
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
+	}
+
+	// Create Config and Templates for ComposeGenerator
+	cfg := &config.Config{}
+	templates := []config.Template{{Name: "default", Path: templateDir}}
+
 	mgr := container.NewManager(container.ManagerOptions{
-		Runtime: runtime,
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   runtime,
 	})
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager.Refresh() error = %v", err)
@@ -1533,35 +1654,50 @@ func startWorktreeContainerTestServer(
 // with no existing container returns 201 with container response JSON.
 // start-missing-container.AC2.1: Success case - container created and returned
 func TestHandleStartWorktreeContainer_AC21(t *testing.T) {
+	// Create project directory with proper .devcontainer structure
+	projectPath := setupProjectDirectory(t)
+
 	// Create a temporary directory to act as the worktree
-	tmpDir := t.TempDir()
-	wtPath := tmpDir + "/feature-x"
+	wtPath := filepath.Join(projectPath, "feature-x")
 	if err := os.Mkdir(wtPath, 0755); err != nil {
 		t.Fatalf("mkdir error = %v", err)
 	}
 
-	projectPath := tmpDir
 	encodedPath := base64.URLEncoding.EncodeToString([]byte(projectPath))
 
 	wt := &mockWorktreeOps{
 		wtDir: wtPath,
 	}
 
-	// After devcontainer up succeeds, this container should be returned by ListContainers
-	afterUpContainers := []container.Container{
+	// Provide initial container with the project path so findProjectTemplate returns "default"
+	initialContainers := []container.Container{
 		{
-			ID:          "mock-container-abc123",
-			Name:        "myproject-app-1",
+			ID:          "existing-container",
+			Name:        "project-app-1",
 			State:       container.StateRunning,
-			Template:    "go",
-			ProjectPath: wtPath,
+			Template:    "default",
+			ProjectPath: projectPath,
 			RemoteUser:  "vscode",
 			CreatedAt:   time.Now().UTC(),
 			Labels:      map[string]string{},
 		},
 	}
 
-	base := startWorktreeContainerTestServer(t, []container.Container{}, afterUpContainers, wt, nil)
+	// After devcontainer up succeeds, this container should be returned by ListContainers
+	afterUpContainers := []container.Container{
+		{
+			ID:          "mock-container-abc123",
+			Name:        "project-app-1",
+			State:       container.StateRunning,
+			Template:    "default",
+			ProjectPath: projectPath,
+			RemoteUser:  "vscode",
+			CreatedAt:   time.Now().UTC(),
+			Labels:      map[string]string{},
+		},
+	}
+
+	base := startWorktreeContainerTestServer(t, initialContainers, afterUpContainers, wt, nil)
 
 	resp, err := http.Post(base+"/api/projects/"+encodedPath+"/worktrees/feature-x/start", "application/json", nil)
 	if err != nil {
@@ -1593,27 +1729,42 @@ func TestHandleStartWorktreeContainer_AC21(t *testing.T) {
 // TestHandleStartWorktreeContainer_AC23 verifies TUI notification is sent.
 // start-missing-container.AC2.3: TUI notification sent
 func TestHandleStartWorktreeContainer_AC23(t *testing.T) {
+	// Create project directory with proper .devcontainer structure
+	projectPath := setupProjectDirectory(t)
+
 	// Create a temporary directory to act as the worktree
-	tmpDir := t.TempDir()
-	wtPath := tmpDir + "/feature-x"
+	wtPath := filepath.Join(projectPath, "feature-x")
 	if err := os.Mkdir(wtPath, 0755); err != nil {
 		t.Fatalf("mkdir error = %v", err)
 	}
 
-	projectPath := tmpDir
 	encodedPath := base64.URLEncoding.EncodeToString([]byte(projectPath))
 
 	wt := &mockWorktreeOps{
 		wtDir: wtPath,
 	}
 
+	// Provide initial container with the project path
+	initialContainers := []container.Container{
+		{
+			ID:          "existing-container",
+			Name:        "project-app-1",
+			State:       container.StateRunning,
+			Template:    "default",
+			ProjectPath: projectPath,
+			RemoteUser:  "vscode",
+			CreatedAt:   time.Now().UTC(),
+			Labels:      map[string]string{},
+		},
+	}
+
 	afterUpContainers := []container.Container{
 		{
 			ID:          "mock-container-abc123",
-			Name:        "myproject-app-1",
+			Name:        "project-app-1",
 			State:       container.StateRunning,
-			Template:    "go",
-			ProjectPath: wtPath,
+			Template:    "default",
+			ProjectPath: projectPath,
 			RemoteUser:  "vscode",
 			CreatedAt:   time.Now().UTC(),
 			Labels:      map[string]string{},
@@ -1623,7 +1774,7 @@ func TestHandleStartWorktreeContainer_AC23(t *testing.T) {
 	notifyCh := make(chan any, 1)
 	notifyFn := func(msg any) { notifyCh <- msg }
 
-	base := startWorktreeContainerTestServer(t, []container.Container{}, afterUpContainers, wt, notifyFn)
+	base := startWorktreeContainerTestServer(t, initialContainers, afterUpContainers, wt, notifyFn)
 
 	resp, err := http.Post(base+"/api/projects/"+encodedPath+"/worktrees/feature-x/start", "application/json", nil)
 	if err != nil {
@@ -1701,31 +1852,37 @@ func TestHandleStartWorktreeContainer_AC24_BadEncoding(t *testing.T) {
 // TestHandleStartWorktreeContainer_AC25 verifies 409 when container already exists.
 // start-missing-container.AC2.5: 409 when container exists
 func TestHandleStartWorktreeContainer_AC25(t *testing.T) {
+	// Create project directory with proper .devcontainer structure
+	projectPath := setupProjectDirectory(t)
+
 	// Create a temporary directory to act as the worktree
-	tmpDir := t.TempDir()
-	wtPath := tmpDir + "/feature-x"
+	wtPath := filepath.Join(projectPath, "feature-x")
 	if err := os.Mkdir(wtPath, 0755); err != nil {
 		t.Fatalf("mkdir error = %v", err)
 	}
 
-	projectPath := tmpDir
 	encodedPath := base64.URLEncoding.EncodeToString([]byte(projectPath))
 
 	wt := &mockWorktreeOps{
 		wtDir: wtPath,
 	}
 
-	// Container already exists for this worktree
+	// The compose project name is SanitizeComposeName(base(projectPath) + "-" + "feature-x")
+	// For /tmp/xyz, this would be something like "xyz-feature-x"
+	composeName := container.SanitizeComposeName(filepath.Base(projectPath) + "-" + "feature-x")
+
+	// Container already exists for this worktree with matching compose project name
 	existingContainers := []container.Container{
 		{
-			ID:          "existing-container-123",
-			Name:        "myproject-app-1",
-			State:       container.StateRunning,
-			Template:    "go",
-			ProjectPath: wtPath, // Matches the worktree path
-			RemoteUser:  "vscode",
-			CreatedAt:   time.Now().UTC(),
-			Labels:      map[string]string{},
+			ID:             "existing-container-123",
+			Name:           "project-app-1",
+			State:          container.StateRunning,
+			Template:       "default",
+			ProjectPath:    projectPath,
+			ComposeProject: composeName, // Matches the compose project name
+			RemoteUser:     "vscode",
+			CreatedAt:      time.Now().UTC(),
+			Labels:         map[string]string{},
 		},
 	}
 
