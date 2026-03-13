@@ -10,7 +10,6 @@ import (
 
 // mockContainerOps is a mock implementation of ContainerOps for testing.
 type mockContainerOps struct {
-	containers            []*container.Container
 	getByComposeProject   *container.Container // return value for GetByComposeProject
 	stopWithComposeErr    error
 	destroyWithComposeErr error
@@ -19,10 +18,6 @@ type mockContainerOps struct {
 	destroyCalled         bool
 	destroyContainerID    string
 	getByComposeCalled    string // captured compose name argument
-}
-
-func (m *mockContainerOps) List() []*container.Container {
-	return m.containers
 }
 
 func (m *mockContainerOps) GetByComposeProject(composeName string) *container.Container {
@@ -44,14 +39,8 @@ func (m *mockContainerOps) DestroyWithCompose(ctx context.Context, containerID s
 
 // mockWorktreeOps is a mock implementation of WorktreeOps for testing.
 type mockWorktreeOps struct {
-	worktreeDirCalled bool
-	destroyCalled     bool
-	destroyErr        error
-}
-
-func (m *mockWorktreeOps) WorktreeDir(projectPath, name string) string {
-	m.worktreeDirCalled = true
-	return projectPath + "/.worktrees/" + name
+	destroyCalled bool
+	destroyErr    error
 }
 
 func (m *mockWorktreeOps) Destroy(projectPath, name string) error {

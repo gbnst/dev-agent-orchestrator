@@ -12,7 +12,6 @@ import (
 
 // ContainerOps abstracts container operations for testability.
 type ContainerOps interface {
-	List() []*container.Container
 	GetByComposeProject(composeName string) *container.Container
 	StopWithCompose(ctx context.Context, containerID string) error
 	DestroyWithCompose(ctx context.Context, containerID string) error
@@ -20,7 +19,6 @@ type ContainerOps interface {
 
 // WorktreeOps abstracts worktree operations for testability.
 type WorktreeOps interface {
-	WorktreeDir(projectPath, name string) string
 	Destroy(projectPath, name string) error
 }
 
