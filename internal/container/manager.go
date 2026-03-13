@@ -24,7 +24,7 @@ type RuntimeInterface interface {
 	GetIsolationInfo(ctx context.Context, id string) (*IsolationInfo, error)
 
 	// Compose lifecycle operations
-	ComposeUp(ctx context.Context, projectDir string, projectName string) error
+	ComposeUp(ctx context.Context, projectDir string, projectName string, env map[string]string) error
 	ComposeStart(ctx context.Context, projectDir string, projectName string) error
 	ComposeStop(ctx context.Context, projectDir string, projectName string) error
 	ComposeDown(ctx context.Context, projectDir string, projectName string) error

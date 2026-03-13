@@ -462,7 +462,7 @@ func TestComposeUp_Docker(t *testing.T) {
 	}
 
 	r := NewRuntimeWithExecutor("docker", mockExec)
-	err := r.ComposeUp(context.Background(), "/home/user/project", "myproject")
+	err := r.ComposeUp(context.Background(), "/home/user/project", "myproject", nil)
 
 	if err != nil {
 		t.Fatalf("ComposeUp failed: %v", err)
@@ -501,7 +501,7 @@ func TestComposeUp_Podman(t *testing.T) {
 	}
 
 	r := NewRuntimeWithExecutor("podman", mockExec)
-	err := r.ComposeUp(context.Background(), "/home/user/project", "myproject")
+	err := r.ComposeUp(context.Background(), "/home/user/project", "myproject", nil)
 
 	if err != nil {
 		t.Fatalf("ComposeUp failed: %v", err)
@@ -600,7 +600,7 @@ func TestComposeUp_ReturnsError(t *testing.T) {
 	}
 
 	r := NewRuntimeWithExecutor("docker", mockExec)
-	err := r.ComposeUp(context.Background(), "/test", "proj")
+	err := r.ComposeUp(context.Background(), "/test", "proj", nil)
 
 	if err != expectedErr {
 		t.Errorf("Expected error %v, got %v", expectedErr, err)

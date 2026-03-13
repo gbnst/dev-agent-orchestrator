@@ -46,7 +46,9 @@ func (m *apiMockRuntime) GetIsolationInfo(_ context.Context, _ string) (*contain
 	return &container.IsolationInfo{}, nil
 }
 
-func (m *apiMockRuntime) ComposeUp(_ context.Context, _ string, _ string) error    { return nil }
+func (m *apiMockRuntime) ComposeUp(_ context.Context, _ string, _ string, _ map[string]string) error {
+	return nil
+}
 func (m *apiMockRuntime) ComposeStart(_ context.Context, _ string, _ string) error { return nil }
 func (m *apiMockRuntime) ComposeStop(_ context.Context, _ string, _ string) error  { return nil }
 func (m *apiMockRuntime) ComposeDown(_ context.Context, _ string, _ string) error  { return nil }
@@ -87,7 +89,9 @@ func (m *mutationMockRuntime) GetIsolationInfo(_ context.Context, _ string) (*co
 	return &container.IsolationInfo{}, nil
 }
 
-func (m *mutationMockRuntime) ComposeUp(_ context.Context, _ string, _ string) error    { return nil }
+func (m *mutationMockRuntime) ComposeUp(_ context.Context, _ string, _ string, _ map[string]string) error {
+	return nil
+}
 func (m *mutationMockRuntime) ComposeStart(_ context.Context, _ string, _ string) error { return nil }
 func (m *mutationMockRuntime) ComposeStop(_ context.Context, _ string, _ string) error  { return nil }
 func (m *mutationMockRuntime) ComposeDown(_ context.Context, _ string, _ string) error  { return nil }
@@ -1489,7 +1493,7 @@ func (m *startWorktreeContainerMockRuntime) GetIsolationInfo(_ context.Context, 
 	return &container.IsolationInfo{}, nil
 }
 
-func (m *startWorktreeContainerMockRuntime) ComposeUp(_ context.Context, _ string, _ string) error {
+func (m *startWorktreeContainerMockRuntime) ComposeUp(_ context.Context, _ string, _ string, _ map[string]string) error {
 	return nil
 }
 func (m *startWorktreeContainerMockRuntime) ComposeStart(_ context.Context, _ string, _ string) error {

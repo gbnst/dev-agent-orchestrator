@@ -17,8 +17,9 @@ type mockRuntime struct {
 	listErr    error
 
 	// Compose operations
-	composeUpCalled     string // projectDir
-	composeUpProject    string // projectName
+	composeUpCalled     string            // projectDir
+	composeUpProject    string            // projectName
+	composeUpEnv        map[string]string // env vars passed to ComposeUp
 	composeUpErr        error
 	composeStartCalled  string
 	composeStartProject string
@@ -54,9 +55,10 @@ func (m *mockRuntime) GetIsolationInfo(ctx context.Context, id string) (*Isolati
 	return &IsolationInfo{}, nil
 }
 
-func (m *mockRuntime) ComposeUp(ctx context.Context, projectDir string, projectName string) error {
+func (m *mockRuntime) ComposeUp(ctx context.Context, projectDir string, projectName string, env map[string]string) error {
 	m.composeUpCalled = projectDir
 	m.composeUpProject = projectName
+	m.composeUpEnv = env
 	return m.composeUpErr
 }
 
