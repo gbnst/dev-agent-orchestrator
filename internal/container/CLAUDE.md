@@ -1,6 +1,6 @@
 # Container Domain
 
-Last verified: 2026-02-25
+Last verified: 2026-03-13
 
 ## Purpose
 Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker Compose, and tmux session management within containers. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking. Integrates proxy log tailing for real-time HTTP request visibility in TUI.
@@ -47,7 +47,7 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 ## Key Files
 - `manager.go` - Manager struct, compose-based lifecycle operations (CreateWithCompose, StartWithCompose, StopWithCompose, DestroyWithCompose), session management, sidecar lifecycle, GetContainerIsolationInfo()
 - `runtime.go` - RuntimeInterface impl for Docker/Podman CLI: ListContainers, Exec, ExecAs, InspectContainer, GetIsolationInfo, ComposeUp/Start/Stop/Down, GetMounts
-- `compose.go` - ComposeGenerator with buildTemplateData(), validateTemplateData(), processTemplate(); TemplateData (ProjectPath, ProjectName, WorkspaceFolder, ClaudeTokenPath, GitHubTokenPath, TemplateName, ContainerName, ProxyImage, ProxyPort, RemoteUser, ProxyLogPath); ComposeResult (TemplateData only); ComposeOptions
+- `compose.go` - ComposeGenerator with buildTemplateData(), validateTemplateData(), processTemplate(); TemplateData (ProjectPath, ProjectName, WorkspaceFolder, ClaudeTokenPath, GitHubTokenPath, TemplateName, ContainerName, ProxyImage, RemoteUser, ProxyLogPath); ComposeResult (TemplateData only); ComposeOptions
 - `devcontainer.go` - DevcontainerGenerator, GenerateResult (TemplatePath only), DevcontainerCLI; WriteToProject() uses copyTemplateDir() to walk template's .devcontainer/ subtree (processes .tmpl files, copies others); WriteAll() delegates to WriteToProject with ComposeResult.TemplateData
 - `proxy.go` - Mitmproxy utility functions: proxy cert directory management (GetProxyCertDir, GetProxyCACertPath, ProxyCertExists), allowlist parsing from filter script (ReadAllowlistFromFilterScript, parseAllowlistFromScript), CleanupProxyConfigs
 - `types.go` - Container, Session, Sidecar (ID, Name, Type, ParentRef, State), CreateOptions (UseCompose flag), IsolationInfo, MountInfo (with JSON tags for external tool output), DevcontainerJSON (DockerComposeFile, Service, RemoteUser fields), BuildConfig, ProgressStep, ProgressCallback, HashTruncLen, state constants, label constants
