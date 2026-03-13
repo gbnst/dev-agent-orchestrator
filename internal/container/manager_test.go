@@ -383,8 +383,7 @@ volumes:
 		Runtime:   mock,
 	})
 
-	// Manually set the containers map to simulate devCLI.Up() success
-	// This avoids needing a mock CLI - we're testing file generation
+	// Manually set the containers map to simulate ComposeUp success
 	mgr.containers["abc123def456"] = &Container{
 		ID:          "abc123def456",
 		Name:        "test-compose-container",
