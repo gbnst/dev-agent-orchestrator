@@ -3,10 +3,10 @@
 package worktree
 
 import (
+	"devagent/internal/container"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // WriteComposeOverride writes a docker-compose.worktree.yml override file that adds:
@@ -35,17 +35,7 @@ services:
 	return nil
 }
 
-// sanitizeComposeName converts a name to a valid Docker Compose project name.
-// Compose names must be lowercase, alphanumeric with hyphens.
+// sanitizeComposeName delegates to the container package's SanitizeComposeName.
 func sanitizeComposeName(name string) string {
-	name = strings.ToLower(name)
-	name = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			return r
-		}
-		return '-'
-	}, name)
-	// Remove leading/trailing hyphens
-	name = strings.Trim(name, "-")
-	return name
+	return container.SanitizeComposeName(name)
 }

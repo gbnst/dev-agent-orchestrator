@@ -8,6 +8,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // portEnvVarPattern matches Docker Compose variable interpolation in port mappings.
@@ -61,4 +62,18 @@ func findFreePort() (int, error) {
 	}
 	defer listener.Close()
 	return listener.Addr().(*net.TCPAddr).Port, nil
+}
+
+// SanitizeComposeName normalises a name into a valid Docker Compose project name.
+// Lowercase, non-alphanumeric characters replaced with hyphens, trimmed.
+func SanitizeComposeName(name string) string {
+	name = strings.ToLower(name)
+	name = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		return '-'
+	}, name)
+	name = strings.Trim(name, "-")
+	return name
 }
