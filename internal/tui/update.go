@@ -977,7 +977,7 @@ func (m Model) createContainerWithProgress() tea.Cmd {
 
 	// Start container creation in background
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
 		_, err := m.manager.CreateWithCompose(ctx, container.CreateOptions{
@@ -1089,7 +1089,7 @@ func (m Model) createWorktree(projectPath, name string) tea.Cmd {
 // destroyWorktree returns a command to destroy a worktree and its container (if any).
 func (m Model) destroyWorktree(projectPath, name string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		err := worktree.DestroyWorktreeWithContainer(ctx, m.manager, projectPath, name, nil)
 		return worktreeActionMsg{action: "destroy", name: name, projectPath: projectPath, err: err}
@@ -1099,7 +1099,7 @@ func (m Model) destroyWorktree(projectPath, name string) tea.Cmd {
 // startWorktreeContainer returns a command to start a container for a worktree.
 func (m Model) startWorktreeContainer(projectPath, name string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
 		// Determine template — use the project's existing template

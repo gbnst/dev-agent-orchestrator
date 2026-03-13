@@ -750,10 +750,9 @@ func TestCreateWithCompose_CallsComposeUpWithCorrectArgs(t *testing.T) {
 		t.Errorf("Expected ComposeUp with projectDir %q, got %q", projectDir, mock.composeUpCalled)
 	}
 
-	// Verify project name is the sanitized directory name
-	expectedProjectName := SanitizeComposeName(filepath.Base(projectDir))
-	if mock.composeUpProject != expectedProjectName {
-		t.Errorf("Expected ComposeUp with projectName %q, got %q", expectedProjectName, mock.composeUpProject)
+	// Verify project name uses opts.Name when provided
+	if mock.composeUpProject != opts.Name {
+		t.Errorf("Expected ComposeUp with projectName %q, got %q", opts.Name, mock.composeUpProject)
 	}
 
 	// Verify env map was passed (empty or with allocated ports)
@@ -771,7 +770,6 @@ func TestCreateWithCompose_SanitizesProjectName(t *testing.T) {
 	opts := CreateOptions{
 		ProjectPath: projectDir,
 		Template:    "default",
-		Name:        "test",
 	}
 
 	_, err := mgr.CreateWithCompose(ctx, opts)
@@ -779,7 +777,7 @@ func TestCreateWithCompose_SanitizesProjectName(t *testing.T) {
 		t.Fatalf("CreateWithCompose failed: %v", err)
 	}
 
-	// Verify the project name is sanitized
+	// When Name is empty, compose project name is derived from sanitized base dir name
 	baseName := filepath.Base(projectDir)
 	expectedProjectName := SanitizeComposeName(baseName)
 	if mock.composeUpProject != expectedProjectName {
@@ -788,7 +786,7 @@ func TestCreateWithCompose_SanitizesProjectName(t *testing.T) {
 }
 
 // TestCreateWithCompose_SetsComposeProjectField verifies that the returned container
-// has its ComposeProject field set to the sanitized compose project name.
+// has its ComposeProject field set correctly.
 func TestCreateWithCompose_SetsComposeProjectField(t *testing.T) {
 	mgr, _, projectDir := setupCreateWithComposeTest(t)
 
@@ -796,7 +794,7 @@ func TestCreateWithCompose_SetsComposeProjectField(t *testing.T) {
 	opts := CreateOptions{
 		ProjectPath: projectDir,
 		Template:    "default",
-		Name:        "test",
+		Name:        "myproject-feature",
 	}
 
 	container, err := mgr.CreateWithCompose(ctx, opts)
@@ -804,10 +802,9 @@ func TestCreateWithCompose_SetsComposeProjectField(t *testing.T) {
 		t.Fatalf("CreateWithCompose failed: %v", err)
 	}
 
-	// Verify ComposeProject is set
-	expectedComposeProject := SanitizeComposeName(filepath.Base(projectDir))
-	if container.ComposeProject != expectedComposeProject {
-		t.Errorf("Expected container.ComposeProject = %q, got %q", expectedComposeProject, container.ComposeProject)
+	// When Name is provided, it's used directly as compose project name
+	if container.ComposeProject != opts.Name {
+		t.Errorf("Expected container.ComposeProject = %q, got %q", opts.Name, container.ComposeProject)
 	}
 }
 
@@ -970,10 +967,8 @@ func TestCreateWithCompose_WorktreeComposeProjNaming(t *testing.T) {
 		t.Errorf("Expected ComposeUp with projectDir %q, got %q", projectDir, mock.composeUpCalled)
 	}
 
-	// Verify compose project name uses sanitized base directory name
-	baseName := filepath.Base(projectDir)
-	expectedName := SanitizeComposeName(baseName)
-	if mock.composeUpProject != expectedName {
-		t.Errorf("Expected ComposeUp with projectName %q, got %q", expectedName, mock.composeUpProject)
+	// Verify compose project name uses opts.Name directly (caller pre-computes the full name)
+	if mock.composeUpProject != opts.Name {
+		t.Errorf("Expected ComposeUp with projectName %q, got %q", opts.Name, mock.composeUpProject)
 	}
 }

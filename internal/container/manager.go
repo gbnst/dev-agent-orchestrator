@@ -425,8 +425,12 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 		return nil, fmt.Errorf("failed to allocate ports: %w", err)
 	}
 
-	// Determine compose project name using SanitizeComposeName
-	composeName := SanitizeComposeName(filepath.Base(opts.ProjectPath))
+	// Determine compose project name: use opts.Name if provided (e.g. worktree-specific name),
+	// otherwise derive from the project directory base name
+	composeName := opts.Name
+	if composeName == "" {
+		composeName = SanitizeComposeName(filepath.Base(opts.ProjectPath))
+	}
 
 	reportProgress("container", "started", "Starting devcontainer")
 
