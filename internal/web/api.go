@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -22,14 +23,16 @@ import (
 
 // ContainerResponse is the JSON representation of a container.
 type ContainerResponse struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	State       string            `json:"state"`
-	Template    string            `json:"template"`
-	ProjectPath string            `json:"project_path"`
-	RemoteUser  string            `json:"remote_user"`
-	CreatedAt   time.Time         `json:"created_at"`
-	Sessions    []SessionResponse `json:"sessions"`
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	State          string            `json:"state"`
+	Template       string            `json:"template"`
+	ProjectPath    string            `json:"project_path"`
+	RemoteUser     string            `json:"remote_user"`
+	ComposeProject string            `json:"compose_project"`
+	Ports          map[string]string `json:"ports"`
+	CreatedAt      time.Time         `json:"created_at"`
+	Sessions       []SessionResponse `json:"sessions"`
 }
 
 // SessionResponse is the JSON representation of a tmux session.
@@ -67,14 +70,20 @@ type ProjectsListResponse struct {
 // sessions if the container is running.
 func (s *Server) buildContainerResponse(ctx context.Context, c *container.Container) ContainerResponse {
 	resp := ContainerResponse{
-		ID:          c.ID,
-		Name:        c.Name,
-		State:       string(c.State),
-		Template:    c.Template,
-		ProjectPath: c.ProjectPath,
-		RemoteUser:  c.RemoteUser,
-		CreatedAt:   c.CreatedAt,
-		Sessions:    []SessionResponse{},
+		ID:             c.ID,
+		Name:           c.Name,
+		State:          string(c.State),
+		Template:       c.Template,
+		ProjectPath:    c.ProjectPath,
+		RemoteUser:     c.RemoteUser,
+		ComposeProject: c.ComposeProject,
+		CreatedAt:      c.CreatedAt,
+		Sessions:       []SessionResponse{},
+	}
+
+	resp.Ports = c.Ports
+	if resp.Ports == nil {
+		resp.Ports = make(map[string]string) // ensure JSON serializes as {} not null
 	}
 
 	if c.IsRunning() {
@@ -362,20 +371,26 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 
 	if !req.NoStart {
 		// Auto-start container for the new worktree
-		containerID, err := s.manager.StartWorktreeContainer(r.Context(), wtPath)
+		opts := container.CreateOptions{
+			ProjectPath: projectPath, // project root from URL param
+			Template:    s.findProjectTemplate(projectPath),
+			Name:        container.SanitizeComposeName(filepath.Base(projectPath) + "-" + req.Name),
+		}
+		c, err := s.manager.CreateWithCompose(r.Context(), opts)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "worktree created but failed to start container: "+err.Error())
 			return
 		}
 
 		if s.notifyTUI != nil {
-			s.notifyTUI(events.WebSessionActionMsg{ContainerID: containerID})
+			s.notifyTUI(events.WebSessionActionMsg{ContainerID: c.ID})
 		}
 
 		writeJSON(w, http.StatusCreated, map[string]any{
-			"name":         req.Name,
-			"path":         wtPath,
-			"container_id": containerID,
+			"name":            req.Name,
+			"path":            wtPath,
+			"container_id":    c.ID,
+			"compose_project": c.ComposeProject,
 		})
 	} else {
 		// Return response without container_id
@@ -432,16 +447,20 @@ func (s *Server) handleStartWorktreeContainer(w http.ResponseWriter, r *http.Req
 		wtPath = projectPath
 	}
 
-	// Check if a container already exists for this worktree
-	for _, c := range s.manager.List() {
-		if c.ProjectPath == wtPath {
-			writeError(w, http.StatusConflict, "worktree already has a container")
-			return
-		}
+	// Check if a container already exists for this worktree by compose project name
+	composeName := container.SanitizeComposeName(filepath.Base(projectPath) + "-" + name)
+	if existing := s.manager.GetByComposeProject(composeName); existing != nil {
+		writeError(w, http.StatusConflict, "worktree already has a container")
+		return
 	}
 
-	// Start container via devcontainer up
-	containerID, err := s.manager.StartWorktreeContainer(r.Context(), wtPath)
+	// Create container via CreateWithCompose
+	opts := container.CreateOptions{
+		ProjectPath: projectPath, // project root, NOT wtPath
+		Template:    s.findProjectTemplate(projectPath),
+		Name:        composeName,
+	}
+	c, err := s.manager.CreateWithCompose(r.Context(), opts)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to start worktree container: "+err.Error())
 		return
@@ -449,18 +468,7 @@ func (s *Server) handleStartWorktreeContainer(w http.ResponseWriter, r *http.Req
 
 	// Notify TUI
 	if s.notifyTUI != nil {
-		s.notifyTUI(events.WebSessionActionMsg{ContainerID: containerID})
-	}
-
-	// Build container response
-	c, ok := s.manager.GetByNameOrID(containerID)
-	if !ok {
-		// Container was created but not found after refresh — return minimal response
-		writeJSON(w, http.StatusCreated, map[string]any{
-			"id":   containerID,
-			"name": name,
-		})
-		return
+		s.notifyTUI(events.WebSessionActionMsg{ContainerID: c.ID})
 	}
 
 	writeJSON(w, http.StatusCreated, s.buildContainerResponse(r.Context(), c))
@@ -719,4 +727,18 @@ func (s *Server) buildProjectResponses(ctx context.Context, projects []discovery
 		Projects:  result,
 		Unmatched: unmatched,
 	}
+}
+
+// findProjectTemplate finds the template name used by existing containers for a project.
+// Falls back to "basic" if no existing containers found.
+// Note: After compose root launch, worktree containers share the project root as ProjectPath,
+// so this correctly matches. During transition, legacy containers with worktree paths won't
+// match, but the "basic" fallback is safe.
+func (s *Server) findProjectTemplate(projectPath string) string {
+	for _, c := range s.manager.List() {
+		if c.ProjectPath == projectPath {
+			return c.Template
+		}
+	}
+	return "basic"
 }

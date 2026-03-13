@@ -1305,13 +1305,6 @@ func TestHandleCreateWorktree_NoStart(t *testing.T) {
 	encodedPath := base64.URLEncoding.EncodeToString([]byte(projectPath))
 	wtPath := "/home/user/myproject/.git/worktrees/feature-x"
 
-	// Track whether the devcontainer executor was called
-	executorCalls := 0
-	executorFunc := func(ctx context.Context, name string, args ...string) (string, error) {
-		executorCalls++
-		return `{"containerId":"mock-container-abc123"}`, nil
-	}
-
 	wt := &mockWorktreeOps{
 		createPath: wtPath,
 	}
@@ -1366,11 +1359,6 @@ func TestHandleCreateWorktree_NoStart(t *testing.T) {
 	checkStringField(t, body, "path", wtPath)
 	if _, hasContainerID := body["container_id"]; hasContainerID {
 		t.Errorf("response should not have container_id when no_start=true, but it does")
-	}
-
-	// Verify that the devcontainer executor was NOT called
-	if executorCalls > 0 {
-		t.Errorf("devcontainer executor should not be called when no_start=true, but was called %d times", executorCalls)
 	}
 }
 
