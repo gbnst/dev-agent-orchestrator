@@ -733,17 +733,18 @@ func TestHandleDestroySession_GH17AC24(t *testing.T) {
 // TestHandleGetProjects_AC11 verifies GET /api/projects returns projects with worktrees and nested containers matched by path.
 // web-lifecycle-ops.AC1.1 Success: GET /api/projects returns projects with worktrees and nested container data when container.ProjectPath matches worktree.Path
 func TestHandleGetProjects_AC11(t *testing.T) {
-	// Create a container with ProjectPath matching a project path
+	// Create a container with ComposeProject matching the expected compose name for the project
 	projectPath := "/home/user/project1"
 	containers := []container.Container{
 		{
-			ID:          "container1",
-			Name:        "devcontainer",
-			State:       container.StateRunning,
-			Template:    "template1",
-			ProjectPath: projectPath,
-			RemoteUser:  "user",
-			CreatedAt:   time.Now(),
+			ID:             "container1",
+			Name:           "devcontainer",
+			State:          container.StateRunning,
+			Template:       "template1",
+			ProjectPath:    projectPath,
+			ComposeProject: container.SanitizeComposeName("project1"),
+			RemoteUser:     "user",
+			CreatedAt:      time.Now(),
 		},
 	}
 
@@ -817,16 +818,17 @@ func TestHandleGetProjects_AC12(t *testing.T) {
 	projectPath := "/home/user/project2"
 	linkedWorktreePath := "/home/user/project2/.worktrees/feature"
 
-	// Create a container for the linked worktree
+	// Create a container for the linked worktree (matched by compose project name)
 	containers := []container.Container{
 		{
-			ID:          "container2",
-			Name:        "feature-container",
-			State:       container.StateRunning,
-			Template:    "template1",
-			ProjectPath: linkedWorktreePath,
-			RemoteUser:  "user",
-			CreatedAt:   time.Now(),
+			ID:             "container2",
+			Name:           "feature-container",
+			State:          container.StateRunning,
+			Template:       "template1",
+			ProjectPath:    projectPath,
+			ComposeProject: container.SanitizeComposeName("project2-feature"),
+			RemoteUser:     "user",
+			CreatedAt:      time.Now(),
 		},
 	}
 

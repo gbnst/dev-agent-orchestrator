@@ -847,9 +847,9 @@ func TestRebuildTreeItems_WithProjectsCreatesProjectGroups(t *testing.T) {
 	m.discoveredProjects = []discovery.DiscoveredProject{project1, project2}
 	m.expandedProjects = make(map[string]bool)
 
-	// Set up containers matching projects
-	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
-	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1/feature-x"}
+	// Set up containers matching projects (matched by compose project name)
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1", ComposeProject: container.SanitizeComposeName("proj1")}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1", ComposeProject: container.SanitizeComposeName("proj1-feature-x")}
 	items := []list.Item{
 		containerItem{container: c1},
 		containerItem{container: c2},
@@ -945,7 +945,7 @@ func TestRebuildTreeItems_OtherGroupCollectsUnmatchedContainers(t *testing.T) {
 	m.expandedProjects = make(map[string]bool)
 
 	// Set up containers: one matching project, one unmatched
-	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1", ComposeProject: container.SanitizeComposeName("proj1")}
 	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/other/path"}
 	items := []list.Item{
 		containerItem{container: c1},
@@ -993,8 +993,8 @@ func TestRebuildTreeItems_OtherGroupOmittedWhenAllContainersMatched(t *testing.T
 	m.expandedProjects = make(map[string]bool)
 
 	// Set up containers all matching project
-	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
-	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1"}
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1", ComposeProject: container.SanitizeComposeName("proj1")}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1", ComposeProject: container.SanitizeComposeName("proj1")}
 	items := []list.Item{
 		containerItem{container: c1},
 		containerItem{container: c2},
@@ -1023,7 +1023,7 @@ func TestRebuildTreeItems_ProjectExpansionToggle(t *testing.T) {
 	m.discoveredProjects = []discovery.DiscoveredProject{project1}
 	m.expandedProjects = make(map[string]bool)
 
-	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1", ComposeProject: container.SanitizeComposeName("proj1")}
 	items := []list.Item{containerItem{container: c1}}
 	m.containerList.SetItems(items)
 
@@ -1075,9 +1075,10 @@ func TestRebuildTreeItems_ContainerExpansionUnderWorktree(t *testing.T) {
 
 	// Container under worktree with session
 	c1 := &container.Container{
-		ID:          "c1",
-		Name:        "container-1",
-		ProjectPath: "/projects/proj1/feature-x",
+		ID:             "c1",
+		Name:           "container-1",
+		ProjectPath:    "/projects/proj1/feature-x",
+		ComposeProject: container.SanitizeComposeName("proj1-feature-x"),
 		Sessions: []tmux.Session{
 			{Name: "dev", ContainerID: "c1"},
 			{Name: "test", ContainerID: "c1"},
@@ -1128,7 +1129,7 @@ func TestToggleTreeExpand_ProjectExpansion(t *testing.T) {
 	m.discoveredProjects = []discovery.DiscoveredProject{project1}
 	m.expandedProjects = make(map[string]bool)
 
-	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1", ComposeProject: container.SanitizeComposeName("proj1")}
 	items := []list.Item{containerItem{container: c1}}
 	m.containerList.SetItems(items)
 
@@ -1161,7 +1162,7 @@ func TestToggleTreeExpand_OtherGroupExpansion(t *testing.T) {
 	m.expandedProjects = make(map[string]bool)
 
 	// One matched, one unmatched
-	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1", ComposeProject: container.SanitizeComposeName("proj1")}
 	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/other"}
 	items := []list.Item{
 		containerItem{container: c1},
@@ -1259,9 +1260,9 @@ func TestFindContainersForProject_IncludesMainAndWorktrees(t *testing.T) {
 	}
 
 	// Containers in main and worktrees
-	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
-	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1/feature"}
-	c3 := &container.Container{ID: "c3", Name: "container-3", ProjectPath: "/projects/proj1/bugfix"}
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1", ComposeProject: container.SanitizeComposeName("proj1")}
+	c2 := &container.Container{ID: "c2", Name: "container-2", ProjectPath: "/projects/proj1/feature", ComposeProject: container.SanitizeComposeName("proj1-feature")}
+	c3 := &container.Container{ID: "c3", Name: "container-3", ProjectPath: "/projects/proj1/bugfix", ComposeProject: container.SanitizeComposeName("proj1-bugfix")}
 	items := []list.Item{
 		containerItem{container: c1},
 		containerItem{container: c2},
@@ -1298,7 +1299,7 @@ func TestSyncSelection_ProjectNodeClearsSelectedContainer(t *testing.T) {
 	m.expandedProjects = make(map[string]bool)
 	m.expandedProjects["/projects/proj1"] = true
 
-	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1"}
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1", ComposeProject: container.SanitizeComposeName("proj1")}
 	items := []list.Item{containerItem{container: c1}}
 	m.containerList.SetItems(items)
 
@@ -1346,7 +1347,7 @@ func TestSyncSelection_WorktreeNodeClearsSelectedContainer(t *testing.T) {
 	m.expandedProjects["/projects/proj1"] = true
 
 	// Container under worktree
-	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1/feature"}
+	c1 := &container.Container{ID: "c1", Name: "container-1", ProjectPath: "/projects/proj1/feature", ComposeProject: container.SanitizeComposeName("proj1-feature")}
 	items := []list.Item{containerItem{container: c1}}
 	m.containerList.SetItems(items)
 

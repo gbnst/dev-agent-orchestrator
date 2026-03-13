@@ -654,20 +654,22 @@ func (s *Server) handleGetProjects(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// buildProjectResponses assembles ProjectsListResponse by matching containers to worktrees by path.
+// buildProjectResponses assembles ProjectsListResponse by matching containers to worktrees.
+// Matching uses compose project names, which encode the project+worktree relationship
+// (e.g., "myproject" for main, "myproject-feature" for a worktree named "feature").
 // Containers not matched to any project worktree appear in the Unmatched list.
 func (s *Server) buildProjectResponses(ctx context.Context, projects []discovery.DiscoveredProject, containers []*container.Container) ProjectsListResponse {
-	// Index containers by ProjectPath for O(1) lookup.
-	// When multiple containers share the same path, prefer running ones.
-	containersByPath := make(map[string]*container.Container, len(containers))
+	// Index containers by ComposeProject name for O(1) lookup.
+	// When multiple containers share the same compose project, prefer running ones.
+	containersByCompose := make(map[string]*container.Container, len(containers))
 	matched := make(map[string]bool, len(containers))
 	for _, c := range containers {
-		if c.ProjectPath == "" {
+		if c.ComposeProject == "" {
 			continue
 		}
-		existing, exists := containersByPath[c.ProjectPath]
+		existing, exists := containersByCompose[c.ComposeProject]
 		if !exists || (c.IsRunning() && !existing.IsRunning()) {
-			containersByPath[c.ProjectPath] = c
+			containersByCompose[c.ComposeProject] = c
 		}
 	}
 
@@ -681,13 +683,16 @@ func (s *Server) buildProjectResponses(ctx context.Context, projects []discovery
 			Worktrees:   make([]WorktreeResponse, 0, len(proj.Worktrees)+1),
 		}
 
+		projBase := filepath.Base(proj.Path)
+
 		// Main worktree (the project root itself)
+		mainCompose := container.SanitizeComposeName(projBase)
 		mainWR := WorktreeResponse{
 			Name:   "main",
 			Path:   proj.Path,
 			IsMain: true,
 		}
-		if c, ok := containersByPath[proj.Path]; ok {
+		if c, ok := containersByCompose[mainCompose]; ok {
 			resp := s.buildContainerResponse(ctx, c)
 			mainWR.Container = &resp
 			matched[c.ID] = true
@@ -696,12 +701,13 @@ func (s *Server) buildProjectResponses(ctx context.Context, projects []discovery
 
 		// Linked worktrees
 		for _, wt := range proj.Worktrees {
+			wtCompose := container.SanitizeComposeName(projBase + "-" + wt.Name)
 			wr := WorktreeResponse{
 				Name:   wt.Name,
 				Path:   wt.Path,
 				IsMain: false,
 			}
-			if c, ok := containersByPath[wt.Path]; ok {
+			if c, ok := containersByCompose[wtCompose]; ok {
 				resp := s.buildContainerResponse(ctx, c)
 				wr.Container = &resp
 				matched[c.ID] = true
