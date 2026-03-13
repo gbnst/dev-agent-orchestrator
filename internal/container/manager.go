@@ -392,17 +392,19 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 	}
 
 	reportProgress("compose", "completed", "Compose configuration generated")
-	reportProgress("files", "started", "Writing configuration files")
 
-	// Write template files to project
-	if err := m.composeGenerator.WriteToProject(opts.ProjectPath, opts.Template, composeResult.TemplateData); err != nil {
-		return nil, fmt.Errorf("failed to write template files: %w", err)
-	}
-
-	reportProgress("files", "completed", "Configuration files written")
-
-	// Verify compose file exists (AC1.4: graceful failure when missing)
+	// Only write template files if the project doesn't already have a compose file.
+	// Projects with their own .devcontainer/ setup should not be overwritten.
 	composeFilePath := filepath.Join(opts.ProjectPath, ".devcontainer", "docker-compose.yml")
+	if _, err := os.Stat(composeFilePath); os.IsNotExist(err) {
+		reportProgress("files", "started", "Writing configuration files")
+
+		if err := m.composeGenerator.WriteToProject(opts.ProjectPath, opts.Template, composeResult.TemplateData); err != nil {
+			return nil, fmt.Errorf("failed to write template files: %w", err)
+		}
+
+		reportProgress("files", "completed", "Configuration files written")
+	}
 	if _, err := os.Stat(composeFilePath); err != nil {
 		// Format error message to include filename for clarity
 		if os.IsNotExist(err) {
