@@ -4,8 +4,10 @@ package container
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"regexp"
+	"strconv"
 )
 
 // portEnvVarPattern matches Docker Compose variable interpolation in port mappings.
@@ -34,4 +36,29 @@ func parsePortEnvVarsFromContent(content string) map[string]string {
 		result[varName] = defaultVal
 	}
 	return result
+}
+
+// AllocateFreePorts finds free TCP ports on the host for each port variable.
+// Takes a map of env var name to default value (from ParsePortEnvVars) and returns
+// a map of env var name to allocated free port as string.
+func AllocateFreePorts(portVars map[string]string) (map[string]string, error) {
+	result := make(map[string]string, len(portVars))
+	for varName := range portVars {
+		port, err := findFreePort()
+		if err != nil {
+			return nil, fmt.Errorf("failed to allocate port for %s: %w", varName, err)
+		}
+		result[varName] = strconv.Itoa(port)
+	}
+	return result, nil
+}
+
+// findFreePort asks the OS for a free TCP port by binding to :0.
+func findFreePort() (int, error) {
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return 0, fmt.Errorf("failed to find free port: %w", err)
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port, nil
 }
