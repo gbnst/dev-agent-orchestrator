@@ -373,7 +373,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		// Auto-start container for the new worktree
 		opts := container.CreateOptions{
 			ProjectPath: projectPath, // project root from URL param
-			Template:    s.findProjectTemplate(projectPath),
+			Template:    container.FindTemplateForProject(s.manager.List(), projectPath),
 			Name:        container.SanitizeComposeName(filepath.Base(projectPath) + "-" + req.Name),
 		}
 		c, err := s.manager.CreateWithCompose(r.Context(), opts)
@@ -457,7 +457,7 @@ func (s *Server) handleStartWorktreeContainer(w http.ResponseWriter, r *http.Req
 	// Create container via CreateWithCompose
 	opts := container.CreateOptions{
 		ProjectPath: projectPath, // project root, NOT wtPath
-		Template:    s.findProjectTemplate(projectPath),
+		Template:    container.FindTemplateForProject(s.manager.List(), projectPath),
 		Name:        composeName,
 	}
 	c, err := s.manager.CreateWithCompose(r.Context(), opts)
@@ -727,18 +727,4 @@ func (s *Server) buildProjectResponses(ctx context.Context, projects []discovery
 		Projects:  result,
 		Unmatched: unmatched,
 	}
-}
-
-// findProjectTemplate finds the template name used by existing containers for a project.
-// Falls back to "basic" if no existing containers found.
-// Note: After compose root launch, worktree containers share the project root as ProjectPath,
-// so this correctly matches. During transition, legacy containers with worktree paths won't
-// match, but the "basic" fallback is safe.
-func (s *Server) findProjectTemplate(projectPath string) string {
-	for _, c := range s.manager.List() {
-		if c.ProjectPath == projectPath {
-			return c.Template
-		}
-	}
-	return "basic"
 }

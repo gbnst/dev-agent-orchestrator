@@ -147,3 +147,17 @@ type MountInfo struct {
 	Destination string `json:"destination"` // Container path
 	ReadOnly    bool   `json:"read_only"`
 }
+
+// FindTemplateForProject finds the template name used by existing containers for a project.
+// Falls back to "basic" if no existing containers found.
+// Note: After compose root launch, worktree containers share the project root as ProjectPath,
+// so this correctly matches. During transition, legacy containers with worktree paths won't
+// match, but the "basic" fallback is safe.
+func FindTemplateForProject(containers []*Container, projectPath string) string {
+	for _, c := range containers {
+		if c.ProjectPath == projectPath {
+			return c.Template
+		}
+	}
+	return "basic"
+}

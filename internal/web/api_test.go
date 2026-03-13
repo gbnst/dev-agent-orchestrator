@@ -123,13 +123,12 @@ func (m *mockWorktreeOps) WorktreeDir(projectPath, name string) string {
 	return m.wtDir
 }
 
-// startWorktreeTestServer creates a test server with a configurable mock worktreeOps.
-// The server is set up with proper Config and Templates so that CreateWithCompose works.
-func startWorktreeTestServer(t *testing.T, containers []container.Container, wt *mockWorktreeOps, notifyTUI func(any)) string {
+// createTestTemplateDir creates a temporary template directory with minimal .devcontainer structure
+// for ComposeGenerator tests. Returns a config.Config and slice of config.Template ready for use
+// in container.NewManager.
+func createTestTemplateDir(t *testing.T) (*config.Config, []config.Template) {
 	t.Helper()
-	runtime := &mutationMockRuntime{containers: containers}
 
-	// Create template directory with minimal .devcontainer structure for ComposeGenerator
 	templateDir := t.TempDir()
 	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
 	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
@@ -156,9 +155,18 @@ services:
 		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
 	}
 
-	// Create Config and Templates for ComposeGenerator
 	cfg := &config.Config{}
 	templates := []config.Template{{Name: "default", Path: templateDir}}
+	return cfg, templates
+}
+
+// startWorktreeTestServer creates a test server with a configurable mock worktreeOps.
+// The server is set up with proper Config and Templates so that CreateWithCompose works.
+func startWorktreeTestServer(t *testing.T, containers []container.Container, wt *mockWorktreeOps, notifyTUI func(any)) string {
+	t.Helper()
+	runtime := &mutationMockRuntime{containers: containers}
+
+	cfg, templates := createTestTemplateDir(t)
 
 	mgr := container.NewManager(container.ManagerOptions{
 		Config:    cfg,
@@ -1363,7 +1371,7 @@ func TestHandleCreateWorktree_NoStart(t *testing.T) {
 		createPath: wtPath,
 	}
 
-	// Create a test server with the tracking executor
+	// Create a test server (no_start=true, no compose needed)
 	t.Helper()
 	runtime := &mutationMockRuntime{containers: []container.Container{}}
 
@@ -1584,36 +1592,7 @@ func startWorktreeContainerTestServer(
 		outputsByCmd:      make(map[string]string),
 	}
 
-	// Create template directory with minimal .devcontainer structure for ComposeGenerator
-	templateDir := t.TempDir()
-	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
-	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
-		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
-	}
-
-	// Write minimal docker-compose.yml.tmpl
-	tmplContent := `version: "3.8"
-services:
-  app:
-    image: ubuntu:22.04
-`
-	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
-		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
-	}
-
-	// Write minimal devcontainer.json.tmpl
-	devcontainerTmpl := `{
-  "name": "test",
-  "image": "ubuntu:22.04"
-}
-`
-	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
-		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
-	}
-
-	// Create Config and Templates for ComposeGenerator
-	cfg := &config.Config{}
-	templates := []config.Template{{Name: "default", Path: templateDir}}
+	cfg, templates := createTestTemplateDir(t)
 
 	mgr := container.NewManager(container.ManagerOptions{
 		Config:    cfg,
