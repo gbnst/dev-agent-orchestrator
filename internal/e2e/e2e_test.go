@@ -18,7 +18,6 @@ import (
 // testCreateContainer tests creating a container with the specified runtime.
 func testCreateContainer(t *testing.T, runtime string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
@@ -84,7 +83,6 @@ func testCreateContainer(t *testing.T, runtime string) {
 // testStartStopContainer tests starting and stopping a container.
 func testStartStopContainer(t *testing.T, runtime string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
@@ -173,7 +171,6 @@ func testStartStopContainer(t *testing.T, runtime string) {
 // testDestroyContainer tests destroying a container.
 func testDestroyContainer(t *testing.T, runtime string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
@@ -234,7 +231,6 @@ func testDestroyContainer(t *testing.T, runtime string) {
 // testCreateTmuxSession tests creating a tmux session inside a container.
 func testCreateTmuxSession(t *testing.T, runtime string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
@@ -319,7 +315,6 @@ func testCreateTmuxSession(t *testing.T, runtime string) {
 // testKillTmuxSession tests killing a tmux session inside a container.
 func testKillTmuxSession(t *testing.T, runtime string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
@@ -388,7 +383,6 @@ func testKillTmuxSession(t *testing.T, runtime string) {
 // testTmuxAttachCommand tests that the attach command is correctly generated.
 func testTmuxAttachCommand(t *testing.T, runtime string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()

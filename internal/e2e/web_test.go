@@ -34,7 +34,6 @@ func TestDockerWebContainerAPI(t *testing.T) {
 
 func testWebContainerAPI(t *testing.T, runtime string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
@@ -228,7 +227,6 @@ func TestDockerWebTerminal(t *testing.T) {
 
 func testWebTerminal(t *testing.T, runtime string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()

@@ -132,12 +132,8 @@ func startWorktreeTestServer(t *testing.T, containers []container.Container, wt 
 	t.Helper()
 	runtime := &mutationMockRuntime{containers: containers}
 
-	// Create DevcontainerCLI with mock executor to avoid actual container creation
-	devCLI := container.NewDevcontainerCLIWithExecutor(mockCommandExecutor)
-
 	mgr := container.NewManager(container.ManagerOptions{
 		Runtime: runtime,
-		DevCLI:  devCLI,
 	})
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager.Refresh() error = %v", err)
@@ -1324,12 +1320,8 @@ func TestHandleCreateWorktree_NoStart(t *testing.T) {
 	t.Helper()
 	runtime := &mutationMockRuntime{containers: []container.Container{}}
 
-	// Create DevcontainerCLI with tracking executor
-	devCLI := container.NewDevcontainerCLIWithExecutor(executorFunc)
-
 	mgr := container.NewManager(container.ManagerOptions{
 		Runtime: runtime,
-		DevCLI:  devCLI,
 	})
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager.Refresh() error = %v", err)
@@ -1522,12 +1514,8 @@ func startWorktreeContainerTestServer(
 		outputsByCmd:      make(map[string]string),
 	}
 
-	// Create DevcontainerCLI with mock executor
-	devCLI := container.NewDevcontainerCLIWithExecutor(mockCommandExecutor)
-
 	mgr := container.NewManager(container.ManagerOptions{
 		Runtime: runtime,
-		DevCLI:  devCLI,
 	})
 	if err := mgr.Refresh(context.Background()); err != nil {
 		t.Fatalf("manager.Refresh() error = %v", err)
