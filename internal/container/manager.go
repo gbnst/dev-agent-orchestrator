@@ -358,7 +358,6 @@ func (m *Manager) GetByNameOrID(ref string) (*Container, bool) {
 }
 
 // GetByComposeProject returns the container with the given compose project name, or nil.
-// pattern: Functional Core
 func (m *Manager) GetByComposeProject(composeName string) *Container {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
