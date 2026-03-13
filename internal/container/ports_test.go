@@ -133,10 +133,6 @@ func TestAllocateFreePorts(t *testing.T) {
 			if port <= 0 || port > 65535 {
 				t.Errorf("allocated port for %s is out of valid range: %d", varName, port)
 			}
-			defaultPort, _ := strconv.Atoi(portVars[varName])
-			// Port should differ from default (not strictly required, but highly likely)
-			// We just verify it's a valid port number
-			_ = defaultPort
 		}
 	})
 
