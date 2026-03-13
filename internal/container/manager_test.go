@@ -725,6 +725,10 @@ services:
 		Runtime:   mock,
 	})
 
+	// Set XDG_DATA_HOME so getDataDir() uses a writable temp directory
+	// instead of $HOME (which may not exist in sandboxed builds like nix).
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
 	return mgr, mock, projectDir
 }
 
