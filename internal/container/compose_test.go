@@ -627,3 +627,70 @@ func TestComposeGenerator_WriteToProject_UnknownTemplate(t *testing.T) {
 		t.Errorf("Unexpected error message: %v", err)
 	}
 }
+
+// TestComposeGenerator_TemplateRenderingNoProxyPort verifies that rendered templates
+// contain literal 8080 for proxy port (not template variables) and don't reference
+// docker-compose.worktree.yml. This tests compose-root-launch.AC5.1 and AC5.2.
+func TestComposeGenerator_TemplateRenderingNoProxyPort(t *testing.T) {
+	templates := loadTestTemplates(t, "basic")
+
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
+
+	opts := ComposeOptions{
+		ProjectPath: "/home/user/test-project",
+		Template:    "basic",
+		Name:        "test-basic",
+	}
+
+	result, err := gen.Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// Render docker-compose.yml.tmpl
+	tmpl := templates[0]
+	composeYAML, err := processTemplate(filepath.Join(tmpl.Path, ".devcontainer", "docker-compose.yml.tmpl"), result.TemplateData)
+	if err != nil {
+		t.Fatalf("processTemplate for docker-compose.yml.tmpl failed: %v", err)
+	}
+
+	// Verify compose-root-launch.AC5.1: Rendered template contains literal 8080
+	if !strings.Contains(composeYAML, "http_proxy=http://proxy:8080") {
+		t.Error("ComposeYAML missing literal http_proxy=http://proxy:8080")
+	}
+	if !strings.Contains(composeYAML, "https_proxy=http://proxy:8080") {
+		t.Error("ComposeYAML missing literal https_proxy=http://proxy:8080")
+	}
+	if !strings.Contains(composeYAML, `"8080"`) {
+		t.Error("ComposeYAML missing literal proxy port 8080")
+	}
+
+	// Verify no template variable remains
+	if strings.Contains(composeYAML, "{{.ProxyPort}}") {
+		t.Error("ComposeYAML should not contain {{.ProxyPort}} template variable")
+	}
+
+	// Verify compose-root-launch.AC5.2: No reference to docker-compose.worktree.yml
+	if strings.Contains(composeYAML, "docker-compose.worktree.yml") {
+		t.Error("ComposeYAML should not reference docker-compose.worktree.yml")
+	}
+
+	// Also test devcontainer.json.tmpl if it exists
+	devcontainerPath := filepath.Join(tmpl.Path, ".devcontainer", "devcontainer.json.tmpl")
+	if _, err := os.Stat(devcontainerPath); err == nil {
+		devcontainerJSON, err := processTemplate(devcontainerPath, result.TemplateData)
+		if err != nil {
+			t.Fatalf("processTemplate for devcontainer.json.tmpl failed: %v", err)
+		}
+
+		// Verify AC5.2: devcontainer.json doesn't reference worktree override file
+		if strings.Contains(devcontainerJSON, "docker-compose.worktree.yml") {
+			t.Error("devcontainer.json should not reference docker-compose.worktree.yml")
+		}
+
+		// Verify it references only docker-compose.yml
+		if !strings.Contains(devcontainerJSON, "docker-compose.yml") {
+			t.Error("devcontainer.json should reference docker-compose.yml")
+		}
+	}
+}
