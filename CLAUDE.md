@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-02-25
+Last verified: 2026-03-13
 
 ## CLI Commands
 - `devagent` - Launch interactive TUI (default, no arguments)
@@ -20,8 +20,7 @@ Last verified: 2026-02-25
 - TUI: Bubbletea + Bubbles + Lipgloss
 - Logging: Zap + Lumberjack (file rotation)
 - Container Runtime: Docker or Podman (auto-detected)
-- Orchestration: Docker Compose (all containers created via compose)
-- Devcontainers: @devcontainers/cli
+- Orchestration: Docker Compose (direct invocation, all containers created via compose)
 - Network Isolation: mitmproxy (sidecar container with domain allowlist)
 - Web UI: React + Vite + TypeScript + Tailwind (embedded SPA)
 - Tailscale Exposure: tsnsrv (optional, proxies web UI onto tailnet)

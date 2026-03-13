@@ -1,12 +1,13 @@
 # Web Domain
 
-Last verified: 2026-02-25
+Last verified: 2026-03-13
 
 ## Purpose
 HTTP/WebSocket server providing a REST API and embedded React SPA for managing containers and terminal sessions from a browser.
 
 ## Contracts
 - **Exposes**: `Server`, `New()`, `Config`, `ContainerResponse`, `SessionResponse`, `CreateSessionRequest`, `SendKeysRequest`, `ProjectResponse`, `WorktreeResponse`, `ProjectsListResponse`, `CreateWorktreeRequest`, `ResizeMessage`
+- **ContainerResponse fields**: ID, Name, State, Template, ProjectPath, RemoteUser, ComposeProject, Ports (map[string]string), CreatedAt, Sessions. ComposeProject is the Docker Compose project name; Ports is a map of service names to allocated host ports (e.g., {"app": "8000", "proxy": "8001"}).
 - **Guarantees**: API responses are JSON. All mutations (session, container lifecycle, worktree) notify TUI via `p.Send(WebSessionActionMsg{})`. Frontend SPA is embedded via `//go:embed` and served with SPA fallback (unknown paths serve index.html). WebSocket terminal bridges PTY I/O to tmux sessions with resize support. Server disabled by default (port 0). Manager state changes push SSE "refresh" events to all connected browsers via `eventBroker`; frontend auto-refetches on each event. Host tmux sessions are managed directly via `os/exec` (no container runtime needed); host mutations use sentinel container ID `__host__` for TUI notifications. Container lifecycle endpoints (start/stop/destroy) delegate to Manager's compose operations. All container endpoints resolve `{id}` by name or ID via `Manager.GetByNameOrID`. Worktree create auto-starts a container unless `no_start: true`; worktree start creates a container for an existing containerless worktree (409 if container exists); worktree delete performs compound stop+destroy+remove. Session names validated against `^[a-zA-Z0-9_-]+$` regex in all create/destroy endpoints (host and container). Project-container matching prefers running containers when multiple share the same ProjectPath. Frontend wrapped in ErrorBoundary to prevent blank screen on render errors.
 - **Expects**: Valid `container.Manager`, `logging.LoggerProvider`, `func(tea.Msg)` for TUI notifications, and optional `func(context.Context) []discovery.DiscoveredProject` scanner for project discovery. Frontend must be built before Go binary (`make frontend-build`). Host session endpoints require `tmux` installed on the host (gracefully degrade to empty list if tmux is unavailable). If scanner is nil, `/api/projects` returns only unmatched containers.
 
