@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -1098,10 +1099,19 @@ func (m Model) destroyWorktree(projectPath, name string) tea.Cmd {
 // startWorktreeContainer returns a command to start a container for a worktree.
 func (m Model) startWorktreeContainer(projectPath, name string) tea.Cmd {
 	return func() tea.Msg {
-		wtPath := worktree.WorktreeDir(projectPath, name)
 		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
-		_, err := m.manager.StartWorktreeContainer(ctx, wtPath)
+
+		// Determine template — use the project's existing template
+		templateName := m.findProjectTemplate(projectPath)
+
+		opts := container.CreateOptions{
+			ProjectPath: projectPath, // project root, NOT worktree path
+			Template:    templateName,
+			Name:        container.SanitizeComposeName(filepath.Base(projectPath) + "-" + name),
+		}
+		_, err := m.manager.CreateWithCompose(ctx, opts)
+		wtPath := worktree.WorktreeDir(projectPath, name)
 		return worktreeContainerMsg{name: name, path: wtPath, err: err}
 	}
 }
@@ -1114,9 +1124,35 @@ func (m Model) startMissingWorktreeContainer(wtPath, name string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 		defer cancel()
-		_, err := m.manager.StartWorktreeContainer(ctx, wtPath)
+
+		// Extract project root from worktree path
+		// wtPath is typically <projectPath>/.worktrees/<name>
+		projectPath := filepath.Dir(filepath.Dir(wtPath))
+
+		templateName := m.findProjectTemplate(projectPath)
+
+		opts := container.CreateOptions{
+			ProjectPath: projectPath,
+			Template:    templateName,
+			Name:        container.SanitizeComposeName(filepath.Base(projectPath) + "-" + name),
+		}
+		_, err := m.manager.CreateWithCompose(ctx, opts)
 		return worktreeContainerMsg{name: name, path: wtPath, err: err}
 	}
+}
+
+// findProjectTemplate finds the template name used by existing containers for a project.
+// Falls back to "basic" if no existing containers found.
+// Note: After compose root launch, worktree containers share the project root as ProjectPath,
+// so this correctly matches. During transition, legacy containers with worktree paths won't
+// match, but the "basic" fallback is safe.
+func (m Model) findProjectTemplate(projectPath string) string {
+	for _, c := range m.manager.List() {
+		if c.ProjectPath == projectPath {
+			return c.Template
+		}
+	}
+	return "basic"
 }
 
 // rescanProjects rescans all configured scan paths to update discovered projects and worktree lists.
