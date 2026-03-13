@@ -815,6 +815,7 @@ func TestCreateWithCompose_SetsComposeProjectField(t *testing.T) {
 // TestCreateWithCompose_FailsWhenComposeUpFails verifies that CreateWithCompose returns
 // an error if ComposeUp fails, and handles it gracefully.
 func TestCreateWithCompose_FailsWhenComposeUpFails(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	projectDir := t.TempDir()
 
 	// Create .devcontainer with compose file
@@ -894,6 +895,7 @@ services:
 // This test verifies AC1.4: graceful failure when .devcontainer/docker-compose.yml doesn't exist.
 // This can happen when the template doesn't include docker-compose.yml.tmpl.
 func TestCreateWithCompose_FailsWhenComposeFileMissing(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	projectDir := t.TempDir()
 
 	// Create .devcontainer directory in project
