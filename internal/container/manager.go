@@ -37,9 +37,7 @@ type Manager struct {
 	runtime          RuntimeInterface
 	runtimeName      string // "docker" or "podman" - used for attach commands
 	runtimePath      string // full path to binary - bypasses shell aliases
-	generator        *DevcontainerGenerator
 	composeGenerator *ComposeGenerator // for compose-based orchestration
-	devCLI           *DevcontainerCLI
 	tmuxClient       *tmux.Client
 	containers       map[string]*Container
 	sidecars         map[string]*Sidecar // Maps sidecar container ID to Sidecar
@@ -67,9 +65,7 @@ type ManagerOptions struct {
 	Config      *config.Config
 	Templates   []config.Template
 	Runtime     RuntimeInterface
-	Generator   *DevcontainerGenerator
 	ComposeGen  *ComposeGenerator
-	DevCLI      *DevcontainerCLI
 	LogManager  logging.LoggerProvider
 	RuntimeName string // "docker" or "podman" - used for attach commands
 	RuntimePath string // full path to binary - bypasses shell aliases
@@ -111,21 +107,9 @@ func NewManager(opts ManagerOptions) *Manager {
 		logger.Debug("container manager initialized")
 	}
 
-	// Create generators if config and templates are provided but generators aren't
-	if opts.Generator == nil && opts.Config != nil && opts.Templates != nil {
-		opts.Generator = NewDevcontainerGenerator(opts.Config, opts.Templates)
-	}
+	// Create ComposeGenerator if config and templates are provided but generator isn't
 	if opts.ComposeGen == nil && opts.Config != nil && opts.Templates != nil {
 		opts.ComposeGen = NewComposeGenerator(opts.Config, opts.Templates, logManager.For("compose"))
-	}
-
-	// Create DevcontainerCLI if config is provided but CLI isn't
-	if opts.DevCLI == nil && opts.Config != nil {
-		if opts.Config.Runtime != "" {
-			opts.DevCLI = NewDevcontainerCLIWithRuntime(opts.Config.Runtime)
-		} else {
-			opts.DevCLI = NewDevcontainerCLI()
-		}
 	}
 
 	m := &Manager{
@@ -133,9 +117,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		runtime:          opts.Runtime,
 		runtimeName:      opts.RuntimeName,
 		runtimePath:      opts.RuntimePath,
-		generator:        opts.Generator,
 		composeGenerator: opts.ComposeGen,
-		devCLI:           opts.DevCLI,
 		containers:       make(map[string]*Container),
 		sidecars:         make(map[string]*Sidecar),
 		logger:           logger,
@@ -410,20 +392,11 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 	}
 
 	reportProgress("compose", "completed", "Compose configuration generated")
-	reportProgress("devcontainer", "started", "Generating devcontainer configuration")
-
-	// Generate devcontainer.json
-	devcontainerResult, err := m.generator.Generate(opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate devcontainer config: %w", err)
-	}
-
-	reportProgress("devcontainer", "completed", "Devcontainer configuration generated")
 	reportProgress("files", "started", "Writing configuration files")
 
-	// Write all files to project
-	if err := m.generator.WriteAll(opts.ProjectPath, devcontainerResult, composeResult); err != nil {
-		return nil, fmt.Errorf("failed to write configuration files: %w", err)
+	// Write template files to project
+	if err := m.composeGenerator.WriteToProject(opts.ProjectPath, opts.Template, composeResult.TemplateData); err != nil {
+		return nil, fmt.Errorf("failed to write template files: %w", err)
 	}
 
 	reportProgress("files", "completed", "Configuration files written")
@@ -492,27 +465,6 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 
 	return container, nil
 }
-
-// StartWorktreeContainer starts a devcontainer for an already-configured worktree directory.
-// The worktree's .devcontainer/ is expected to be fully configured (compose YAML, Dockerfile, etc.).
-// If devcontainer up fails but the container was created (e.g. postCreateCommand error),
-// the container ID is returned along with the error.
-func (m *Manager) StartWorktreeContainer(ctx context.Context, wtPath string) (string, error) {
-	containerID, upErr := m.devCLI.Up(ctx, wtPath)
-	if upErr != nil && containerID == "" {
-		return "", fmt.Errorf("failed to start worktree container: %w", upErr)
-	}
-	if upErr != nil {
-		// Container was created but postCreateCommand or similar failed.
-		// Log but continue — the container is usable.
-		m.logger.Warn("worktree container started with error (postCreateCommand may have failed)", "error", upErr)
-	}
-	if err := m.Refresh(ctx); err != nil {
-		m.logger.Warn("failed to refresh after worktree container start", "error", err)
-	}
-	return containerID, upErr
-}
-
 // composeProjectName returns the compose project name for a container.
 // Reads from Docker's com.docker.compose.project label (set by devcontainer CLI).
 // Falls back to the container name if label is missing (shouldn't happen for compose containers).

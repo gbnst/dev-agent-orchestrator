@@ -377,12 +377,10 @@ volumes:
 	}
 
 	// Create a manager with all dependencies for testing compose generation.
-	// Pass nil for devCLI since we're testing file generation, not container creation.
 	mgr := NewManager(ManagerOptions{
 		Config:    cfg,
 		Templates: templates,
 		Runtime:   mock,
-		DevCLI:    nil,
 	})
 
 	// Manually set the containers map to simulate devCLI.Up() success

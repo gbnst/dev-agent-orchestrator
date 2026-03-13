@@ -149,6 +149,24 @@ func validateTemplateData(data TemplateData) error {
 	return nil
 }
 
+// WriteToProject writes template files from the template's .devcontainer directory
+// to the project's .devcontainer directory, processing .tmpl files with the given data.
+func (g *ComposeGenerator) WriteToProject(projectPath string, templateName string, data TemplateData) error {
+	tmpl := g.GetTemplate(templateName)
+	if tmpl == nil {
+		return fmt.Errorf("template not found: %s", templateName)
+	}
+
+	src := filepath.Join(tmpl.Path, ".devcontainer")
+	dst := filepath.Join(projectPath, ".devcontainer")
+
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+
+	return copyTemplateDir(src, dst, data)
+}
+
 // processTemplate reads a template file and processes it with the given data.
 func processTemplate(tmplPath string, data any) (string, error) {
 	content, err := os.ReadFile(tmplPath)
