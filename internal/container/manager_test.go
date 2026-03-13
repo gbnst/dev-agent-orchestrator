@@ -653,9 +653,13 @@ func TestGetByNameOrID_NotFound(t *testing.T) {
 	}
 }
 
-// TestCreateWithCompose_CallsComposeUpWithCorrectArgs verifies that CreateWithCompose
-// calls runtime.ComposeUp with the correct project directory, project name, and env parameters.
-func TestCreateWithCompose_CallsComposeUpWithCorrectArgs(t *testing.T) {
+// setupCreateWithComposeTest creates a test environment for CreateWithCompose tests.
+// It returns a Manager with mocked runtime, the mock runtime, and the project directory.
+// The setup includes:
+// - A project directory with .devcontainer/docker-compose.yml
+// - A template directory with .devcontainer structure (docker-compose.yml.tmpl, devcontainer.json.tmpl)
+// - A Manager with all required generators and mocked runtime
+func setupCreateWithComposeTest(t *testing.T) (*Manager, *mockRuntime, string) {
 	projectDir := t.TempDir()
 
 	// Create a compose file for CreateWithCompose to find
@@ -724,6 +728,14 @@ services:
 		Runtime:   mock,
 	})
 
+	return mgr, mock, projectDir
+}
+
+// TestCreateWithCompose_CallsComposeUpWithCorrectArgs verifies that CreateWithCompose
+// calls runtime.ComposeUp with the correct project directory, project name, and env parameters.
+func TestCreateWithCompose_CallsComposeUpWithCorrectArgs(t *testing.T) {
+	mgr, mock, projectDir := setupCreateWithComposeTest(t)
+
 	ctx := context.Background()
 	opts := CreateOptions{
 		ProjectPath: projectDir,
@@ -756,68 +768,7 @@ services:
 // TestCreateWithCompose_SanitizesProjectName verifies that the compose project name
 // is correctly sanitized from the project path.
 func TestCreateWithCompose_SanitizesProjectName(t *testing.T) {
-	projectDir := t.TempDir()
-
-	// Create .devcontainer with compose file
-	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
-		t.Fatalf("Failed to create .devcontainer dir: %v", err)
-	}
-
-	composeContent := `version: "3.8"
-services:
-  app:
-    image: ubuntu:22.04
-`
-	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml"), []byte(composeContent), 0644); err != nil {
-		t.Fatalf("Failed to write docker-compose.yml: %v", err)
-	}
-
-	// Create template directory with .devcontainer structure
-	templateDir := t.TempDir()
-	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
-	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
-		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
-	}
-
-	// Write minimal docker-compose.yml.tmpl
-	tmplContent := `version: "3.8"
-services:
-  app:
-    image: ubuntu:22.04
-`
-	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
-		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
-	}
-
-	// Write minimal devcontainer.json.tmpl
-	devcontainerTmpl := `{
-  "name": "test",
-  "image": "ubuntu:22.04"
-}
-`
-	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
-		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
-	}
-
-	cfg := &config.Config{}
-	templates := []config.Template{{Name: "default", Path: templateDir}}
-
-	mock := &mockRuntime{
-		containers: []Container{
-			{
-				ID:          "container-id",
-				ProjectPath: projectDir,
-				State:       StateRunning,
-			},
-		},
-	}
-
-	mgr := NewManager(ManagerOptions{
-		Config:    cfg,
-		Templates: templates,
-		Runtime:   mock,
-	})
+	mgr, mock, projectDir := setupCreateWithComposeTest(t)
 
 	ctx := context.Background()
 	opts := CreateOptions{
@@ -842,68 +793,7 @@ services:
 // TestCreateWithCompose_SetsComposeProjectField verifies that the returned container
 // has its ComposeProject field set to the sanitized compose project name.
 func TestCreateWithCompose_SetsComposeProjectField(t *testing.T) {
-	projectDir := t.TempDir()
-
-	// Create .devcontainer with compose file
-	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
-	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
-		t.Fatalf("Failed to create .devcontainer dir: %v", err)
-	}
-
-	composeContent := `version: "3.8"
-services:
-  app:
-    image: ubuntu:22.04
-`
-	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml"), []byte(composeContent), 0644); err != nil {
-		t.Fatalf("Failed to write docker-compose.yml: %v", err)
-	}
-
-	// Create template directory with .devcontainer structure
-	templateDir := t.TempDir()
-	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
-	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
-		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
-	}
-
-	// Write minimal docker-compose.yml.tmpl
-	tmplContent := `version: "3.8"
-services:
-  app:
-    image: ubuntu:22.04
-`
-	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
-		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
-	}
-
-	// Write minimal devcontainer.json.tmpl
-	devcontainerTmpl := `{
-  "name": "test",
-  "image": "ubuntu:22.04"
-}
-`
-	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
-		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
-	}
-
-	cfg := &config.Config{}
-	templates := []config.Template{{Name: "default", Path: templateDir}}
-
-	mock := &mockRuntime{
-		containers: []Container{
-			{
-				ID:          "container-id",
-				ProjectPath: projectDir,
-				State:       StateRunning,
-			},
-		},
-	}
-
-	mgr := NewManager(ManagerOptions{
-		Config:    cfg,
-		Templates: templates,
-		Runtime:   mock,
-	})
+	mgr, _, projectDir := setupCreateWithComposeTest(t)
 
 	ctx := context.Background()
 	opts := CreateOptions{
@@ -998,5 +888,63 @@ services:
 	}
 	if !strings.Contains(err.Error(), "compose up failed") {
 		t.Errorf("Expected 'compose up failed' error, got: %v", err)
+	}
+}
+
+// TestCreateWithCompose_FailsWhenComposeFileMissing verifies that CreateWithCompose
+// returns an error when the docker-compose.yml file is missing after WriteAll.
+// This test verifies AC1.4: graceful failure when .devcontainer/docker-compose.yml doesn't exist.
+// This can happen when the template doesn't include docker-compose.yml.tmpl.
+func TestCreateWithCompose_FailsWhenComposeFileMissing(t *testing.T) {
+	projectDir := t.TempDir()
+
+	// Create .devcontainer directory in project
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	// Create template directory with .devcontainer structure but WITHOUT docker-compose.yml.tmpl
+	templateDir := t.TempDir()
+	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
+	}
+
+	// Write minimal devcontainer.json.tmpl (but NO docker-compose.yml.tmpl)
+	devcontainerTmpl := `{
+  "name": "test",
+  "image": "ubuntu:22.04"
+}
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
+	}
+
+	cfg := &config.Config{}
+	templates := []config.Template{{Name: "default", Path: templateDir}}
+
+	mock := &mockRuntime{}
+
+	mgr := NewManager(ManagerOptions{
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   mock,
+	})
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        "test",
+	}
+
+	_, err := mgr.CreateWithCompose(ctx, opts)
+	if err == nil {
+		t.Error("Expected error when compose file is missing")
+	}
+	// Check for either the specific message or the generic "compose file not accessible" message
+	if !strings.Contains(err.Error(), "no docker-compose.yml found") && !strings.Contains(err.Error(), "compose file not accessible") {
+		t.Errorf("Expected error about missing/inaccessible compose file, got: %v", err)
 	}
 }

@@ -418,8 +418,12 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 
 	// Verify compose file exists (AC1.4: graceful failure when missing)
 	composeFilePath := filepath.Join(opts.ProjectPath, ".devcontainer", "docker-compose.yml")
-	if _, err := os.Stat(composeFilePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("no docker-compose.yml found at %s", composeFilePath)
+	if _, err := os.Stat(composeFilePath); err != nil {
+		// Format error message to include filename for clarity
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("no docker-compose.yml found at %s", composeFilePath)
+		}
+		return nil, fmt.Errorf("compose file not accessible at %s: %w", composeFilePath, err)
 	}
 
 	// Discover port env vars from the rendered compose file
