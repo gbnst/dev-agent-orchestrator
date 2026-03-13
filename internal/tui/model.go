@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -865,7 +866,8 @@ func (m *Model) rebuildTreeItems() {
 			continue
 		}
 
-		// Find containers matching this project
+		// Find containers matching this project (by compose project name)
+		projBase := filepath.Base(project.Path)
 		projectContainers := m.findContainersForProject(project)
 		for _, c := range projectContainers {
 			matchedContainers[c.ID] = true
@@ -873,12 +875,14 @@ func (m *Model) rebuildTreeItems() {
 
 		// Add worktree entries (from discovery)
 		// First, add "main" (the project root itself)
-		mainContainers := m.findContainersForPath(project.Path)
+		mainCompose := container.SanitizeComposeName(projBase)
+		mainContainers := m.findContainersByCompose(mainCompose)
 		m.addWorktreeTreeItems("main", project.Path, mainContainers)
 
 		// Then add discovered worktrees
 		for _, wt := range project.Worktrees {
-			wtContainers := m.findContainersForPath(wt.Path)
+			wtCompose := container.SanitizeComposeName(projBase + "-" + wt.Name)
+			wtContainers := m.findContainersByCompose(wtCompose)
 			m.addWorktreeTreeItems(wt.Branch, wt.Path, wtContainers)
 		}
 	}
@@ -952,17 +956,21 @@ func (m *Model) addWorktreeTreeItems(name, path string, containers []*container.
 }
 
 // findContainersForProject returns all containers that belong to a project
-// (matching by project path or any worktree path).
+// by matching compose project names (e.g., "myproject" for main, "myproject-feature" for worktrees).
 func (m *Model) findContainersForProject(project discovery.DiscoveredProject) []*container.Container {
+	projBase := filepath.Base(project.Path)
 	var result []*container.Container
-	result = append(result, m.findContainersForPath(project.Path)...)
+	mainCompose := container.SanitizeComposeName(projBase)
+	result = append(result, m.findContainersByCompose(mainCompose)...)
 	for _, wt := range project.Worktrees {
-		result = append(result, m.findContainersForPath(wt.Path)...)
+		wtCompose := container.SanitizeComposeName(projBase + "-" + wt.Name)
+		result = append(result, m.findContainersByCompose(wtCompose)...)
 	}
 	return result
 }
 
 // findContainersForPath returns containers whose devagent.project_path label matches the given path.
+// Used by update.go and view.go for path-based container lookups (e.g., worktree start action).
 func (m *Model) findContainersForPath(path string) []*container.Container {
 	var result []*container.Container
 	for _, item := range m.containerList.Items() {
@@ -971,6 +979,21 @@ func (m *Model) findContainersForPath(path string) []*container.Container {
 			continue
 		}
 		if ci.container.ProjectPath == path {
+			result = append(result, ci.container)
+		}
+	}
+	return result
+}
+
+// findContainersByCompose returns containers whose ComposeProject matches the given name.
+func (m *Model) findContainersByCompose(composeName string) []*container.Container {
+	var result []*container.Container
+	for _, item := range m.containerList.Items() {
+		ci, ok := item.(containerItem)
+		if !ok {
+			continue
+		}
+		if ci.container.ComposeProject == composeName {
 			result = append(result, ci.container)
 		}
 	}

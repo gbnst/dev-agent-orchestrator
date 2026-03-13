@@ -1,27 +1,29 @@
 # Container Domain
 
-Last verified: 2026-02-25
+Last verified: 2026-03-13
 
 ## Purpose
-Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop/destroy via Docker Compose, and tmux session management within containers. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking. Integrates proxy log tailing for real-time HTTP request visibility in TUI.
+Orchestrates devcontainer lifecycle: creation via Docker Compose with template rendering, start/stop/destroy via Docker Compose, and tmux session management within containers. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking. Integrates proxy log tailing for real-time HTTP request visibility in TUI.
 
 ## Contracts
-- **Exposes**: `Manager`, `ManagerOptions`, `NewManager(opts)`, `Manager.SetOnChange()`, `Manager.GetByNameOrID()`, `Manager.CaptureSession()`, `Manager.CaptureSessionLines()`, `Manager.CursorPosition()`, `Manager.SendToSession()`, `Container`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `DevcontainerGenerator`, `DevcontainerCLI`, `HashTruncLen`, `MountInfo`
+- **Exposes**: `Manager`, `ManagerOptions`, `NewManager(opts)`, `Manager.SetOnChange()`, `Manager.GetByNameOrID()`, `Manager.GetByComposeProject()`, `Manager.CaptureSession()`, `Manager.CaptureSessionLines()`, `Manager.CursorPosition()`, `Manager.SendToSession()`, `Container`, `ComposeProject`, `Ports`, `Sidecar`, `CreateOptions`, `ContainerState`, `RuntimeInterface`, `DevcontainerJSON`, `IsolationInfo`, `ProgressStep`, `ProgressCallback`, `ComposeGenerator`, `ComposeResult`, `ComposeOptions`, `TemplateData`, `GenerateResult`, `SanitizeComposeName`, `ParsePortEnvVars`, `AllocateFreePorts`, `FindTemplateForProject`, `ComposeGenerator.WriteToProject`, `HashTruncLen`, `MountInfo`
 - **Note**: `NewManager(ManagerOptions{...})` is the single constructor; requires Runtime or Config (auto-creates Runtime from Config if nil). Other fields (Templates, LogManager, etc.) have sensible defaults. `NewComposeGenerator(cfg, templates, logger)` requires a `*config.Config` and `*logging.ScopedLogger` parameter (use `&config.Config{}` and `logging.NopLogger()` in tests)
 - **Guarantees**: Auto-detects Docker/Podman from config. Operations are idempotent (stop already-stopped is safe). Labels track devagent metadata. Sidecars are created before devcontainer and destroyed after. Proxy CA certs are auto-installed via entrypoint.sh (runs before VS Code connects). Proxy service healthcheck gates app startup on cert existence. Container creation reports progress via OnProgress callback. Isolation info can be queried from running containers. Compose mode generates docker-compose.yml with app + proxy services in isolated network. Proxy log reader started on container creation, stopped on stop or destroy. GitHub token injected into containers when available (non-blocking on missing token). Template files are copied via generic directory walk (`copyTemplateDir`) — adding new template files requires zero Go code changes. State-change callback (`SetOnChange`) fires after Refresh, Start, Stop, Destroy, CreateSession, and KillSession to enable push notifications (e.g., SSE). ComposeGenerator.Generate() validates template data (ContainerName, ProjectName) against YAML-special characters before returning.
 - **Expects**: Container runtime available. Valid config for Create operations. Refresh() called before List(). mitmproxy image available for network isolation. For compose mode: docker-compose or podman-compose available. LogManager must implement GetChannelSink() for proxy log integration.
 
 ## Dependencies
-- **Uses**: config.Config, config.Template, logging.Manager (optional), logging.ScopedLogger, logging.ProxyLogReader, @devcontainers/cli (external), mitmproxy/mitmproxy (external image), gh CLI (external, installed in Dockerfiles)
+- **Uses**: config.Config, config.Template, logging.Manager (optional), logging.ScopedLogger, logging.ProxyLogReader, mitmproxy/mitmproxy (external image), gh CLI (external, installed in Dockerfiles)
 - **Used by**: TUI (Model), web.Server, main.go
 - **Boundary**: Container operations only; no UI concerns
 
 ## Key Decisions
 - RuntimeInterface abstraction: Enables mock testing without real containers; includes query ops (ListContainers, InspectContainer, GetIsolationInfo, Exec, ExecAs) and compose lifecycle ops (ComposeUp, ComposeStart, ComposeStop, ComposeDown). Manager always uses Compose-based operations for lifecycle
-- Devcontainer CLI for creation: Handles complex setup (features, mounts, env); supports both image-based and dockerComposeFile modes
-- Compose orchestration: When CreateOptions.UseCompose is true, generates docker-compose.yml with app service (devcontainer) + proxy service (mitmproxy) in isolated network; uses devcontainer CLI's dockerComposeFile property
-- Compose file generation: ComposeGenerator.Generate() returns TemplateData; DevcontainerGenerator.WriteToProject() walks template's `.devcontainer/` subtree via `copyTemplateDir()`, processing `.tmpl` files and copying all others; WriteAll() delegates to WriteToProject with TemplateData from ComposeResult
-- Labels for metadata: devagent.managed, devagent.project_path, devagent.template, devagent.remote_user, devagent.sidecar_type; sidecar-to-devcontainer correlation uses com.docker.compose.project label (set automatically by Docker Compose)
+- Compose-based creation: All containers created via docker-compose from project root, not worktree paths. Template rendering generates docker-compose.yml at project root's .devcontainer directory. Compose project name derived from project base name or worktree-specific naming (SanitizeComposeName for Docker Compose compatibility).
+- Compose file generation: ComposeGenerator.Generate() returns TemplateData; ComposeGenerator.WriteToProject() walks template's `.devcontainer/` subtree via `copyTemplateDir()`, processing `.tmpl` files and copying all others
+- Port management: AllocateFreePorts finds free host ports; ParsePortEnvVars extracts port bindings from environment vars. Ports map stored in Container for API responses.
+- Compose project naming: SanitizeComposeName converts arbitrary names to lowercase alphanumeric-hyphen format for Docker Compose compatibility
+- Labels for metadata: devagent.managed, devagent.project_path, devagent.template, devagent.remote_user, devagent.sidecar_type, devagent.compose_project; sidecar-to-devcontainer correlation uses com.docker.compose.project label (set automatically by Docker Compose)
+- Container metadata: ComposeProject (compose project name), Ports (map of service:host_port)
 - RemoteUser defaults to "vscode" per devcontainer spec; all exec operations use ExecAs with this user
 - Auth token paths configurable: `Config.ClaudeTokenPath` and `Config.GitHubTokenPath` set in config.yaml; `Config.ResolveTokenPath()` expands `~/` prefix; if path is empty/omitted, that token is skipped entirely (no auto-detection)
 - Auth token auto-provisioning: `ensureClaudeToken(path)` reads existing token or runs `claude setup-token` if missing (non-blocking on error); `ensureGitHubToken(path)` reads token or returns empty (no auto-provisioning)
@@ -45,12 +47,13 @@ Orchestrates devcontainer lifecycle: creation via @devcontainers/cli, start/stop
 - Proxy log reader lifecycle: started after CreateWithCompose, cancelled in StopWithCompose and DestroyWithCompose
 
 ## Key Files
-- `manager.go` - Manager struct, compose-based lifecycle operations (CreateWithCompose, StartWithCompose, StopWithCompose, DestroyWithCompose), session management, sidecar lifecycle, GetContainerIsolationInfo()
+- `manager.go` - Manager struct, compose-based lifecycle operations (CreateWithCompose, StartWithCompose, StopWithCompose, DestroyWithCompose), session management, sidecar lifecycle, GetContainerIsolationInfo(), GetByComposeProject()
 - `runtime.go` - RuntimeInterface impl for Docker/Podman CLI: ListContainers, Exec, ExecAs, InspectContainer, GetIsolationInfo, ComposeUp/Start/Stop/Down, GetMounts
-- `compose.go` - ComposeGenerator with buildTemplateData(), validateTemplateData(), processTemplate(); TemplateData (ProjectPath, ProjectName, WorkspaceFolder, ClaudeTokenPath, GitHubTokenPath, TemplateName, ContainerName, ProxyImage, ProxyPort, RemoteUser, ProxyLogPath); ComposeResult (TemplateData only); ComposeOptions
-- `devcontainer.go` - DevcontainerGenerator, GenerateResult (TemplatePath only), DevcontainerCLI; WriteToProject() uses copyTemplateDir() to walk template's .devcontainer/ subtree (processes .tmpl files, copies others); WriteAll() delegates to WriteToProject with ComposeResult.TemplateData
+- `compose.go` - ComposeGenerator with buildTemplateData(), validateTemplateData(), processTemplate(), WriteToProject(); TemplateData (ProjectPath, ProjectName, WorkspaceFolder, ClaudeTokenPath, GitHubTokenPath, TemplateName, ContainerName, ProxyImage, RemoteUser, ProxyLogPath); ComposeResult (TemplateData only); ComposeOptions; SanitizeComposeName, ParsePortEnvVars, AllocateFreePorts
+- `devcontainer.go` - Utility functions: token management (ensureClaudeToken, ensureGitHubToken), ReadWorkspaceFolder, copyTemplateDir, getDataDir
 - `proxy.go` - Mitmproxy utility functions: proxy cert directory management (GetProxyCertDir, GetProxyCACertPath, ProxyCertExists), allowlist parsing from filter script (ReadAllowlistFromFilterScript, parseAllowlistFromScript), CleanupProxyConfigs
-- `types.go` - Container, Session, Sidecar (ID, Name, Type, ParentRef, State), CreateOptions (UseCompose flag), IsolationInfo, MountInfo (with JSON tags for external tool output), DevcontainerJSON (DockerComposeFile, Service, RemoteUser fields), BuildConfig, ProgressStep, ProgressCallback, HashTruncLen, state constants, label constants
+- `types.go` - Container (with ComposeProject, Ports fields), Session, Sidecar (ID, Name, Type, ParentRef, State), CreateOptions, IsolationInfo, MountInfo (with JSON tags for external tool output), DevcontainerJSON (DockerComposeFile, Service, RemoteUser fields), BuildConfig, ProgressStep, ProgressCallback, HashTruncLen, FindTemplateForProject, state constants, label constants
+- `ports.go` - Port discovery and allocation: AllocateFreePorts, ParsePortEnvVars, netFindFreePort (internal)
 
 ## Gotchas
 - Container IDs may be truncated; Create() does prefix matching on refresh

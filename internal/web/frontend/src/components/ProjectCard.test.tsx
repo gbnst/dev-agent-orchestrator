@@ -141,7 +141,7 @@ describe('ProjectCard', () => {
       const user = userEvent.setup()
       const mockStartWorktreeContainer = vi.spyOn(api, 'startWorktreeContainer')
       mockStartWorktreeContainer.mockRejectedValue(
-        new Error('devcontainer up failed'),
+        new Error('compose up failed'),
       )
 
       const project = {
@@ -180,12 +180,12 @@ describe('ProjectCard', () => {
       // Error message should appear in action bar
       await waitFor(() => {
         expect(
-          screen.getByText('devcontainer up failed'),
+          screen.getByText('compose up failed'),
         ).toBeInTheDocument()
       })
 
       // Verify the error message is visible
-      const errorText = screen.getByText('devcontainer up failed')
+      const errorText = screen.getByText('compose up failed')
       expect(errorText).toBeInTheDocument()
     })
 
@@ -208,6 +208,8 @@ describe('ProjectCard', () => {
               template: 'default',
               project_path: '/path/to/project',
               remote_user: 'user',
+              compose_project: 'test-project-feature',
+              ports: {},
               created_at: '2026-02-24T00:00:00Z',
               sessions: [],
             },
@@ -257,6 +259,8 @@ describe('ProjectCard', () => {
               template: 'default',
               project_path: '/path/to/project',
               remote_user: 'user',
+              compose_project: 'test-project-feature',
+              ports: {},
               created_at: '2026-02-24T00:00:00Z',
               sessions: [],
             },

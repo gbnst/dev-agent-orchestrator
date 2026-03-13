@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -976,7 +977,7 @@ func (m Model) createContainerWithProgress() tea.Cmd {
 
 	// Start container creation in background
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
 		_, err := m.manager.CreateWithCompose(ctx, container.CreateOptions{
@@ -1088,7 +1089,7 @@ func (m Model) createWorktree(projectPath, name string) tea.Cmd {
 // destroyWorktree returns a command to destroy a worktree and its container (if any).
 func (m Model) destroyWorktree(projectPath, name string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		err := worktree.DestroyWorktreeWithContainer(ctx, m.manager, projectPath, name, nil)
 		return worktreeActionMsg{action: "destroy", name: name, projectPath: projectPath, err: err}
@@ -1098,10 +1099,19 @@ func (m Model) destroyWorktree(projectPath, name string) tea.Cmd {
 // startWorktreeContainer returns a command to start a container for a worktree.
 func (m Model) startWorktreeContainer(projectPath, name string) tea.Cmd {
 	return func() tea.Msg {
-		wtPath := worktree.WorktreeDir(projectPath, name)
-		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		_, err := m.manager.StartWorktreeContainer(ctx, wtPath)
+
+		// Determine template — use the project's existing template
+		templateName := container.FindTemplateForProject(m.manager.List(), projectPath)
+
+		opts := container.CreateOptions{
+			ProjectPath: projectPath, // project root, NOT worktree path
+			Template:    templateName,
+			Name:        container.SanitizeComposeName(filepath.Base(projectPath) + "-" + name),
+		}
+		_, err := m.manager.CreateWithCompose(ctx, opts)
+		wtPath := worktree.WorktreeDir(projectPath, name)
 		return worktreeContainerMsg{name: name, path: wtPath, err: err}
 	}
 }
@@ -1114,7 +1124,19 @@ func (m Model) startMissingWorktreeContainer(wtPath, name string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 		defer cancel()
-		_, err := m.manager.StartWorktreeContainer(ctx, wtPath)
+
+		// Extract project root from worktree path
+		// wtPath is typically <projectPath>/.worktrees/<name>
+		projectPath := filepath.Dir(filepath.Dir(wtPath))
+
+		templateName := container.FindTemplateForProject(m.manager.List(), projectPath)
+
+		opts := container.CreateOptions{
+			ProjectPath: projectPath,
+			Template:    templateName,
+			Name:        container.SanitizeComposeName(filepath.Base(projectPath) + "-" + name),
+		}
+		_, err := m.manager.CreateWithCompose(ctx, opts)
 		return worktreeContainerMsg{name: name, path: wtPath, err: err}
 	}
 }

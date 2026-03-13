@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,8 +18,9 @@ type mockRuntime struct {
 	listErr    error
 
 	// Compose operations
-	composeUpCalled     string // projectDir
-	composeUpProject    string // projectName
+	composeUpCalled     string            // projectDir
+	composeUpProject    string            // projectName
+	composeUpEnv        map[string]string // env vars passed to ComposeUp
 	composeUpErr        error
 	composeStartCalled  string
 	composeStartProject string
@@ -54,9 +56,10 @@ func (m *mockRuntime) GetIsolationInfo(ctx context.Context, id string) (*Isolati
 	return &IsolationInfo{}, nil
 }
 
-func (m *mockRuntime) ComposeUp(ctx context.Context, projectDir string, projectName string) error {
+func (m *mockRuntime) ComposeUp(ctx context.Context, projectDir string, projectName string, env map[string]string) error {
 	m.composeUpCalled = projectDir
 	m.composeUpProject = projectName
+	m.composeUpEnv = env
 	return m.composeUpErr
 }
 
@@ -374,16 +377,13 @@ volumes:
 	}
 
 	// Create a manager with all dependencies for testing compose generation.
-	// Pass nil for devCLI since we're testing file generation, not container creation.
 	mgr := NewManager(ManagerOptions{
 		Config:    cfg,
 		Templates: templates,
 		Runtime:   mock,
-		DevCLI:    nil,
 	})
 
-	// Manually set the containers map to simulate devCLI.Up() success
-	// This avoids needing a mock CLI - we're testing file generation
+	// Manually set the containers map to simulate ComposeUp success
 	mgr.containers["abc123def456"] = &Container{
 		ID:          "abc123def456",
 		Name:        "test-compose-container",
@@ -647,5 +647,334 @@ func TestGetByNameOrID_NotFound(t *testing.T) {
 	}
 	if c != nil {
 		t.Errorf("Expected nil container, got %v", c)
+	}
+}
+
+// setupCreateWithComposeTest creates a test environment for CreateWithCompose tests.
+// It returns a Manager with mocked runtime, the mock runtime, and the project directory.
+// The setup includes:
+// - A project directory with .devcontainer/docker-compose.yml
+// - A template directory with .devcontainer structure (docker-compose.yml.tmpl, devcontainer.json.tmpl)
+// - A Manager with all required generators and mocked runtime
+func setupCreateWithComposeTest(t *testing.T) (*Manager, *mockRuntime, string) {
+	projectDir := t.TempDir()
+
+	// Create a compose file for CreateWithCompose to find
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	// Create a minimal docker-compose.yml with no port env vars
+	composeContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+    command: ["sleep", "infinity"]
+`
+	composeFile := filepath.Join(devcontainerDir, "docker-compose.yml")
+	if err := os.WriteFile(composeFile, []byte(composeContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml: %v", err)
+	}
+
+	// Create template directory with .devcontainer structure
+	templateDir := t.TempDir()
+	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
+	}
+
+	// Write minimal docker-compose.yml.tmpl
+	tmplContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
+	}
+
+	// Write minimal devcontainer.json.tmpl
+	devcontainerTmpl := `{
+  "name": "test",
+  "image": "ubuntu:22.04"
+}
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
+	}
+
+	// Create generator mocks
+	cfg := &config.Config{}
+	templates := []config.Template{{Name: "default", Path: templateDir}}
+
+	mock := &mockRuntime{
+		containers: []Container{
+			{
+				ID:          "test-container-id",
+				Name:        "test-container",
+				ProjectPath: projectDir,
+				State:       StateRunning,
+			},
+		},
+	}
+
+	mgr := NewManager(ManagerOptions{
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   mock,
+	})
+
+	// Set XDG_DATA_HOME so getDataDir() uses a writable temp directory
+	// instead of $HOME (which may not exist in sandboxed builds like nix).
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	return mgr, mock, projectDir
+}
+
+// TestCreateWithCompose_CallsComposeUpWithCorrectArgs verifies that CreateWithCompose
+// calls runtime.ComposeUp with the correct project directory, project name, and env parameters.
+func TestCreateWithCompose_CallsComposeUpWithCorrectArgs(t *testing.T) {
+	mgr, mock, projectDir := setupCreateWithComposeTest(t)
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        "test-container",
+	}
+
+	_, err := mgr.CreateWithCompose(ctx, opts)
+	if err != nil {
+		t.Fatalf("CreateWithCompose failed: %v", err)
+	}
+
+	// Verify ComposeUp was called with the correct projectDir
+	if mock.composeUpCalled != projectDir {
+		t.Errorf("Expected ComposeUp with projectDir %q, got %q", projectDir, mock.composeUpCalled)
+	}
+
+	// Verify project name uses opts.Name when provided
+	if mock.composeUpProject != opts.Name {
+		t.Errorf("Expected ComposeUp with projectName %q, got %q", opts.Name, mock.composeUpProject)
+	}
+
+	// Verify env map was passed (empty or with allocated ports)
+	if mock.composeUpEnv == nil {
+		t.Error("Expected non-nil composeUpEnv")
+	}
+}
+
+// TestCreateWithCompose_SanitizesProjectName verifies that the compose project name
+// is correctly sanitized from the project path.
+func TestCreateWithCompose_SanitizesProjectName(t *testing.T) {
+	mgr, mock, projectDir := setupCreateWithComposeTest(t)
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+	}
+
+	_, err := mgr.CreateWithCompose(ctx, opts)
+	if err != nil {
+		t.Fatalf("CreateWithCompose failed: %v", err)
+	}
+
+	// When Name is empty, compose project name is derived from sanitized base dir name
+	baseName := filepath.Base(projectDir)
+	expectedProjectName := SanitizeComposeName(baseName)
+	if mock.composeUpProject != expectedProjectName {
+		t.Errorf("Expected sanitized projectName %q, got %q", expectedProjectName, mock.composeUpProject)
+	}
+}
+
+// TestCreateWithCompose_SetsComposeProjectField verifies that the returned container
+// has its ComposeProject field set correctly.
+func TestCreateWithCompose_SetsComposeProjectField(t *testing.T) {
+	mgr, _, projectDir := setupCreateWithComposeTest(t)
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        "myproject-feature",
+	}
+
+	container, err := mgr.CreateWithCompose(ctx, opts)
+	if err != nil {
+		t.Fatalf("CreateWithCompose failed: %v", err)
+	}
+
+	// When Name is provided, it's used directly as compose project name
+	if container.ComposeProject != opts.Name {
+		t.Errorf("Expected container.ComposeProject = %q, got %q", opts.Name, container.ComposeProject)
+	}
+}
+
+// TestCreateWithCompose_FailsWhenComposeUpFails verifies that CreateWithCompose returns
+// an error if ComposeUp fails, and handles it gracefully.
+func TestCreateWithCompose_FailsWhenComposeUpFails(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	projectDir := t.TempDir()
+
+	// Create .devcontainer with compose file
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	composeContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml"), []byte(composeContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml: %v", err)
+	}
+
+	// Create template directory with .devcontainer structure
+	templateDir := t.TempDir()
+	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
+	}
+
+	// Write minimal docker-compose.yml.tmpl
+	tmplContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
+	}
+
+	// Write minimal devcontainer.json.tmpl
+	devcontainerTmpl := `{
+  "name": "test",
+  "image": "ubuntu:22.04"
+}
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
+	}
+
+	cfg := &config.Config{}
+	templates := []config.Template{{Name: "default", Path: templateDir}}
+
+	// Mock that fails on ComposeUp
+	mock := &mockRuntime{
+		composeUpErr: fmt.Errorf("docker compose failed"),
+	}
+
+	mgr := NewManager(ManagerOptions{
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   mock,
+	})
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        "test",
+	}
+
+	_, err := mgr.CreateWithCompose(ctx, opts)
+	if err == nil {
+		t.Error("Expected error when ComposeUp fails")
+	}
+	if !strings.Contains(err.Error(), "compose up failed") {
+		t.Errorf("Expected 'compose up failed' error, got: %v", err)
+	}
+}
+
+// TestCreateWithCompose_FailsWhenComposeFileMissing verifies that CreateWithCompose
+// returns an error when the docker-compose.yml file is missing after WriteAll.
+// This test verifies AC1.4: graceful failure when .devcontainer/docker-compose.yml doesn't exist.
+// This can happen when the template doesn't include docker-compose.yml.tmpl.
+func TestCreateWithCompose_FailsWhenComposeFileMissing(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	projectDir := t.TempDir()
+
+	// Create .devcontainer directory in project
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	// Create template directory with .devcontainer structure but WITHOUT docker-compose.yml.tmpl
+	templateDir := t.TempDir()
+	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
+	}
+
+	// Write minimal devcontainer.json.tmpl (but NO docker-compose.yml.tmpl)
+	devcontainerTmpl := `{
+  "name": "test",
+  "image": "ubuntu:22.04"
+}
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
+	}
+
+	cfg := &config.Config{}
+	templates := []config.Template{{Name: "default", Path: templateDir}}
+
+	mock := &mockRuntime{}
+
+	mgr := NewManager(ManagerOptions{
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   mock,
+	})
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        "test",
+	}
+
+	_, err := mgr.CreateWithCompose(ctx, opts)
+	if err == nil {
+		t.Error("Expected error when compose file is missing")
+	}
+	// Check for either the specific message or the generic "compose file not accessible" message
+	if !strings.Contains(err.Error(), "no docker-compose.yml found") && !strings.Contains(err.Error(), "compose file not accessible") {
+		t.Errorf("Expected error about missing/inaccessible compose file, got: %v", err)
+	}
+}
+
+// TestCreateWithCompose_WorktreeComposeProjNaming verifies AC1.3: worktree-style project naming.
+// Sets CreateOptions.Name to a worktree-style name (e.g., "feature-branch") and explicitly
+// tests that the compose project naming behavior correctly incorporates the Name field.
+// Note: This test documents the expectation for worktree-aware compose naming.
+func TestCreateWithCompose_WorktreeComposeProjNaming(t *testing.T) {
+	mgr, mock, projectDir := setupCreateWithComposeTest(t)
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        "feature-branch", // Worktree-style name
+	}
+
+	_, err := mgr.CreateWithCompose(ctx, opts)
+	if err != nil {
+		t.Fatalf("CreateWithCompose failed: %v", err)
+	}
+
+	// Verify ComposeUp was called with correct projectDir
+	if mock.composeUpCalled != projectDir {
+		t.Errorf("Expected ComposeUp with projectDir %q, got %q", projectDir, mock.composeUpCalled)
+	}
+
+	// Verify compose project name uses opts.Name directly (caller pre-computes the full name)
+	if mock.composeUpProject != opts.Name {
+		t.Errorf("Expected ComposeUp with projectName %q, got %q", opts.Name, mock.composeUpProject)
 	}
 }

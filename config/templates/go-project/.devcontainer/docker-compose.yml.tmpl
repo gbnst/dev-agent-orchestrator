@@ -9,10 +9,10 @@ services:
     networks:
       - isolated
     environment:
-      - http_proxy=http://proxy:{{.ProxyPort}}
-      - https_proxy=http://proxy:{{.ProxyPort}}
-      - HTTP_PROXY=http://proxy:{{.ProxyPort}}
-      - HTTPS_PROXY=http://proxy:{{.ProxyPort}}
+      - http_proxy=http://proxy:8080
+      - https_proxy=http://proxy:8080
+      - HTTP_PROXY=http://proxy:8080
+      - HTTPS_PROXY=http://proxy:8080
       - no_proxy=localhost,127.0.0.1
       - NO_PROXY=localhost,127.0.0.1
       - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
@@ -58,7 +58,7 @@ services:
     volumes:
       - proxy-certs:/home/mitmproxy/.mitmproxy
       - {{.ProjectPath}}/.devcontainer/containers/proxy/opt/devagent-proxy:/opt/devagent-proxy
-    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "{{.ProxyPort}}", "-s", "/opt/devagent-proxy/filter.py"]
+    command: ["mitmdump", "--listen-host", "0.0.0.0", "--listen-port", "8080", "-s", "/opt/devagent-proxy/filter.py"]
     healthcheck:
       test: ["CMD", "test", "-f", "/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem"]
       interval: 2s

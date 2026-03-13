@@ -5,20 +5,20 @@ package worktree
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"devagent/internal/container"
 )
 
 // ContainerOps abstracts container operations for testability.
 type ContainerOps interface {
-	List() []*container.Container
+	GetByComposeProject(composeName string) *container.Container
 	StopWithCompose(ctx context.Context, containerID string) error
 	DestroyWithCompose(ctx context.Context, containerID string) error
 }
 
 // WorktreeOps abstracts worktree operations for testability.
 type WorktreeOps interface {
-	WorktreeDir(projectPath, name string) string
 	Destroy(projectPath, name string) error
 }
 
@@ -37,29 +37,19 @@ func DestroyWorktreeWithContainer(
 	name string,
 	wtOps WorktreeOps,
 ) error {
-	// Use provided worktreeOps or fall back to real functions
-	var wtDir string
-	if wtOps != nil {
-		wtDir = wtOps.WorktreeDir(projectPath, name)
-	} else {
-		wtDir = WorktreeDir(projectPath, name)
-	}
-
-	// Find container for this worktree path
-	containers := containerOps.List()
-	for _, c := range containers {
-		if c.ProjectPath == wtDir {
-			// Stop if running
-			if c.IsRunning() {
-				if err := containerOps.StopWithCompose(ctx, c.ID); err != nil {
-					return fmt.Errorf("failed to stop container: %w", err)
-				}
+	// Find container by compose project name
+	composeName := container.SanitizeComposeName(filepath.Base(projectPath) + "-" + name)
+	c := containerOps.GetByComposeProject(composeName)
+	if c != nil {
+		// Stop if running
+		if c.IsRunning() {
+			if err := containerOps.StopWithCompose(ctx, c.ID); err != nil {
+				return fmt.Errorf("failed to stop container: %w", err)
 			}
-			// Destroy container
-			if err := containerOps.DestroyWithCompose(ctx, c.ID); err != nil {
-				return fmt.Errorf("failed to destroy container: %w", err)
-			}
-			break
+		}
+		// Destroy container
+		if err := containerOps.DestroyWithCompose(ctx, c.ID); err != nil {
+			return fmt.Errorf("failed to destroy container: %w", err)
 		}
 	}
 

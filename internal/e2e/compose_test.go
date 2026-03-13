@@ -24,7 +24,6 @@ func TestCreateWithCompose_Podman(t *testing.T) {
 
 func testCreateWithCompose(t *testing.T, runtime string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
@@ -116,7 +115,6 @@ func TestCreateWithCompose_GoProjectTemplate_Docker(t *testing.T) {
 
 func testCreateWithComposeTemplate(t *testing.T, runtime, templateName string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()
@@ -202,7 +200,6 @@ func TestComposeLifecycle_Podman(t *testing.T) {
 
 func testComposeLifecycle(t *testing.T, runtime string) {
 	SkipIfRuntimeMissing(t, runtime)
-	SkipIfDevcontainerMissing(t)
 
 	cfg := TestConfig(runtime)
 	templates := TestTemplates()

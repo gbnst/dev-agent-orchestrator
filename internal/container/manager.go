@@ -5,9 +5,9 @@ package container
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 
 	"devagent/internal/config"
@@ -24,7 +24,7 @@ type RuntimeInterface interface {
 	GetIsolationInfo(ctx context.Context, id string) (*IsolationInfo, error)
 
 	// Compose lifecycle operations
-	ComposeUp(ctx context.Context, projectDir string, projectName string) error
+	ComposeUp(ctx context.Context, projectDir string, projectName string, env map[string]string) error
 	ComposeStart(ctx context.Context, projectDir string, projectName string) error
 	ComposeStop(ctx context.Context, projectDir string, projectName string) error
 	ComposeDown(ctx context.Context, projectDir string, projectName string) error
@@ -35,11 +35,9 @@ type Manager struct {
 	mu               sync.RWMutex // protects containers and sidecars maps
 	cfg              *config.Config
 	runtime          RuntimeInterface
-	runtimeName      string // "docker" or "podman" - used for attach commands
-	runtimePath      string // full path to binary - bypasses shell aliases
-	generator        *DevcontainerGenerator
+	runtimeName      string            // "docker" or "podman" - used for attach commands
+	runtimePath      string            // full path to binary - bypasses shell aliases
 	composeGenerator *ComposeGenerator // for compose-based orchestration
-	devCLI           *DevcontainerCLI
 	tmuxClient       *tmux.Client
 	containers       map[string]*Container
 	sidecars         map[string]*Sidecar // Maps sidecar container ID to Sidecar
@@ -67,9 +65,7 @@ type ManagerOptions struct {
 	Config      *config.Config
 	Templates   []config.Template
 	Runtime     RuntimeInterface
-	Generator   *DevcontainerGenerator
 	ComposeGen  *ComposeGenerator
-	DevCLI      *DevcontainerCLI
 	LogManager  logging.LoggerProvider
 	RuntimeName string // "docker" or "podman" - used for attach commands
 	RuntimePath string // full path to binary - bypasses shell aliases
@@ -111,21 +107,9 @@ func NewManager(opts ManagerOptions) *Manager {
 		logger.Debug("container manager initialized")
 	}
 
-	// Create generators if config and templates are provided but generators aren't
-	if opts.Generator == nil && opts.Config != nil && opts.Templates != nil {
-		opts.Generator = NewDevcontainerGenerator(opts.Config, opts.Templates)
-	}
+	// Create ComposeGenerator if config and templates are provided but generator isn't
 	if opts.ComposeGen == nil && opts.Config != nil && opts.Templates != nil {
 		opts.ComposeGen = NewComposeGenerator(opts.Config, opts.Templates, logManager.For("compose"))
-	}
-
-	// Create DevcontainerCLI if config is provided but CLI isn't
-	if opts.DevCLI == nil && opts.Config != nil {
-		if opts.Config.Runtime != "" {
-			opts.DevCLI = NewDevcontainerCLIWithRuntime(opts.Config.Runtime)
-		} else {
-			opts.DevCLI = NewDevcontainerCLI()
-		}
 	}
 
 	m := &Manager{
@@ -133,9 +117,7 @@ func NewManager(opts ManagerOptions) *Manager {
 		runtime:          opts.Runtime,
 		runtimeName:      opts.RuntimeName,
 		runtimePath:      opts.RuntimePath,
-		generator:        opts.Generator,
 		composeGenerator: opts.ComposeGen,
-		devCLI:           opts.DevCLI,
 		containers:       make(map[string]*Container),
 		sidecars:         make(map[string]*Sidecar),
 		logger:           logger,
@@ -357,6 +339,18 @@ func (m *Manager) GetByNameOrID(ref string) (*Container, bool) {
 	return nil, false
 }
 
+// GetByComposeProject returns the container with the given compose project name, or nil.
+func (m *Manager) GetByComposeProject(composeName string) *Container {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, c := range m.containers {
+		if c.ComposeProject == composeName {
+			return c
+		}
+	}
+	return nil
+}
+
 // CreateWithCompose creates a new devcontainer using docker-compose orchestration.
 func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*Container, error) {
 	// Ensure ProjectPath is absolute (relative paths break Docker Compose volume mounts —
@@ -398,43 +392,57 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 	}
 
 	reportProgress("compose", "completed", "Compose configuration generated")
-	reportProgress("devcontainer", "started", "Generating devcontainer configuration")
 
-	// Generate devcontainer.json
-	devcontainerResult, err := m.generator.Generate(opts)
+	// Only write template files if the project doesn't already have a compose file.
+	// Projects with their own .devcontainer/ setup should not be overwritten.
+	composeFilePath := filepath.Join(opts.ProjectPath, ".devcontainer", "docker-compose.yml")
+	if _, err := os.Stat(composeFilePath); os.IsNotExist(err) {
+		reportProgress("files", "started", "Writing configuration files")
+
+		if err := m.composeGenerator.WriteToProject(opts.ProjectPath, opts.Template, composeResult.TemplateData); err != nil {
+			return nil, fmt.Errorf("failed to write template files: %w", err)
+		}
+
+		reportProgress("files", "completed", "Configuration files written")
+	}
+	if _, err := os.Stat(composeFilePath); err != nil {
+		// Format error message to include filename for clarity
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("no docker-compose.yml found at %s", composeFilePath)
+		}
+		return nil, fmt.Errorf("compose file not accessible at %s: %w", composeFilePath, err)
+	}
+
+	// Discover port env vars from the rendered compose file
+	portVars, err := ParsePortEnvVars(composeFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate devcontainer config: %w", err)
+		// Non-fatal: if compose file doesn't have env var ports, proceed with empty map
+		m.logger.Warn("failed to parse port env vars", "error", err)
+		portVars = make(map[string]string)
 	}
 
-	reportProgress("devcontainer", "completed", "Devcontainer configuration generated")
-	reportProgress("files", "started", "Writing configuration files")
-
-	// Write all files to project
-	if err := m.generator.WriteAll(opts.ProjectPath, devcontainerResult, composeResult); err != nil {
-		return nil, fmt.Errorf("failed to write configuration files: %w", err)
+	// Allocate free ports for discovered env vars
+	allocatedPorts, err := AllocateFreePorts(portVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to allocate ports: %w", err)
 	}
 
-	reportProgress("files", "completed", "Configuration files written")
+	// Determine compose project name: use opts.Name if provided (e.g. worktree-specific name),
+	// otherwise derive from the project directory base name
+	composeName := opts.Name
+	if composeName == "" {
+		composeName = SanitizeComposeName(filepath.Base(opts.ProjectPath))
+	}
+
 	reportProgress("container", "started", "Starting devcontainer")
 
-	// Start devcontainer (devcontainer CLI handles compose orchestration)
-	containerID, err := m.devCLI.Up(ctx, opts.ProjectPath)
-	if err != nil && containerID == "" {
+	// Start devcontainer using direct compose up
+	if err := m.runtime.ComposeUp(ctx, opts.ProjectPath, composeName, allocatedPorts); err != nil {
 		reportProgress("container", "failed", fmt.Sprintf("Failed to start: %v", err))
-		return nil, fmt.Errorf("failed to start devcontainer: %w", err)
-	}
-	if err != nil {
-		// Container was created but postCreateCommand or similar failed.
-		// Log the error but continue — the container is usable.
-		logger.Warn("devcontainer up completed with error (postCreateCommand may have failed)", "error", err)
-		reportProgress("container", "completed", "Devcontainer started (with post-create warnings)")
+		return nil, fmt.Errorf("compose up failed: %w", err)
 	}
 
-	displayID := containerID
-	if len(displayID) > 12 {
-		displayID = displayID[:12] // Display truncation for container IDs (not project hash)
-	}
-	logger.Info("devcontainer started", "containerID", displayID)
+	logger.Info("devcontainer started via compose", "projectName", composeName)
 	reportProgress("container", "completed", "Devcontainer started successfully")
 
 	// Refresh container list
@@ -442,53 +450,26 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 		logger.Warn("failed to refresh container list", "error", err)
 	}
 
-	// Find the created container
-	// Container ID from devcontainer up may be truncated, so use prefix match
+	// Find the created container by project path
 	m.mu.RLock()
 	var container *Container
 	for _, c := range m.containers {
-		if strings.HasPrefix(c.ID, containerID) || strings.HasPrefix(containerID, c.ID) {
+		if c.ProjectPath == opts.ProjectPath {
 			container = c
 			break
-		}
-	}
-
-	// If not found by ID, try matching by project path
-	if container == nil {
-		for _, c := range m.containers {
-			if c.ProjectPath == opts.ProjectPath {
-				container = c
-				break
-			}
 		}
 	}
 	m.mu.RUnlock()
 
 	if container == nil {
-		return nil, fmt.Errorf("container created but not found in refresh: %s", containerID)
+		return nil, fmt.Errorf("container created but not found in refresh")
 	}
+
+	// Set ComposeProject and Ports on the found container
+	container.ComposeProject = composeName
+	container.Ports = allocatedPorts
 
 	return container, nil
-}
-
-// StartWorktreeContainer starts a devcontainer for an already-configured worktree directory.
-// The worktree's .devcontainer/ is expected to be fully configured (compose YAML, Dockerfile, etc.).
-// If devcontainer up fails but the container was created (e.g. postCreateCommand error),
-// the container ID is returned along with the error.
-func (m *Manager) StartWorktreeContainer(ctx context.Context, wtPath string) (string, error) {
-	containerID, upErr := m.devCLI.Up(ctx, wtPath)
-	if upErr != nil && containerID == "" {
-		return "", fmt.Errorf("failed to start worktree container: %w", upErr)
-	}
-	if upErr != nil {
-		// Container was created but postCreateCommand or similar failed.
-		// Log but continue — the container is usable.
-		m.logger.Warn("worktree container started with error (postCreateCommand may have failed)", "error", upErr)
-	}
-	if err := m.Refresh(ctx); err != nil {
-		m.logger.Warn("failed to refresh after worktree container start", "error", err)
-	}
-	return containerID, upErr
 }
 
 // composeProjectName returns the compose project name for a container.

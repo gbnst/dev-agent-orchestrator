@@ -30,7 +30,6 @@ type TemplateData struct {
 	TemplateName    string // Template name (e.g., "basic")
 	ContainerName   string // Container name for devcontainer.json
 	ProxyImage      string // Docker image for mitmproxy sidecar (default: mitmproxy/mitmproxy:latest)
-	ProxyPort       string // Port mitmproxy listens on (default: 8080)
 	RemoteUser      string // User for devcontainer exec commands (default: vscode)
 	ProxyLogPath    string // Container path for proxy request logs (default: /opt/devagent-proxy/logs/requests.jsonl)
 }
@@ -119,7 +118,6 @@ func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.T
 		TemplateName:    tmpl.Name,
 		ContainerName:   opts.Name,
 		ProxyImage:      "mitmproxy/mitmproxy:latest",
-		ProxyPort:       "8080",
 		RemoteUser:      DefaultRemoteUser,
 		ProxyLogPath:    "/opt/devagent-proxy/logs/requests.jsonl",
 	}
@@ -147,6 +145,24 @@ func validateTemplateData(data TemplateData) error {
 		return err
 	}
 	return nil
+}
+
+// WriteToProject writes template files from the template's .devcontainer directory
+// to the project's .devcontainer directory, processing .tmpl files with the given data.
+func (g *ComposeGenerator) WriteToProject(projectPath string, templateName string, data TemplateData) error {
+	tmpl := g.GetTemplate(templateName)
+	if tmpl == nil {
+		return fmt.Errorf("template not found: %s", templateName)
+	}
+
+	src := filepath.Join(tmpl.Path, ".devcontainer")
+	dst := filepath.Join(projectPath, ".devcontainer")
+
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+
+	return copyTemplateDir(src, dst, data)
 }
 
 // processTemplate reads a template file and processes it with the given data.

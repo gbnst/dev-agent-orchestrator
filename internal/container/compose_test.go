@@ -459,3 +459,238 @@ func findProjectRoot(t *testing.T) string {
 		dir = parent
 	}
 }
+
+// TestComposeGenerator_WriteToProject_CopiesTemplateFiles tests that WriteToProject
+// copies template files from the template's .devcontainer directory to the project's .devcontainer directory.
+func TestComposeGenerator_WriteToProject_CopiesTemplateFiles(t *testing.T) {
+	projectDir := t.TempDir()
+	templateDir := filepath.Join(t.TempDir(), "template")
+	devcontainerDir := filepath.Join(templateDir, ".devcontainer")
+
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template directory: %v", err)
+	}
+
+	// Create a devcontainer.json.tmpl file
+	tmplContent := `{"name": "test-{{.ProjectName}}", "image": "ubuntu:22.04"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write template: %v", err)
+	}
+
+	templates := []config.Template{
+		{
+			Name: "basic",
+			Path: templateDir,
+		},
+	}
+
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
+	data := TemplateData{
+		ProjectPath: projectDir,
+		ProjectName: "myproject",
+	}
+
+	err := gen.WriteToProject(projectDir, "basic", data)
+	if err != nil {
+		t.Fatalf("WriteToProject failed: %v", err)
+	}
+
+	// Check that .devcontainer directory was created
+	devDir := filepath.Join(projectDir, ".devcontainer")
+	if _, err := os.Stat(devDir); os.IsNotExist(err) {
+		t.Fatal(".devcontainer directory not created")
+	}
+
+	// Check that devcontainer.json was created (processed from .tmpl)
+	jsonPath := filepath.Join(devDir, "devcontainer.json")
+	if _, err := os.Stat(jsonPath); os.IsNotExist(err) {
+		t.Fatal("devcontainer.json not created from template")
+	}
+}
+
+// TestComposeGenerator_WriteToProject_ProcessesTemplateFiles tests that WriteToProject
+// processes .tmpl files with the provided template data.
+func TestComposeGenerator_WriteToProject_ProcessesTemplateFiles(t *testing.T) {
+	projectDir := t.TempDir()
+	templateDir := filepath.Join(t.TempDir(), "template")
+	devcontainerDir := filepath.Join(templateDir, ".devcontainer")
+
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template directory: %v", err)
+	}
+
+	// Create a devcontainer.json.tmpl file with template variables
+	tmplContent := `{"name": "test-{{.ProjectName}}", "image": "ubuntu:22.04", "workspaceFolder": "{{.WorkspaceFolder}}"}`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write template: %v", err)
+	}
+
+	templates := []config.Template{
+		{
+			Name: "basic",
+			Path: templateDir,
+		},
+	}
+
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
+	data := TemplateData{
+		ProjectPath:     projectDir,
+		ProjectName:     "myproject",
+		WorkspaceFolder: "/workspaces/myproject",
+	}
+
+	err := gen.WriteToProject(projectDir, "basic", data)
+	if err != nil {
+		t.Fatalf("WriteToProject failed: %v", err)
+	}
+
+	// Read the generated devcontainer.json and verify template substitution
+	jsonPath := filepath.Join(projectDir, ".devcontainer", "devcontainer.json")
+	content, err := os.ReadFile(jsonPath)
+	if err != nil {
+		t.Fatalf("Failed to read devcontainer.json: %v", err)
+	}
+
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "test-myproject") {
+		t.Error("ProjectName template variable not substituted")
+	}
+	if !strings.Contains(contentStr, "/workspaces/myproject") {
+		t.Error("WorkspaceFolder template variable not substituted")
+	}
+}
+
+// TestComposeGenerator_WriteToProject_CopiesNonTemplateFiles tests that WriteToProject
+// copies non-.tmpl files as-is without processing.
+func TestComposeGenerator_WriteToProject_CopiesNonTemplateFiles(t *testing.T) {
+	projectDir := t.TempDir()
+	templateDir := filepath.Join(t.TempDir(), "template")
+	devcontainerDir := filepath.Join(templateDir, ".devcontainer")
+
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template directory: %v", err)
+	}
+
+	// Create a regular file (not a template)
+	regularContent := "This is a regular file with {{.ProjectName}} that should not be substituted"
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "regular.txt"), []byte(regularContent), 0644); err != nil {
+		t.Fatalf("Failed to write regular file: %v", err)
+	}
+
+	templates := []config.Template{
+		{
+			Name: "basic",
+			Path: templateDir,
+		},
+	}
+
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
+	data := TemplateData{
+		ProjectPath: projectDir,
+		ProjectName: "myproject",
+	}
+
+	err := gen.WriteToProject(projectDir, "basic", data)
+	if err != nil {
+		t.Fatalf("WriteToProject failed: %v", err)
+	}
+
+	// Read the regular file and verify it was copied as-is without substitution
+	filePath := filepath.Join(projectDir, ".devcontainer", "regular.txt")
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to read regular.txt: %v", err)
+	}
+
+	contentStr := string(content)
+	// The file should still have the unsubstituted template variable
+	if !strings.Contains(contentStr, "{{.ProjectName}}") {
+		t.Error("Non-template file should not be processed")
+	}
+}
+
+// TestComposeGenerator_WriteToProject_UnknownTemplate tests that WriteToProject
+// returns an error when the template is not found.
+func TestComposeGenerator_WriteToProject_UnknownTemplate(t *testing.T) {
+	projectDir := t.TempDir()
+	gen := NewComposeGenerator(&config.Config{}, []config.Template{}, logging.NopLogger())
+	data := TemplateData{
+		ProjectPath: projectDir,
+		ProjectName: "myproject",
+	}
+
+	err := gen.WriteToProject(projectDir, "nonexistent", data)
+	if err == nil {
+		t.Error("Expected error for unknown template")
+	}
+	if !strings.Contains(err.Error(), "template not found") {
+		t.Errorf("Unexpected error message: %v", err)
+	}
+}
+
+// TestComposeGenerator_TemplateRenderingNoProxyPort verifies that rendered templates
+// contain literal 8080 for proxy port (not template variables) and don't reference
+// docker-compose.worktree.yml. This tests compose-root-launch.AC5.1 and AC5.2.
+func TestComposeGenerator_TemplateRenderingNoProxyPort(t *testing.T) {
+	templates := loadTestTemplates(t, "basic")
+
+	gen := NewComposeGenerator(&config.Config{}, templates, logging.NopLogger())
+
+	opts := ComposeOptions{
+		ProjectPath: "/home/user/test-project",
+		Template:    "basic",
+		Name:        "test-basic",
+	}
+
+	result, err := gen.Generate(opts)
+	if err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	// Render docker-compose.yml.tmpl
+	tmpl := templates[0]
+	composeYAML, err := processTemplate(filepath.Join(tmpl.Path, ".devcontainer", "docker-compose.yml.tmpl"), result.TemplateData)
+	if err != nil {
+		t.Fatalf("processTemplate for docker-compose.yml.tmpl failed: %v", err)
+	}
+
+	// Verify compose-root-launch.AC5.1: Rendered template contains literal 8080
+	if !strings.Contains(composeYAML, "http_proxy=http://proxy:8080") {
+		t.Error("ComposeYAML missing literal http_proxy=http://proxy:8080")
+	}
+	if !strings.Contains(composeYAML, "https_proxy=http://proxy:8080") {
+		t.Error("ComposeYAML missing literal https_proxy=http://proxy:8080")
+	}
+	if !strings.Contains(composeYAML, `"8080"`) {
+		t.Error("ComposeYAML missing literal proxy port 8080")
+	}
+
+	// Verify no template variable remains
+	if strings.Contains(composeYAML, "{{.ProxyPort}}") {
+		t.Error("ComposeYAML should not contain {{.ProxyPort}} template variable")
+	}
+
+	// Verify compose-root-launch.AC5.2: No reference to docker-compose.worktree.yml
+	if strings.Contains(composeYAML, "docker-compose.worktree.yml") {
+		t.Error("ComposeYAML should not reference docker-compose.worktree.yml")
+	}
+
+	// Also test devcontainer.json.tmpl if it exists
+	devcontainerPath := filepath.Join(tmpl.Path, ".devcontainer", "devcontainer.json.tmpl")
+	if _, err := os.Stat(devcontainerPath); err == nil {
+		devcontainerJSON, err := processTemplate(devcontainerPath, result.TemplateData)
+		if err != nil {
+			t.Fatalf("processTemplate for devcontainer.json.tmpl failed: %v", err)
+		}
+
+		// Verify AC5.2: devcontainer.json doesn't reference worktree override file
+		if strings.Contains(devcontainerJSON, "docker-compose.worktree.yml") {
+			t.Error("devcontainer.json should not reference docker-compose.worktree.yml")
+		}
+
+		// Verify it references only docker-compose.yml
+		if !strings.Contains(devcontainerJSON, "docker-compose.yml") {
+			t.Error("devcontainer.json should reference docker-compose.yml")
+		}
+	}
+}

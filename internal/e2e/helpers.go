@@ -29,13 +29,6 @@ func SkipIfRuntimeMissing(t *testing.T, runtime string) {
 	}
 }
 
-// SkipIfDevcontainerMissing skips the test if devcontainer CLI is not available.
-func SkipIfDevcontainerMissing(t *testing.T) {
-	t.Helper()
-	if _, err := exec.LookPath("devcontainer"); err != nil {
-		t.Skip("Skipping test: devcontainer CLI not found in PATH")
-	}
-}
 
 // TestProject creates a temporary project directory with devcontainer config.
 func TestProject(t *testing.T, templateName string) string {

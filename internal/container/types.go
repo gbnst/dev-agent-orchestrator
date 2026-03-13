@@ -19,16 +19,18 @@ const (
 
 // Container represents a devagent-managed container.
 type Container struct {
-	ID          string
-	Name        string
-	ProjectPath string
-	Template    string
-	Agent       string
-	RemoteUser  string // User for exec commands (default: vscode)
-	State       ContainerState
-	CreatedAt   time.Time
-	Labels      map[string]string
-	Sessions    []tmux.Session
+	ID             string
+	Name           string
+	ProjectPath    string
+	Template       string
+	Agent          string
+	RemoteUser     string // User for exec commands (default: vscode)
+	State          ContainerState
+	CreatedAt      time.Time
+	Labels         map[string]string
+	ComposeProject string            // Docker Compose project name (from com.docker.compose.project label)
+	Ports          map[string]string // Allocated host ports (env var name → port string)
+	Sessions       []tmux.Session
 }
 
 // Sidecar represents an auxiliary container that provides services to a devcontainer.
@@ -144,4 +146,18 @@ type MountInfo struct {
 	Source      string `json:"source"`      // Host path or volume name
 	Destination string `json:"destination"` // Container path
 	ReadOnly    bool   `json:"read_only"`
+}
+
+// FindTemplateForProject finds the template name used by existing containers for a project.
+// Falls back to "basic" if no existing containers found.
+// Note: After compose root launch, worktree containers share the project root as ProjectPath,
+// so this correctly matches. During transition, legacy containers with worktree paths won't
+// match, but the "basic" fallback is safe.
+func FindTemplateForProject(containers []*Container, projectPath string) string {
+	for _, c := range containers {
+		if c.ProjectPath == projectPath {
+			return c.Template
+		}
+	}
+	return "basic"
 }

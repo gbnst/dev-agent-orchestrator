@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -183,15 +184,16 @@ func (r *Runtime) parseContainerList(output string) ([]Container, error) {
 			for _, cj := range cjs {
 				labels := cj.getLabels()
 				containers = append(containers, Container{
-					ID:          cj.getID(),
-					Name:        cj.getName(),
-					State:       mapState(cj.State),
-					ProjectPath: labels[LabelProjectPath],
-					Template:    labels[LabelTemplate],
-					Agent:       labels[LabelAgent],
-					RemoteUser:  getRemoteUser(labels),
-					CreatedAt:   cj.getCreatedAt(),
-					Labels:      labels,
+					ID:             cj.getID(),
+					Name:           cj.getName(),
+					State:          mapState(cj.State),
+					ProjectPath:    labels[LabelProjectPath],
+					Template:       labels[LabelTemplate],
+					Agent:          labels[LabelAgent],
+					RemoteUser:     getRemoteUser(labels),
+					CreatedAt:      cj.getCreatedAt(),
+					Labels:         labels,
+					ComposeProject: labels[LabelComposeProject],
 				})
 			}
 			return containers, nil
@@ -213,15 +215,16 @@ func (r *Runtime) parseContainerList(output string) ([]Container, error) {
 
 		labels := cj.getLabels()
 		containers = append(containers, Container{
-			ID:          cj.getID(),
-			Name:        cj.getName(),
-			State:       mapState(cj.State),
-			ProjectPath: labels[LabelProjectPath],
-			Template:    labels[LabelTemplate],
-			Agent:       labels[LabelAgent],
-			RemoteUser:  getRemoteUser(labels),
-			CreatedAt:   cj.getCreatedAt(),
-			Labels:      labels,
+			ID:             cj.getID(),
+			Name:           cj.getName(),
+			State:          mapState(cj.State),
+			ProjectPath:    labels[LabelProjectPath],
+			Template:       labels[LabelTemplate],
+			Agent:          labels[LabelAgent],
+			RemoteUser:     getRemoteUser(labels),
+			CreatedAt:      cj.getCreatedAt(),
+			Labels:         labels,
+			ComposeProject: labels[LabelComposeProject],
 		})
 	}
 
@@ -394,14 +397,43 @@ func (r *Runtime) composeCommand() (string, []string) {
 
 // ComposeUp runs docker-compose/podman-compose up -d in the project directory.
 // The compose file is expected at {projectDir}/.devcontainer/docker-compose.yml
-func (r *Runtime) ComposeUp(ctx context.Context, projectDir string, projectName string) error {
+// env specifies environment variables to pass to the compose command (for dynamic port allocation).
+func (r *Runtime) ComposeUp(ctx context.Context, projectDir string, projectName string, env map[string]string) error {
 	composeFile := filepath.Join(projectDir, ".devcontainer", "docker-compose.yml")
 
 	cmd, baseArgs := r.composeCommand()
 	args := append(baseArgs, "-f", composeFile, "-p", projectName, "up", "-d")
 
-	_, err := r.exec(ctx, cmd, args...)
+	// Use execWithEnv to pass port environment variables
+	_, err := r.execWithEnv(ctx, env, cmd, args...)
 	return err
+}
+
+// execWithEnv runs a command with additional environment variables.
+// Falls back to r.exec when env is nil or empty (preserves testability with mock executors).
+func (r *Runtime) execWithEnv(ctx context.Context, env map[string]string, name string, args ...string) (string, error) {
+	if len(env) == 0 {
+		return r.exec(ctx, name, args...)
+	}
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	// Start with parent environment, add custom vars
+	cmd.Env = os.Environ()
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		if stderr.Len() > 0 {
+			return stdout.String(), fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+		return stdout.String(), err
+	}
+	return stdout.String(), nil
 }
 
 // ComposeStart runs docker-compose/podman-compose start.
