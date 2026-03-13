@@ -1656,7 +1656,7 @@ func TestHandleStartWorktreeContainer_AC21(t *testing.T) {
 		},
 	}
 
-	// After devcontainer up succeeds, this container should be returned by ListContainers
+	// After CreateWithCompose succeeds, this container should be returned by ListContainers
 	afterUpContainers := []container.Container{
 		{
 			ID:          "mock-container-abc123",
