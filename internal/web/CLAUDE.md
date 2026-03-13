@@ -27,7 +27,7 @@ HTTP/WebSocket server providing a REST API and embedded React SPA for managing c
 - `POST /api/containers/{id}/stop` - Stop running container (400 if already stopped)
 - `DELETE /api/containers/{id}` - Destroy container via compose down
 - `POST /api/projects/{encodedPath}/worktrees` - Create worktree + auto-start container (body: `{"name": "...", "no_start": false}`)
-- `POST /api/projects/{encodedPath}/worktrees/{name}/start` - Start container for containerless worktree via devcontainer up (409 if container exists)
+- `POST /api/projects/{encodedPath}/worktrees/{name}/start` - Start container for containerless worktree via CreateWithCompose (409 if container exists)
 - `DELETE /api/projects/{encodedPath}/worktrees/{name}` - Compound: stop container + destroy + git worktree remove
 - `GET /api/host/sessions` - List host tmux sessions (returns empty array if tmux unavailable)
 - `POST /api/host/sessions` - Create host tmux session (body: `{"name": "..."}`)
