@@ -630,3 +630,50 @@ func TestComposeCommand_Podman(t *testing.T) {
 		t.Errorf("Expected empty baseArgs for podman, got %v", baseArgs)
 	}
 }
+
+// TestComposeUp_WithEnv_FallsBackToExecForNilEnv verifies that ComposeUp
+// properly delegates to execWithEnv, which then falls back to r.exec when env is nil.
+// This test exercises the env parameter path without testing actual exec.Cmd creation.
+func TestComposeUp_WithEnv_FallsBackToExecForNilEnv(t *testing.T) {
+	execCalled := false
+	mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+		execCalled = true
+		return "", nil
+	}
+
+	r := NewRuntimeWithExecutor("docker", mockExec)
+	// Pass nil env - execWithEnv should delegate to r.exec
+	err := r.ComposeUp(context.Background(), "/home/user/project", "myproject", nil)
+
+	if err != nil {
+		t.Fatalf("ComposeUp failed: %v", err)
+	}
+
+	if !execCalled {
+		t.Errorf("Expected r.exec to be called when env is nil, but it wasn't")
+	}
+}
+
+// TestExecWithEnv_EmptyMap verifies that empty env map delegates to r.exec.
+func TestExecWithEnv_EmptyMap(t *testing.T) {
+	execCalled := false
+	mockExec := func(ctx context.Context, name string, args ...string) (string, error) {
+		execCalled = true
+		return "test output", nil
+	}
+
+	r := NewRuntimeWithExecutor("docker", mockExec)
+	output, err := r.execWithEnv(context.Background(), make(map[string]string), "echo", "hello")
+
+	if err != nil {
+		t.Fatalf("execWithEnv failed: %v", err)
+	}
+
+	if !execCalled {
+		t.Errorf("Expected r.exec to be called for empty env, but it wasn't")
+	}
+
+	if output != "test output" {
+		t.Errorf("Expected 'test output', got %q", output)
+	}
+}
