@@ -173,3 +173,57 @@ func TestAllocateFreePorts(t *testing.T) {
 		}
 	})
 }
+
+// TestSanitizeComposeName tests the compose name sanitization with various inputs
+func TestSanitizeComposeName(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "already valid",
+			input:    "myproject",
+			expected: "myproject",
+		},
+		{
+			name:     "spaces and uppercase",
+			input:    "My Project",
+			expected: "my-project",
+		},
+		{
+			name:     "slash replaced",
+			input:    "feature/auth",
+			expected: "feature-auth",
+		},
+		{
+			name:     "leading and trailing hyphens trimmed",
+			input:    "--leading-trailing--",
+			expected: "leading-trailing",
+		},
+		{
+			name:     "underscore replaced",
+			input:    "project_name",
+			expected: "project-name",
+		},
+		{
+			name:     "lowercase conversion",
+			input:    "UPPERCASE",
+			expected: "uppercase",
+		},
+		{
+			name:     "alphanumeric with hyphens preserved",
+			input:    "a1-b2-c3",
+			expected: "a1-b2-c3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := SanitizeComposeName(tt.input)
+			if result != tt.expected {
+				t.Errorf("SanitizeComposeName(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
