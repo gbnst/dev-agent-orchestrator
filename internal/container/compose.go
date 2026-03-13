@@ -30,7 +30,6 @@ type TemplateData struct {
 	TemplateName    string // Template name (e.g., "basic")
 	ContainerName   string // Container name for devcontainer.json
 	ProxyImage      string // Docker image for mitmproxy sidecar (default: mitmproxy/mitmproxy:latest)
-	ProxyPort       string // Port mitmproxy listens on (default: 8080)
 	RemoteUser      string // User for devcontainer exec commands (default: vscode)
 	ProxyLogPath    string // Container path for proxy request logs (default: /opt/devagent-proxy/logs/requests.jsonl)
 }
@@ -119,7 +118,6 @@ func (g *ComposeGenerator) buildTemplateData(opts ComposeOptions, tmpl *config.T
 		TemplateName:    tmpl.Name,
 		ContainerName:   opts.Name,
 		ProxyImage:      "mitmproxy/mitmproxy:latest",
-		ProxyPort:       "8080",
 		RemoteUser:      DefaultRemoteUser,
 		ProxyLogPath:    "/opt/devagent-proxy/logs/requests.jsonl",
 	}
