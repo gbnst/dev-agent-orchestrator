@@ -970,16 +970,10 @@ func TestCreateWithCompose_WorktreeComposeProjNaming(t *testing.T) {
 		t.Errorf("Expected ComposeUp with projectDir %q, got %q", projectDir, mock.composeUpCalled)
 	}
 
-	// Verify project name includes base directory name
+	// Verify compose project name uses sanitized base directory name
 	baseName := filepath.Base(projectDir)
-	// When Name is provided (worktree-style), the compose project name should
-	// incorporate both the base project name and the specific worktree name
-	// Note: expectedProjectName documents what the behavior should be after worktree naming is implemented
-	_ = SanitizeComposeName(baseName + "-" + opts.Name) // Future: use this for worktree-aware naming
-
-	// For now, the actual behavior only uses baseName
-	actualExpectedName := SanitizeComposeName(baseName)
-	if mock.composeUpProject != actualExpectedName {
-		t.Errorf("Expected ComposeUp with projectName %q, got %q", actualExpectedName, mock.composeUpProject)
+	expectedName := SanitizeComposeName(baseName)
+	if mock.composeUpProject != expectedName {
+		t.Errorf("Expected ComposeUp with projectName %q, got %q", expectedName, mock.composeUpProject)
 	}
 }
