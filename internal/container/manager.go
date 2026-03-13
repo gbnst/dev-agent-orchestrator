@@ -35,8 +35,8 @@ type Manager struct {
 	mu               sync.RWMutex // protects containers and sidecars maps
 	cfg              *config.Config
 	runtime          RuntimeInterface
-	runtimeName      string // "docker" or "podman" - used for attach commands
-	runtimePath      string // full path to binary - bypasses shell aliases
+	runtimeName      string            // "docker" or "podman" - used for attach commands
+	runtimePath      string            // full path to binary - bypasses shell aliases
 	composeGenerator *ComposeGenerator // for compose-based orchestration
 	tmuxClient       *tmux.Client
 	containers       map[string]*Container
@@ -465,6 +465,7 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 
 	return container, nil
 }
+
 // composeProjectName returns the compose project name for a container.
 // Reads from Docker's com.docker.compose.project label (set by devcontainer CLI).
 // Falls back to the container name if label is missing (shouldn't happen for compose containers).

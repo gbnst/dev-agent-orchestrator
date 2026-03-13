@@ -123,12 +123,6 @@ func (m *mockWorktreeOps) WorktreeDir(projectPath, name string) string {
 	return m.wtDir
 }
 
-// mockCommandExecutor returns a successful devcontainer up command result in the expected JSON format.
-func mockCommandExecutor(ctx context.Context, name string, args ...string) (string, error) {
-	// devcontainer up returns JSON with containerId field
-	return `{"containerId":"mock-container-abc123"}`, nil
-}
-
 // startWorktreeTestServer creates a test server with a configurable mock worktreeOps.
 // The server is set up with proper Config and Templates so that CreateWithCompose works.
 func startWorktreeTestServer(t *testing.T, containers []container.Container, wt *mockWorktreeOps, notifyTUI func(any)) string {
