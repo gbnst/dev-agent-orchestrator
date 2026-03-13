@@ -19,16 +19,18 @@ const (
 
 // Container represents a devagent-managed container.
 type Container struct {
-	ID          string
-	Name        string
-	ProjectPath string
-	Template    string
-	Agent       string
-	RemoteUser  string // User for exec commands (default: vscode)
-	State       ContainerState
-	CreatedAt   time.Time
-	Labels      map[string]string
-	Sessions    []tmux.Session
+	ID             string
+	Name           string
+	ProjectPath    string
+	Template       string
+	Agent          string
+	RemoteUser     string // User for exec commands (default: vscode)
+	State          ContainerState
+	CreatedAt      time.Time
+	Labels         map[string]string
+	ComposeProject string            // Docker Compose project name (from com.docker.compose.project label)
+	Ports          map[string]string // Allocated host ports (env var name → port string)
+	Sessions       []tmux.Session
 }
 
 // Sidecar represents an auxiliary container that provides services to a devcontainer.

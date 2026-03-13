@@ -183,15 +183,16 @@ func (r *Runtime) parseContainerList(output string) ([]Container, error) {
 			for _, cj := range cjs {
 				labels := cj.getLabels()
 				containers = append(containers, Container{
-					ID:          cj.getID(),
-					Name:        cj.getName(),
-					State:       mapState(cj.State),
-					ProjectPath: labels[LabelProjectPath],
-					Template:    labels[LabelTemplate],
-					Agent:       labels[LabelAgent],
-					RemoteUser:  getRemoteUser(labels),
-					CreatedAt:   cj.getCreatedAt(),
-					Labels:      labels,
+					ID:             cj.getID(),
+					Name:           cj.getName(),
+					State:          mapState(cj.State),
+					ProjectPath:    labels[LabelProjectPath],
+					Template:       labels[LabelTemplate],
+					Agent:          labels[LabelAgent],
+					RemoteUser:     getRemoteUser(labels),
+					CreatedAt:      cj.getCreatedAt(),
+					Labels:         labels,
+					ComposeProject: labels[LabelComposeProject],
 				})
 			}
 			return containers, nil
@@ -213,15 +214,16 @@ func (r *Runtime) parseContainerList(output string) ([]Container, error) {
 
 		labels := cj.getLabels()
 		containers = append(containers, Container{
-			ID:          cj.getID(),
-			Name:        cj.getName(),
-			State:       mapState(cj.State),
-			ProjectPath: labels[LabelProjectPath],
-			Template:    labels[LabelTemplate],
-			Agent:       labels[LabelAgent],
-			RemoteUser:  getRemoteUser(labels),
-			CreatedAt:   cj.getCreatedAt(),
-			Labels:      labels,
+			ID:             cj.getID(),
+			Name:           cj.getName(),
+			State:          mapState(cj.State),
+			ProjectPath:    labels[LabelProjectPath],
+			Template:       labels[LabelTemplate],
+			Agent:          labels[LabelAgent],
+			RemoteUser:     getRemoteUser(labels),
+			CreatedAt:      cj.getCreatedAt(),
+			Labels:         labels,
+			ComposeProject: labels[LabelComposeProject],
 		})
 	}
 
