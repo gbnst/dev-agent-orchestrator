@@ -40,25 +40,3 @@ func TestWorktreeDir(t *testing.T) {
 		t.Errorf("WorktreeDir = %q, want %q", dir, expected)
 	}
 }
-
-func TestSanitizeComposeName(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"myproject-feature-x", "myproject-feature-x"},
-		{"MyProject-Feature/X", "myproject-feature-x"},
-		{"project_name", "project-name"},
-		{"has spaces", "has-spaces"},
-		{"-leading-", "leading"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			got := sanitizeComposeName(tt.input)
-			if got != tt.expected {
-				t.Errorf("sanitizeComposeName(%q) = %q, want %q", tt.input, got, tt.expected)
-			}
-		})
-	}
-}

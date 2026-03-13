@@ -44,8 +44,7 @@ func WorktreeDir(projectPath, name string) string {
 // Steps:
 // 1. Validate name
 // 2. git worktree add .worktrees/<name> -b <name>
-// 3. Patch worktree's compose YAML with volume mounts
-// 4. Run make worktree-prep if Makefile exists
+// 3. Run make worktree-prep if Makefile exists
 //
 // Returns the path to the created worktree directory.
 func Create(projectPath, name string) (string, error) {
@@ -70,12 +69,6 @@ func Create(projectPath, name string) (string, error) {
 	cmd.Dir = projectPath
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(output)), err)
-	}
-
-	// Write compose override file (leaves original docker-compose.yml untouched)
-	if err := WriteComposeOverride(projectPath, wtDir, name); err != nil {
-		_ = removeWorktree(projectPath, wtDir)
-		return "", fmt.Errorf("writing compose override: %w", err)
 	}
 
 	// Run make worktree-prep if Makefile exists
