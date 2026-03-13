@@ -141,7 +141,7 @@ describe('ProjectCard', () => {
       const user = userEvent.setup()
       const mockStartWorktreeContainer = vi.spyOn(api, 'startWorktreeContainer')
       mockStartWorktreeContainer.mockRejectedValue(
-        new Error('devcontainer up failed'),
+        new Error('compose up failed'),
       )
 
       const project = {
@@ -180,12 +180,12 @@ describe('ProjectCard', () => {
       // Error message should appear in action bar
       await waitFor(() => {
         expect(
-          screen.getByText('devcontainer up failed'),
+          screen.getByText('compose up failed'),
         ).toBeInTheDocument()
       })
 
       // Verify the error message is visible
-      const errorText = screen.getByText('devcontainer up failed')
+      const errorText = screen.getByText('compose up failed')
       expect(errorText).toBeInTheDocument()
     })
 

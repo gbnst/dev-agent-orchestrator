@@ -69,7 +69,7 @@ Provides terminal UI for orchestrating development containers and git worktrees.
 - `c` - Create container
 - `w` - Create worktree (opens form for selected project or first project if "All Projects" selected)
 - `W` - Delete worktree (shows confirmation, only on non-main worktrees)
-- `s/x/d` - Start/stop/destroy container (d shows confirmation); `s` on containerless worktree starts a new container via devcontainer up
+- `s/x/d` - Start/stop/destroy container (d shows confirmation); `s` on containerless worktree starts a new container via CreateWithCompose
 - `t` - Open action menu (running containers) / Create tmux session (on session nodes)
 - `k` - Kill session (shows confirmation)
 - `ctrl+c ctrl+c` - Quit (double-press within 500ms)

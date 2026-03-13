@@ -1497,7 +1497,7 @@ func TestHandleDeleteWorktree_AC35(t *testing.T) {
 type startWorktreeContainerMockRuntime struct {
 	// initialContainers returned on first ListContainers call
 	initialContainers []container.Container
-	// afterUpContainers returned on subsequent ListContainers calls (after devcontainer up)
+	// afterUpContainers returned on subsequent ListContainers calls (after CreateWithCompose)
 	afterUpContainers []container.Container
 	// listCallCount tracks how many times ListContainers has been called
 	listCallCount int
@@ -1507,7 +1507,7 @@ type startWorktreeContainerMockRuntime struct {
 
 func (m *startWorktreeContainerMockRuntime) ListContainers(_ context.Context) ([]container.Container, error) {
 	m.listCallCount++
-	// Return afterUpContainers on subsequent calls (after devcontainer up has been called)
+	// Return afterUpContainers on subsequent calls (after CreateWithCompose has been called)
 	if m.listCallCount > 1 {
 		return m.afterUpContainers, nil
 	}
@@ -1576,7 +1576,7 @@ services:
 }
 
 // startWorktreeContainerTestServer creates a test server with support for testing container creation.
-// It uses a special mock runtime that returns different containers before/after devcontainer up.
+// It uses a special mock runtime that returns different containers before/after CreateWithCompose.
 // The server is set up with proper Config and Templates so that CreateWithCompose works.
 func startWorktreeContainerTestServer(
 	t *testing.T,

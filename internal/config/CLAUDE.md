@@ -12,7 +12,7 @@ Loads and validates application configuration (config.yaml) and devcontainer tem
 
 ## Dependencies
 - **Uses**: os, path/filepath (stdlib only)
-- **Used by**: container.Manager, container.ComposeGenerator, container.DevcontainerGenerator, TUI, web.Server, tsnsrv, discovery (via ResolveScanPaths)
+- **Used by**: container.Manager, container.ComposeGenerator, TUI, web.Server, tsnsrv, discovery (via ResolveScanPaths)
 - **Boundary**: Configuration loading only; no container operations
 
 ## Key Decisions
