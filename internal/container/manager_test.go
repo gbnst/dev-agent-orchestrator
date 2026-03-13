@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -649,5 +650,353 @@ func TestGetByNameOrID_NotFound(t *testing.T) {
 	}
 	if c != nil {
 		t.Errorf("Expected nil container, got %v", c)
+	}
+}
+
+// TestCreateWithCompose_CallsComposeUpWithCorrectArgs verifies that CreateWithCompose
+// calls runtime.ComposeUp with the correct project directory, project name, and env parameters.
+func TestCreateWithCompose_CallsComposeUpWithCorrectArgs(t *testing.T) {
+	projectDir := t.TempDir()
+
+	// Create a compose file for CreateWithCompose to find
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	// Create a minimal docker-compose.yml with no port env vars
+	composeContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+    command: ["sleep", "infinity"]
+`
+	composeFile := filepath.Join(devcontainerDir, "docker-compose.yml")
+	if err := os.WriteFile(composeFile, []byte(composeContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml: %v", err)
+	}
+
+	// Create template directory with .devcontainer structure
+	templateDir := t.TempDir()
+	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
+	}
+
+	// Write minimal docker-compose.yml.tmpl
+	tmplContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
+	}
+
+	// Write minimal devcontainer.json.tmpl
+	devcontainerTmpl := `{
+  "name": "test",
+  "image": "ubuntu:22.04"
+}
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
+	}
+
+	// Create generator mocks
+	cfg := &config.Config{}
+	templates := []config.Template{{Name: "default", Path: templateDir}}
+
+	mock := &mockRuntime{
+		containers: []Container{
+			{
+				ID:          "test-container-id",
+				Name:        "test-container",
+				ProjectPath: projectDir,
+				State:       StateRunning,
+			},
+		},
+	}
+
+	mgr := NewManager(ManagerOptions{
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   mock,
+	})
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        "test-container",
+	}
+
+	_, err := mgr.CreateWithCompose(ctx, opts)
+	if err != nil {
+		t.Fatalf("CreateWithCompose failed: %v", err)
+	}
+
+	// Verify ComposeUp was called with the correct projectDir
+	if mock.composeUpCalled != projectDir {
+		t.Errorf("Expected ComposeUp with projectDir %q, got %q", projectDir, mock.composeUpCalled)
+	}
+
+	// Verify project name is the sanitized directory name
+	expectedProjectName := SanitizeComposeName(filepath.Base(projectDir))
+	if mock.composeUpProject != expectedProjectName {
+		t.Errorf("Expected ComposeUp with projectName %q, got %q", expectedProjectName, mock.composeUpProject)
+	}
+
+	// Verify env map was passed (empty or with allocated ports)
+	if mock.composeUpEnv == nil {
+		t.Error("Expected non-nil composeUpEnv")
+	}
+}
+
+// TestCreateWithCompose_SanitizesProjectName verifies that the compose project name
+// is correctly sanitized from the project path.
+func TestCreateWithCompose_SanitizesProjectName(t *testing.T) {
+	projectDir := t.TempDir()
+
+	// Create .devcontainer with compose file
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	composeContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml"), []byte(composeContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml: %v", err)
+	}
+
+	// Create template directory with .devcontainer structure
+	templateDir := t.TempDir()
+	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
+	}
+
+	// Write minimal docker-compose.yml.tmpl
+	tmplContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
+	}
+
+	// Write minimal devcontainer.json.tmpl
+	devcontainerTmpl := `{
+  "name": "test",
+  "image": "ubuntu:22.04"
+}
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
+	}
+
+	cfg := &config.Config{}
+	templates := []config.Template{{Name: "default", Path: templateDir}}
+
+	mock := &mockRuntime{
+		containers: []Container{
+			{
+				ID:          "container-id",
+				ProjectPath: projectDir,
+				State:       StateRunning,
+			},
+		},
+	}
+
+	mgr := NewManager(ManagerOptions{
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   mock,
+	})
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        "test",
+	}
+
+	_, err := mgr.CreateWithCompose(ctx, opts)
+	if err != nil {
+		t.Fatalf("CreateWithCompose failed: %v", err)
+	}
+
+	// Verify the project name is sanitized
+	baseName := filepath.Base(projectDir)
+	expectedProjectName := SanitizeComposeName(baseName)
+	if mock.composeUpProject != expectedProjectName {
+		t.Errorf("Expected sanitized projectName %q, got %q", expectedProjectName, mock.composeUpProject)
+	}
+}
+
+// TestCreateWithCompose_SetsComposeProjectField verifies that the returned container
+// has its ComposeProject field set to the sanitized compose project name.
+func TestCreateWithCompose_SetsComposeProjectField(t *testing.T) {
+	projectDir := t.TempDir()
+
+	// Create .devcontainer with compose file
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	composeContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml"), []byte(composeContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml: %v", err)
+	}
+
+	// Create template directory with .devcontainer structure
+	templateDir := t.TempDir()
+	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
+	}
+
+	// Write minimal docker-compose.yml.tmpl
+	tmplContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
+	}
+
+	// Write minimal devcontainer.json.tmpl
+	devcontainerTmpl := `{
+  "name": "test",
+  "image": "ubuntu:22.04"
+}
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
+	}
+
+	cfg := &config.Config{}
+	templates := []config.Template{{Name: "default", Path: templateDir}}
+
+	mock := &mockRuntime{
+		containers: []Container{
+			{
+				ID:          "container-id",
+				ProjectPath: projectDir,
+				State:       StateRunning,
+			},
+		},
+	}
+
+	mgr := NewManager(ManagerOptions{
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   mock,
+	})
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        "test",
+	}
+
+	container, err := mgr.CreateWithCompose(ctx, opts)
+	if err != nil {
+		t.Fatalf("CreateWithCompose failed: %v", err)
+	}
+
+	// Verify ComposeProject is set
+	expectedComposeProject := SanitizeComposeName(filepath.Base(projectDir))
+	if container.ComposeProject != expectedComposeProject {
+		t.Errorf("Expected container.ComposeProject = %q, got %q", expectedComposeProject, container.ComposeProject)
+	}
+}
+
+// TestCreateWithCompose_FailsWhenComposeUpFails verifies that CreateWithCompose returns
+// an error if ComposeUp fails, and handles it gracefully.
+func TestCreateWithCompose_FailsWhenComposeUpFails(t *testing.T) {
+	projectDir := t.TempDir()
+
+	// Create .devcontainer with compose file
+	devcontainerDir := filepath.Join(projectDir, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create .devcontainer dir: %v", err)
+	}
+
+	composeContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "docker-compose.yml"), []byte(composeContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml: %v", err)
+	}
+
+	// Create template directory with .devcontainer structure
+	templateDir := t.TempDir()
+	templateDevcontainerDir := filepath.Join(templateDir, ".devcontainer")
+	if err := os.MkdirAll(templateDevcontainerDir, 0755); err != nil {
+		t.Fatalf("Failed to create template .devcontainer dir: %v", err)
+	}
+
+	// Write minimal docker-compose.yml.tmpl
+	tmplContent := `version: "3.8"
+services:
+  app:
+    image: ubuntu:22.04
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "docker-compose.yml.tmpl"), []byte(tmplContent), 0644); err != nil {
+		t.Fatalf("Failed to write docker-compose.yml.tmpl: %v", err)
+	}
+
+	// Write minimal devcontainer.json.tmpl
+	devcontainerTmpl := `{
+  "name": "test",
+  "image": "ubuntu:22.04"
+}
+`
+	if err := os.WriteFile(filepath.Join(templateDevcontainerDir, "devcontainer.json.tmpl"), []byte(devcontainerTmpl), 0644); err != nil {
+		t.Fatalf("Failed to write devcontainer.json.tmpl: %v", err)
+	}
+
+	cfg := &config.Config{}
+	templates := []config.Template{{Name: "default", Path: templateDir}}
+
+	// Mock that fails on ComposeUp
+	mock := &mockRuntime{
+		composeUpErr: fmt.Errorf("docker compose failed"),
+	}
+
+	mgr := NewManager(ManagerOptions{
+		Config:    cfg,
+		Templates: templates,
+		Runtime:   mock,
+	})
+
+	ctx := context.Background()
+	opts := CreateOptions{
+		ProjectPath: projectDir,
+		Template:    "default",
+		Name:        "test",
+	}
+
+	_, err := mgr.CreateWithCompose(ctx, opts)
+	if err == nil {
+		t.Error("Expected error when ComposeUp fails")
+	}
+	if !strings.Contains(err.Error(), "compose up failed") {
+		t.Errorf("Expected 'compose up failed' error, got: %v", err)
 	}
 }

@@ -5,9 +5,9 @@ package container
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 
 	"devagent/internal/config"
@@ -415,26 +415,39 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 	}
 
 	reportProgress("files", "completed", "Configuration files written")
+
+	// Verify compose file exists (AC1.4: graceful failure when missing)
+	composeFilePath := filepath.Join(opts.ProjectPath, ".devcontainer", "docker-compose.yml")
+	if _, err := os.Stat(composeFilePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("no docker-compose.yml found at %s", composeFilePath)
+	}
+
+	// Discover port env vars from the rendered compose file
+	portVars, err := ParsePortEnvVars(composeFilePath)
+	if err != nil {
+		// Non-fatal: if compose file doesn't have env var ports, proceed with empty map
+		m.logger.Warn("failed to parse port env vars", "error", err)
+		portVars = make(map[string]string)
+	}
+
+	// Allocate free ports for discovered env vars
+	allocatedPorts, err := AllocateFreePorts(portVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to allocate ports: %w", err)
+	}
+
+	// Determine compose project name using SanitizeComposeName
+	composeName := SanitizeComposeName(filepath.Base(opts.ProjectPath))
+
 	reportProgress("container", "started", "Starting devcontainer")
 
-	// Start devcontainer (devcontainer CLI handles compose orchestration)
-	containerID, err := m.devCLI.Up(ctx, opts.ProjectPath)
-	if err != nil && containerID == "" {
+	// Start devcontainer using direct compose up
+	if err := m.runtime.ComposeUp(ctx, opts.ProjectPath, composeName, allocatedPorts); err != nil {
 		reportProgress("container", "failed", fmt.Sprintf("Failed to start: %v", err))
-		return nil, fmt.Errorf("failed to start devcontainer: %w", err)
-	}
-	if err != nil {
-		// Container was created but postCreateCommand or similar failed.
-		// Log the error but continue — the container is usable.
-		logger.Warn("devcontainer up completed with error (postCreateCommand may have failed)", "error", err)
-		reportProgress("container", "completed", "Devcontainer started (with post-create warnings)")
+		return nil, fmt.Errorf("compose up failed: %w", err)
 	}
 
-	displayID := containerID
-	if len(displayID) > 12 {
-		displayID = displayID[:12] // Display truncation for container IDs (not project hash)
-	}
-	logger.Info("devcontainer started", "containerID", displayID)
+	logger.Info("devcontainer started via compose", "projectName", composeName)
 	reportProgress("container", "completed", "Devcontainer started successfully")
 
 	// Refresh container list
@@ -442,31 +455,24 @@ func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*C
 		logger.Warn("failed to refresh container list", "error", err)
 	}
 
-	// Find the created container
-	// Container ID from devcontainer up may be truncated, so use prefix match
+	// Find the created container by project path
 	m.mu.RLock()
 	var container *Container
 	for _, c := range m.containers {
-		if strings.HasPrefix(c.ID, containerID) || strings.HasPrefix(containerID, c.ID) {
+		if c.ProjectPath == opts.ProjectPath {
 			container = c
 			break
-		}
-	}
-
-	// If not found by ID, try matching by project path
-	if container == nil {
-		for _, c := range m.containers {
-			if c.ProjectPath == opts.ProjectPath {
-				container = c
-				break
-			}
 		}
 	}
 	m.mu.RUnlock()
 
 	if container == nil {
-		return nil, fmt.Errorf("container created but not found in refresh: %s", containerID)
+		return nil, fmt.Errorf("container created but not found in refresh")
 	}
+
+	// Set ComposeProject and Ports on the found container
+	container.ComposeProject = composeName
+	container.Ports = allocatedPorts
 
 	return container, nil
 }
