@@ -5,6 +5,8 @@ export type Container = {
   template: string
   project_path: string
   remote_user: string
+  compose_project: string
+  ports: Record<string, string>
   created_at: string
   sessions: Array<Session>
 }
