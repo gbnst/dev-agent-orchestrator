@@ -357,6 +357,19 @@ func (m *Manager) GetByNameOrID(ref string) (*Container, bool) {
 	return nil, false
 }
 
+// GetByComposeProject returns the container with the given compose project name, or nil.
+// pattern: Functional Core
+func (m *Manager) GetByComposeProject(composeName string) *Container {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, c := range m.containers {
+		if c.ComposeProject == composeName {
+			return c
+		}
+	}
+	return nil
+}
+
 // CreateWithCompose creates a new devcontainer using docker-compose orchestration.
 func (m *Manager) CreateWithCompose(ctx context.Context, opts CreateOptions) (*Container, error) {
 	// Ensure ProjectPath is absolute (relative paths break Docker Compose volume mounts —
