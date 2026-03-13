@@ -86,6 +86,9 @@
                   "-w"
                   "-X main.version=${version}"
                 ];
+                preCheck = ''
+                  export HOME="$(mktemp -d)"
+                '';
               };
               tsnsrvPkg = inputs.tsnsrv.packages.${pkgs.system}.tsnsrv;
             in
