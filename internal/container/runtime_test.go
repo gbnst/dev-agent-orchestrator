@@ -715,6 +715,12 @@ services:
 
 	r := NewRuntimeWithExecutor("docker", mockExec)
 
+	// Clean up any containers created by the real compose invocation
+	t.Cleanup(func() {
+		cleanupR := NewRuntimeWithExecutor("docker", defaultExecutor)
+		_ = cleanupR.ComposeDown(context.Background(), projectDir, "myproject")
+	})
+
 	// Call ComposeUp with non-empty env map
 	env := map[string]string{
 		"PORT_APP": "8000",

@@ -44,4 +44,7 @@ internal/web/frontend/node_modules/
 internal/web/frontend/dist/
 
 # CI-only version file
-.versionconfig/orchestrator.log
+.version
+
+# Orchestrator logs
+config/orchestrator.log
