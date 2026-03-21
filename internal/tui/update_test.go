@@ -1153,3 +1153,112 @@ func TestSKeyHandler_NoSelection(t *testing.T) {
 		t.Error("should return nil command with no selection")
 	}
 }
+
+// AC3.1 - VS Code launch on running container
+
+func TestVKey_RunningContainer_DispatchesCommand(t *testing.T) {
+	m := newTestModel(t)
+
+	// Add a container and select it
+	ctr := &container.Container{
+		ID:          "abc123def456",
+		Name:        "test-container",
+		State:       container.StateRunning,
+		ProjectPath: "/path/to/project",
+	}
+	m.containerList.SetItems(toListItems([]*container.Container{ctr}))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1 // Container (after All)
+	m.syncSelectionFromTree()
+
+	// Press 'v' to launch VS Code
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")}
+	updated, cmd := m.Update(msg)
+	m = updated.(Model)
+
+	if cmd == nil {
+		t.Error("should return command to dispatch VS Code launch")
+	}
+}
+
+// AC3.3 - No-op when stopped
+
+func TestVKey_StoppedContainer_NoOp(t *testing.T) {
+	m := newTestModel(t)
+
+	// Add a stopped container and select it
+	ctr := &container.Container{
+		ID:          "abc123def456",
+		Name:        "test-container",
+		State:       container.StateStopped,
+		ProjectPath: "/path/to/project",
+	}
+	m.containerList.SetItems(toListItems([]*container.Container{ctr}))
+	m.rebuildTreeItems()
+	m.selectedIdx = 1 // Container (after All)
+	m.syncSelectionFromTree()
+
+	// Press 'v' with stopped container
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")}
+	updated, cmd := m.Update(msg)
+	m = updated.(Model)
+
+	if cmd != nil {
+		t.Error("should return nil command for stopped container")
+	}
+}
+
+// AC3.4 - No-op when no selection
+
+func TestVKey_NoContainerSelected_NoOp(t *testing.T) {
+	m := newTestModel(t)
+
+	// No selection
+	m.selectedIdx = -1
+	m.selectedContainer = nil
+
+	// Press 'v' with no selection
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")}
+	updated, cmd := m.Update(msg)
+	m = updated.(Model)
+
+	if cmd != nil {
+		t.Error("should return nil command with no selection")
+	}
+}
+
+// AC3.2 - Success message
+
+func TestVSCodeLaunchMsg_Success(t *testing.T) {
+	m := newTestModel(t)
+
+	// Simulate success message
+	msg := vscodeLaunchMsg{err: nil}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.statusLevel != StatusSuccess {
+		t.Errorf("statusLevel = %v, want %v", m.statusLevel, StatusSuccess)
+	}
+	if !strings.Contains(m.statusMessage, "VS Code") {
+		t.Errorf("statusMessage = %q, should contain 'VS Code'", m.statusMessage)
+	}
+}
+
+// AC3.1 - Error message
+
+func TestVSCodeLaunchMsg_Error(t *testing.T) {
+	m := newTestModel(t)
+
+	// Simulate error message
+	msg := vscodeLaunchMsg{err: fmt.Errorf("code binary not found")}
+	updated, _ := m.Update(msg)
+	m = updated.(Model)
+
+	if m.statusLevel != StatusError {
+		t.Errorf("statusLevel = %v, want %v", m.statusLevel, StatusError)
+	}
+	if m.err == nil {
+		t.Error("err should be set")
+	}
+}

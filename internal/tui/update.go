@@ -5,6 +5,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -36,6 +37,10 @@ type containerActionMsg struct {
 	action string
 	id     string
 	err    error
+}
+
+type vscodeLaunchMsg struct {
+	err error
 }
 
 type tickMsg struct {
@@ -465,6 +470,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+		case "v":
+			// Launch VS Code attached to selected container
+			if m.selectedContainer != nil && m.selectedContainer.State == container.StateRunning {
+				m.logger.Debug("launching VS Code", "container", m.selectedContainer.Name)
+				workspaceFolder := container.ReadWorkspaceFolder(m.selectedContainer.ProjectPath)
+				return m, m.launchVSCode(m.selectedContainer.ID, workspaceFolder)
+			}
+
 		case "w":
 			// Create worktree for selected project
 			if m.selectedIdx >= 0 && m.selectedIdx < len(m.treeItems) {
@@ -615,6 +628,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.setSuccess(fmt.Sprintf("Container %s", actionNames[msg.action]))
 		return m, m.refreshContainers()
+
+	case vscodeLaunchMsg:
+		if msg.err != nil {
+			m.logger.Error("VS Code launch failed", "error", msg.err)
+			m.setError("Failed to launch VS Code", msg.err)
+			return m, nil
+		}
+		m.setSuccess("VS Code launched")
+		return m, nil
 
 	case tickMsg:
 		// Periodic refresh
@@ -844,6 +866,16 @@ func (m Model) destroyContainer(id string) tea.Cmd {
 
 		err := m.manager.DestroyWithCompose(ctx, id)
 		return containerActionMsg{action: "destroy", id: id, err: err}
+	}
+}
+
+// launchVSCode returns a command that launches VS Code attached to a container.
+func (m Model) launchVSCode(containerID, workspacePath string) tea.Cmd {
+	return func() tea.Msg {
+		uri := GenerateVSCodeURI(containerID, workspacePath)
+		cmd := exec.Command("code", "--folder-uri", uri)
+		err := cmd.Start()
+		return vscodeLaunchMsg{err: err}
 	}
 }
 
