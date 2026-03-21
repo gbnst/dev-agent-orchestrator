@@ -56,7 +56,7 @@ Orchestrates devcontainer lifecycle: creation via Docker Compose with template r
 - `ports.go` - Port discovery and allocation: AllocateFreePorts, ParsePortEnvVars, netFindFreePort (internal)
 
 ## Gotchas
-- Container IDs may be truncated; Create() does prefix matching on refresh
+- Container IDs are full 64-character hashes (--no-trunc); Create() does prefix matching on refresh as fallback
 - Container.Sessions uses `tmux.Session` directly (no duplication); Manager delegates session operations to `tmux.Client`
 - RuntimePath() returns full binary path to bypass shell aliases
 - Session.AttachCommand(runtime, user) requires both runtime and user parameters
