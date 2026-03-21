@@ -59,7 +59,7 @@ func defaultExecutor(ctx context.Context, name string, args ...string) (string, 
 
 // ListContainers returns all devagent-managed containers.
 func (r *Runtime) ListContainers(ctx context.Context) ([]Container, error) {
-	output, err := r.exec(ctx, r.executable, "ps", "-a", "--filter", "label=devagent.managed=true", "--format", "json")
+	output, err := r.exec(ctx, r.executable, "ps", "-a", "--no-trunc", "--filter", "label=devagent.managed=true", "--format", "json")
 	if err != nil {
 		return nil, err
 	}
