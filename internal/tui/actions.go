@@ -4,6 +4,7 @@ package tui
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 
 	"devagent/internal/container"
@@ -32,7 +33,7 @@ func GenerateContainerActions(c *container.Container, runtimePath string) []Acti
 	actions := []ActionCommand{
 		{
 			Label:   "Open in VS Code",
-			Command: GenerateVSCodeCommand(c.ProjectPath, workspaceFolder),
+			Command: GenerateVSCodeCommand(c.ID, workspaceFolder),
 		},
 		{
 			Label:   "Create tmux session (named)",
@@ -51,10 +52,16 @@ func GenerateContainerActions(c *container.Container, runtimePath string) []Acti
 	return actions
 }
 
-// GenerateVSCodeCommand generates the VS Code command to open a devcontainer.
-// projectPath is the host path to the project, workspacePath is the path inside the container.
-func GenerateVSCodeCommand(projectPath, workspacePath string) string {
-	hexPath := hex.EncodeToString([]byte(projectPath))
-	uri := fmt.Sprintf("vscode-remote://dev-container+%s%s", hexPath, workspacePath)
-	return fmt.Sprintf("code --folder-uri %s", uri)
+// GenerateVSCodeURI builds the vscode-remote URI to attach to a running container.
+// containerID is the full 64-character Docker/Podman container ID.
+// workspacePath is the path inside the container (e.g. /workspaces).
+func GenerateVSCodeURI(containerID, workspacePath string) string {
+	payload, _ := json.Marshal(map[string]string{"containerName": containerID})
+	hexPayload := hex.EncodeToString(payload)
+	return fmt.Sprintf("vscode-remote://attached-container+%s%s", hexPayload, workspacePath)
+}
+
+// GenerateVSCodeCommand returns the full CLI command to open VS Code attached to a container.
+func GenerateVSCodeCommand(containerID, workspacePath string) string {
+	return fmt.Sprintf("code --folder-uri %s", GenerateVSCodeURI(containerID, workspacePath))
 }
