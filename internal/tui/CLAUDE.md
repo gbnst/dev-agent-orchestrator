@@ -1,12 +1,12 @@
 # TUI Domain
 
-Last verified: 2026-02-25
+Last verified: 2026-03-21
 
 ## Purpose
 Provides terminal UI for orchestrating development containers and git worktrees. Tree-based navigation showing projects with nested worktrees, containers, and sessions. Optional detail panel, live log panel with selectable entries, and log details panel for HTTP request inspection. Supports worktree creation/destruction within projects.
 
 ## Contracts
-- **Exposes**: `Model`, `NewModel()`, `NewModelWithTemplates()`, `SetDiscoveredProjects()`, `StatusLevel`, `TreeItemType`, `TreeItem`, `PanelFocus`, `ActionCommand`, `GenerateContainerActions`, `GenerateVSCodeCommand`
+- **Exposes**: `Model`, `NewModel()`, `NewModelWithTemplates()`, `SetDiscoveredProjects()`, `StatusLevel`, `TreeItemType`, `TreeItem`, `PanelFocus`, `ActionCommand`, `GenerateContainerActions`, `GenerateVSCodeURI`, `GenerateVSCodeCommand`
 - **Guarantees**: Operations show immediate visual feedback (spinners). Log panel filters by current context (both container.* and proxy.* scopes). Log entries are selectable with details panel for HTTP request inspection. Forms are modal overlays. Destructive operations require confirmation. Container creation and worktree creation show forms with input validation. Header displays active listen URLs (web + tailscale).
 - **Expects**: Valid config and LogManager. Container runtime available for operations. Git binary available for worktree operations.
 
