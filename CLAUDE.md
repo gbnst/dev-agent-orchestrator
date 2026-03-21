@@ -1,6 +1,6 @@
 # devagent
 
-Last verified: 2026-03-13
+Last verified: 2026-03-21
 
 ## CLI Commands
 - `devagent` - Launch interactive TUI (default, no arguments)
