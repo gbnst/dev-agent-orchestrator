@@ -163,7 +163,7 @@ func TestListContainers_CallsCorrectCommand(t *testing.T) {
 	if capturedName != "docker" {
 		t.Errorf("Expected docker, got %q", capturedName)
 	}
-	expectedArgs := []string{"ps", "-a", "--filter", "label=devagent.managed=true", "--format", "json"}
+	expectedArgs := []string{"ps", "-a", "--no-trunc", "--filter", "label=devagent.managed=true", "--format", "json"}
 	if len(capturedArgs) != len(expectedArgs) {
 		t.Fatalf("Args length: got %d, want %d", len(capturedArgs), len(expectedArgs))
 	}
