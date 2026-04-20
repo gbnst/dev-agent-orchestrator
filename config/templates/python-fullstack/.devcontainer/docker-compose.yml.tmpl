@@ -18,6 +18,8 @@ services:
       - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
       - REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
       - NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+      - GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt
+      - UV_NATIVE_TLS=1
       - IS_DEMO=1
     volumes:
       - {{.ProjectPath}}:{{.WorkspaceFolder}}:cached

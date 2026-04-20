@@ -2,7 +2,7 @@
 # Copy to ~/.config/devagent/config.yaml
 
 theme: macchiato  # Catppuccin theme: mocha, macchiato, frappe, latte
-log_level: info  # debug, info, warn, error
+log_level: debug  # debug, info, warn, error
 
 # Web UI (disabled when port is 0 or omitted)
 web:

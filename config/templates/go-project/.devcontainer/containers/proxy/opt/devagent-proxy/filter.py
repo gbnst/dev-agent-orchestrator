@@ -73,14 +73,14 @@ def load(loader):
     """Configure mitmproxy options at addon load time."""
     if PASSTHROUGH_DOMAINS:
         # Convert domain patterns to mitmproxy ignore_hosts regex format.
-        # Each domain becomes a regex: "example.com" -> "^example\\.com$"
-        # Wildcards: "*.example.com" -> "^.*\\.example\\.com$"
+        # mitmproxy matches against "host:port", so the optional (:\d+)? suffix
+        # is required or the pattern silently fails to match.
         patterns = []
         for domain in PASSTHROUGH_DOMAINS:
             if domain.startswith("*."):
-                pattern = r"^.*\." + re.escape(domain[2:]) + "$"
+                pattern = r"^.*\." + re.escape(domain[2:]) + r"(:\d+)?$"
             else:
-                pattern = "^" + re.escape(domain) + "$"
+                pattern = "^" + re.escape(domain) + r"(:\d+)?$"
             patterns.append(pattern)
         ctx.options.ignore_hosts = patterns
 
