@@ -1157,16 +1157,25 @@ func (m Model) startMissingWorktreeContainer(wtPath, name string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 		defer cancel()
 
-		// Extract project root from worktree path
-		// wtPath is typically <projectPath>/.worktrees/<name>
-		projectPath := filepath.Dir(filepath.Dir(wtPath))
+		// Extract project root from worktree path.
+		// For the "main" worktree, wtPath IS the project root.
+		// For other worktrees, wtPath is <projectPath>/.worktrees/<name>.
+		projectPath := wtPath
+		if name != "main" {
+			projectPath = filepath.Dir(filepath.Dir(wtPath))
+		}
 
 		templateName := container.FindTemplateForProject(m.manager.List(), projectPath)
 
+		// Main worktree uses bare project name; other worktrees get the suffix.
+		composeName := container.SanitizeComposeName(filepath.Base(projectPath))
+		if name != "main" {
+			composeName = container.SanitizeComposeName(filepath.Base(projectPath) + "-" + name)
+		}
 		opts := container.CreateOptions{
 			ProjectPath: projectPath,
 			Template:    templateName,
-			Name:        container.SanitizeComposeName(filepath.Base(projectPath) + "-" + name),
+			Name:        composeName,
 		}
 		_, err := m.manager.CreateWithCompose(ctx, opts)
 		return worktreeContainerMsg{name: name, path: wtPath, err: err}

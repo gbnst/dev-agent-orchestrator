@@ -17,11 +17,11 @@ while [ ! -f "$CERT_SRC" ] && [ "$timeout" -gt 0 ]; do
 done
 
 if [ -f "$CERT_SRC" ]; then
-    cp "$CERT_SRC" "$CERT_DST"
-    update-ca-certificates
+    sudo cp "$CERT_SRC" "$CERT_DST"
+    sudo update-ca-certificates
     # Ensure git trusts the system CA bundle even when spawned by tools
     # (uv, etc.) that don't pass GIT_SSL_CAINFO through to subprocesses.
-    git config --system http.sslCAInfo /etc/ssl/certs/ca-certificates.crt
+    sudo git config --system http.sslCAInfo /etc/ssl/certs/ca-certificates.crt
 fi
 
 exec "$@"
