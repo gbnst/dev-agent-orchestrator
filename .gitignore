@@ -12,6 +12,10 @@ result-*
 *.test
 *.out
 
+# Python (proxy filter bytecode)
+__pycache__/
+*.pyc
+
 # IDE
 .idea/
 *.swp
@@ -46,5 +50,10 @@ internal/web/frontend/dist/
 # CI-only version file
 .version
 
-# Orchestrator logs
-config/orchestrator.log
+# Orchestrator logs (including rotated .gz archives)
+config/orchestrator*.log
+config/orchestrator-*.log.gz
+
+# Devagent runtime artifacts
+config/devagent.lock
+config/devagent.port

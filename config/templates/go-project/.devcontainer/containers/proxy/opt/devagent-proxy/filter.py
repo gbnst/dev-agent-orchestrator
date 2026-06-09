@@ -46,10 +46,12 @@ def _get_domain_config(host: str) -> dict | None:
     """Get the domain config entry that matches the given host.
 
     Returns the parsed domain entry dict if host is allowed, None otherwise.
+    Host matching is case-insensitive and ignores a trailing dot.
     """
+    host = host.lower().rstrip(".")
     for entry in ALLOWED_DOMAINS:
         config = _parse_domain_entry(entry)
-        pattern = config["domain"]
+        pattern = config["domain"].lower()
         if pattern.startswith("*."):
             base = pattern[2:]
             if host == base or host.endswith("." + base):
@@ -126,7 +128,8 @@ class AllowlistFilter:
         if not BLOCK_GITHUB_PR_MERGE:
             return False
 
-        host = flow.request.pretty_host
+        # Match the real connection target, not the spoofable Host header.
+        host = flow.request.host.lower()
         if host not in ("api.github.com", "github.com") and not host.endswith(".github.com"):
             return False
 
@@ -143,33 +146,57 @@ class AllowlistFilter:
 
         return False
 
-    def request(self, flow: http.HTTPFlow) -> None:
-        # Check PR merge block first
-        if self._is_github_pr_merge(flow):
-            flow.response = http.Response.make(
-                403,
-                b"Merging pull requests is not allowed in this environment. Do not retry.\n",
-                {"Content-Type": "text/plain"}
-            )
-            _log_request(flow)
-            return
+    def _block(self, flow: http.HTTPFlow, message: str) -> None:
+        """Set a 403 response on the flow and log it."""
+        flow.response = http.Response.make(
+            403, message.encode(), {"Content-Type": "text/plain"}
+        )
+        _log_request(flow)
 
-        host = flow.request.pretty_host
-        if not self._is_allowed(host):
-            flow.response = http.Response.make(
-                403,
-                f"Domain '{host}' is not in the allowlist\n".encode(),
-                {"Content-Type": "text/plain"}
-            )
-            _log_request(flow)
+    def http_connect(self, flow: http.HTTPFlow) -> None:
+        """Enforce the allowlist at TLS-tunnel establishment.
+
+        For HTTPS, the CONNECT authority (flow.request.host) is the real,
+        unspoofable destination of the tunnel. Blocking here stops a disallowed
+        tunnel before it opens, regardless of any Host header sent inside it.
+        """
+        try:
+            host = flow.request.host
+            if not self._is_allowed(host):
+                self._block(flow, f"Domain '{host}' is not in the allowlist\n")
+        except Exception as e:
+            ctx.log.error(f"http_connect filter error, blocking: {e}")
+            self._block(flow, "proxy filter error\n")
+
+    def request(self, flow: http.HTTPFlow) -> None:
+        # Fail closed: any unexpected error blocks the request rather than
+        # letting it through (mitmproxy otherwise forwards on hook exceptions).
+        try:
+            # Check PR merge block first
+            if self._is_github_pr_merge(flow):
+                self._block(flow, "Merging pull requests is not allowed in this environment. Do not retry.\n")
+                return
+
+            # Authorize on the connection target (flow.request.host), which
+            # reflects the absolute-URI authority (plain HTTP) or the CONNECT/SNI
+            # target (HTTPS) -- NOT the client-controlled Host header. Also
+            # require the Host header itself to be allowlisted, to blunt
+            # domain-fronting against shared CDNs present in the allowlist.
+            conn_host = flow.request.host
+            header_host = flow.request.pretty_host
+            if not (self._is_allowed(conn_host) and self._is_allowed(header_host)):
+                self._block(flow, f"Domain '{conn_host}' is not in the allowlist\n")
+        except Exception as e:
+            ctx.log.error(f"request filter error, blocking: {e}")
+            self._block(flow, "proxy filter error\n")
 
     def response(self, flow: http.HTTPFlow) -> None:
         """Log completed HTTP request/response to JSONL file."""
         if flow.response is None:
             return
 
-        # Check if this domain should be logged
-        host = flow.request.pretty_host
+        # Check if this domain should be logged (keyed off the real target).
+        host = flow.request.host
         config = _get_domain_config(host)
         if config is None or not config.get("log", True):
             return
