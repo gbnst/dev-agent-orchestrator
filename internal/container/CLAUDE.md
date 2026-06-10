@@ -1,6 +1,6 @@
 # Container Domain
 
-Last verified: 2026-03-13
+Last verified: 2026-06-10
 
 ## Purpose
 Orchestrates devcontainer lifecycle: creation via Docker Compose with template rendering, start/stop/destroy via Docker Compose, and tmux session management within containers. Provides network isolation via mitmproxy sidecars with domain allowlisting and optional GitHub PR merge blocking. Integrates proxy log tailing for real-time HTTP request visibility in TUI.
@@ -70,6 +70,7 @@ Orchestrates devcontainer lifecycle: creation via Docker Compose with template r
 - Compose mode requires templates to define isolation config (no hardcoded defaults)
 - Podman + dockerComposeFile: Known devcontainer CLI bug #863; see docs/PODMAN.md for workarounds
 - filter.py is provided by the template at .devcontainer/containers/proxy/opt/devagent-proxy/filter.py and mounted at /opt/devagent-proxy/filter.py for the mitmproxy sidecar
+- SECURITY: filter.py is the egress sandbox boundary, but it lives under {{.ProjectPath}}, which the app container mounts read-write as the workspace. Without protection the agent could rewrite the allowlist (mitmproxy hot-reloads -s scripts) and escape. The app compose service therefore adds a SECOND, read-only bind over `.devcontainer/containers/proxy/opt/devagent-proxy` that shadows the writable workspace copy — the app may READ it (tail logs/requests.jsonl) but writes return EROFS, covering filter.py and its __pycache__ (a writable bytecode cache is its own bypass: timestamp-pyc is trusted without re-checking the body). This is enforced purely in the compose template (no orchestrator-side copy) so generated configs stay usable standalone; cap_drop of SYS_ADMIN blocks remounting it rw. The proxy keeps its own read-write bind to /opt/devagent-proxy.
 - Proxy log reader requires LogManager with GetChannelSink(); uses type assertion at runtime
 - Proxy logs directory created via .gitkeep at .devcontainer/containers/proxy/opt/devagent-proxy/logs/
 - Template directory layout: all template files live under `.devcontainer/`; `containers/app/` mirrors app container filesystem; `containers/proxy/` mirrors proxy container filesystem; `.tmpl` files are processed, others copied as-is
