@@ -636,12 +636,12 @@ func (m Model) renderContextualHelp() string {
 					help = "↑/↓: navigate • c: create container • W: delete worktree • l: logs"
 				}
 			case TreeItemSession:
-				help = "↑/↓: navigate • →: details • k: kill session • tab: next panel • l: logs"
+				help = "↑/↓: navigate • →: details • k: kill session • v: VS Code • tab: next panel • l: logs"
 			case TreeItemContainer:
 				if m.detailPanelOpen {
 					help = "←/esc: close detail • ↑/↓: navigate • tab: next panel • l: logs"
 				} else {
-					help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: actions • tab: next panel • l: logs"
+					help = "↑/↓: navigate • enter: expand • →: details • c: create • s/x/d: start/stop/destroy • t: actions • v: VS Code • tab: next panel • l: logs"
 				}
 			}
 		} else {
