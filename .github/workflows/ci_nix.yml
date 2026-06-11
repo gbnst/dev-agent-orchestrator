@@ -25,3 +25,9 @@ jobs:
 
       - name: Build package
         run: nix build
+
+      # Also build the cross-compiled Windows package so its test phase runs in
+      # CI — it broke the v0.1.0 release because only `nix build` (native) ran
+      # here. Catches release-breaking issues before tagging.
+      - name: Build Windows package
+        run: nix build .#devagent-windows
