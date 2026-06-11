@@ -113,6 +113,11 @@
                 "-w"
                 "-X main.version=${version}"
               ];
+              # Match the native package: some tests touch $HOME (e.g. proxy cert
+              # dir), which is the unwritable /homeless-shelter in the sandbox.
+              preCheck = ''
+                export HOME="$(mktemp -d)"
+              '';
               postInstall = ''
                 mv $out/bin/devagent $out/bin/devagent.exe
               '';
