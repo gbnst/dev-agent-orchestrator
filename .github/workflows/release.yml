@@ -52,6 +52,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      # Checkout first: a checkout after download-artifact would git-clean the
+      # downloaded binaries. This provides RELEASE_NOTES.md for body_path below.
+      - uses: actions/checkout@v6
+
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
@@ -67,4 +71,5 @@ jobs:
           files: |
             artifacts/devagent-*
             artifacts/checksums.txt
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
