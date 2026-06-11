@@ -229,6 +229,12 @@ func (tc *TailscaleConfig) Validate(resolvePath ResolvePathFunc) error {
 	return nil
 }
 
+// DefaultConfigDir returns the XDG-compliant config directory devagent uses
+// when no explicit --config-dir is given (~/.config/devagent).
+func DefaultConfigDir() string {
+	return getConfigDir()
+}
+
 func getConfigDir() string {
 	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
 		return filepath.Join(xdgConfig, "devagent")

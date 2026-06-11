@@ -1,0 +1,35 @@
+# devagent configuration
+#
+# This file was created automatically on first run. Edit it to taste; it is
+# never overwritten on upgrade. The bundled templates under ./templates ARE
+# refreshed when devagent is upgraded (customized files are backed up first).
+
+theme: mocha        # Catppuccin theme: mocha, macchiato, frappe, latte
+log_level: info     # debug, info, warn, error
+
+# Web UI (disabled when port is 0 or omitted)
+web:
+  bind: "127.0.0.1"
+  port: 0
+
+# Container runtime (auto-detected when omitted)
+# runtime: docker   # or podman
+
+# Token files injected into containers (omit a path to skip that token).
+# The Claude token is auto-provisioned via `claude setup-token` if missing.
+claude_token_path: ~/.config/devagent/claude-token
+github_token_path: ~/.config/devagent/github-token
+
+# Tailscale exposure via tsnsrv (disabled by default)
+# tailscale:
+#   enabled: true
+#   name: devagent
+#   auth_key_path: ~/.config/devagent/tailscale-authkey
+#   state_dir: ~/.local/share/devagent/tsnsrv
+#   tags:
+#     - tag:devagent
+
+# Project discovery — directories scanned one level deep for devagent projects.
+# Discovered projects appear as top-level nodes in the TUI.
+# scan_paths:
+#   - ~/code

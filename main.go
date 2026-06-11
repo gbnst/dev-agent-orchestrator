@@ -63,8 +63,47 @@ func loadConfig(configDir string) (config.Config, error) {
 	return config.Load()
 }
 
+// provisionDefaultProfile seeds config.yaml and materializes the embedded
+// templates into ~/.config/devagent on first run (and refreshes templates after
+// an upgrade). Failures are non-fatal and reported to stderr — the TUI can
+// still run against whatever config already exists.
+func provisionDefaultProfile() {
+	assets, err := builtinAssets()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load builtin assets: %v\n", err)
+		return
+	}
+
+	dir := config.DefaultConfigDir()
+	res, err := config.EnsureUserConfig(dir, assets, time.Now().Format("20060102-150405"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to provision config: %v\n", err)
+		return
+	}
+
+	if res.ConfigSeeded {
+		fmt.Fprintf(os.Stderr, "Created default config at %s\n", filepath.Join(dir, "config.yaml"))
+	}
+	if res.TemplatesSynced {
+		if len(res.BackedUp) > 0 {
+			fmt.Fprintf(os.Stderr, "Updated %d bundled template files; backed up %d customized file(s) to %s\n",
+				len(res.Written), len(res.BackedUp), res.BackupDir)
+		} else {
+			fmt.Fprintf(os.Stderr, "Installed %d bundled template files into %s\n",
+				len(res.Written), filepath.Join(dir, "templates"))
+		}
+	}
+}
+
 // runTUI launches the interactive TUI.
 func runTUI(configDir string) {
+	// Materialize embedded defaults into the user profile. Only the default
+	// profile is provisioned; an explicit --config-dir (e.g. `make dev`) is the
+	// user's own and is left untouched.
+	if configDir == "" {
+		provisionDefaultProfile()
+	}
+
 	cfg, err := loadConfig(configDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)

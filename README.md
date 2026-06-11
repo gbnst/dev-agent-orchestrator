@@ -74,7 +74,14 @@ Configuration files live in `~/.config/devagent/`:
 - `config.yaml` - Main settings (theme, runtime, credentials, base images, agents)
 - `templates/` - Devcontainer templates
 
-See `config/` directory for examples.
+These are created automatically on first run from defaults embedded in the
+binary — no manual copying. `config.yaml` is written once and never overwritten,
+so your edits are safe. The bundled `templates/` are refreshed on upgrade (so
+template and security fixes reach you); if you've edited a bundled template, your
+version is backed up to `templates.backup-<timestamp>/` before the new one is
+written. Templates you add yourself are left untouched. To customize defaults,
+edit the files in `~/.config/devagent/` directly (or run with `--config-dir` to
+point at a different directory, which devagent never auto-provisions).
 
 ### Container Isolation
 
