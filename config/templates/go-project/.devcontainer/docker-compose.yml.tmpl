@@ -30,16 +30,19 @@ services:
       - {{.ProjectPath}}/.devcontainer/containers/app/home/vscode/.claude:/home/vscode/.claude:cached
       - {{.ClaudeTokenPath}}:/run/secrets/claude-token:ro
       - {{.GitHubTokenPath}}:/run/secrets/github-token:ro
-      # The proxy config dir is the sandbox boundary. The app may READ it (e.g.
-      # tail logs/requests.jsonl) but must never WRITE it: a writable filter.py
-      # lets the agent rewrite the egress allowlist and escape the sandbox
-      # (mitmproxy hot-reloads the script). This read-only bind shadows the same
-      # subtree exposed read-write by the workspace mount above, denying writes
-      # to filter.py and its __pycache__. The proxy keeps its own read-write
-      # bind below. cap_drop of SYS_ADMIN prevents remounting it read-write.
+      # The .devcontainer dir is the sandbox boundary. The app may READ it (e.g.
+      # tail the proxy's logs/requests.jsonl) but must never WRITE it: a writable
+      # filter.py lets the agent rewrite the egress allowlist and escape the
+      # sandbox (mitmproxy hot-reloads the script), and writable compose/Dockerfile/
+      # entrypoint files let it alter the container config itself. This read-only
+      # bind shadows the entire .devcontainer subtree exposed read-write by the
+      # workspace mount above, denying all writes under it. The proxy keeps its
+      # own read-write bind below, and the persistent dotfiles/.claude are mounted
+      # separately into /home/vscode (outside the workspace) and stay writable.
+      # cap_drop of SYS_ADMIN prevents remounting this read-write.
       - type: bind
-        source: {{.ProjectPath}}/.devcontainer/containers/proxy/opt/devagent-proxy
-        target: {{.WorkspaceFolder}}/.devcontainer/containers/proxy/opt/devagent-proxy
+        source: {{.ProjectPath}}/.devcontainer
+        target: {{.WorkspaceFolder}}/.devcontainer
         read_only: true
     cap_drop:
       - NET_RAW
