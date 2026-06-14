@@ -862,15 +862,15 @@ func (m *Model) rebuildTreeItems() {
 			Expanded:    expanded,
 		})
 
-		if !expanded {
-			continue
-		}
-
-		// Find containers matching this project (by compose project name)
+		// Always mark containers as matched regardless of expansion state
 		projBase := filepath.Base(project.Path)
 		projectContainers := m.findContainersForProject(project)
 		for _, c := range projectContainers {
 			matchedContainers[c.ID] = true
+		}
+
+		if !expanded {
+			continue
 		}
 
 		// Add worktree entries (from discovery)
