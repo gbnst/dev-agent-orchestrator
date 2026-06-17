@@ -4,6 +4,14 @@
   inputs = {
     flake-parts.url = "github:hercules-ci/flake-parts";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    # nixpkgs-unstable HEAD has dropped the Go 1.24 builder (only buildGo123/
+    # 125/126Module remain), so we cannot build devagent against floating
+    # `nixpkgs`. Pin the last rev that still ships buildGo124Module/go_1_24 and
+    # source only the Go toolchain from it; everything else tracks `nixpkgs`.
+    # This must be a fixed rev, not the nixpkgs-unstable ref: a floating ref
+    # would re-resolve to a tip where the Go 1.24 builder is gone, breaking the
+    # build non-reproducibly.
+    nixpkgs-go124.url = "github:NixOS/nixpkgs/5b265bda51b42a2a85af0a543c3e57b778b01b7d";
     tsnsrv.url = "github:boinkor-net/tsnsrv";
   };
 
@@ -25,8 +33,13 @@
         config,
         lib,
         pkgs,
+        system,
         ...
       }: let
+        # Pinned nixpkgs that still provides the Go 1.24 builder; see the
+        # nixpkgs-go124 input comment above.
+        pkgsGo124 = inputs.nixpkgs-go124.legacyPackages.${system};
+
         version = let
           versionFile = ./. + "/.version";
         in
@@ -76,7 +89,7 @@
           {
             default = config.packages.devagent;
             devagent = let
-              unwrapped = pkgs.buildGo124Module {
+              unwrapped = pkgsGo124.buildGo124Module {
                 pname = "devagent";
                 inherit version;
                 vendorHash = builtins.readFile ./devagent.sri;
@@ -95,7 +108,7 @@
               };
           }
           // lib.optionalAttrs pkgs.stdenv.isLinux {
-            devagent-windows = pkgs.buildGo124Module {
+            devagent-windows = pkgsGo124.buildGo124Module {
               pname = "devagent-windows";
               inherit version;
               vendorHash = builtins.readFile ./devagent.sri;
