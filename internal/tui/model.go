@@ -652,15 +652,20 @@ func (m *Model) setLogFilterFromContext() {
 		case item.IsWorktree():
 			// Worktree selected — filter to containers for this worktree path
 			names := m.containerNamesForPath(item.ProjectPath)
-			if len(names) > 0 {
-				m.logFilter = "scope"
-				m.logFilterNames = names
-				m.logFilterLabel = item.WorktreeName
-			} else {
-				m.logFilter = "scope"
-				m.logFilterNames = map[string]bool{} // empty = match nothing
-				m.logFilterLabel = item.WorktreeName
+			if len(names) == 0 {
+				// No registered container yet (e.g. build in-progress or failed).
+				// Predict the compose name so build/error logs are still visible.
+				var baseName string
+				if item.WorktreeName == "main" {
+					baseName = filepath.Base(item.ProjectPath)
+				} else {
+					baseName = filepath.Base(filepath.Dir(filepath.Dir(item.ProjectPath))) + "-" + item.WorktreeName
+				}
+				names = map[string]bool{container.SanitizeComposeName(baseName): true}
 			}
+			m.logFilter = "scope"
+			m.logFilterNames = names
+			m.logFilterLabel = item.WorktreeName
 		case item.IsProject():
 			// Project selected — filter to all containers under this project
 			names := m.containerNamesForProject(item.ProjectPath)

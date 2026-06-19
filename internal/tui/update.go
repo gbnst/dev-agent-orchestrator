@@ -686,6 +686,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.logger.Error("worktree container start failed", "name", msg.name, "error", msg.err)
 			m.setError("Failed to start worktree container", msg.err)
+			m.setLogFilterFromContext()
 			return m, nil
 		}
 		m.logger.Info("worktree container started", "name", msg.name)
