@@ -194,6 +194,33 @@ class AllowlistFilter:
             ctx.log.error(f"request filter error, blocking: {e}")
             self._block(flow, "proxy filter error\n")
 
+    def requestheaders(self, flow: http.HTTPFlow) -> None:
+        """Stream large request bodies through instead of buffering them.
+
+        Scoped to api.anthropic.com only: big-context requests otherwise get
+        fully buffered (latency + memory) before the call even starts. GitHub is
+        deliberately excluded because _is_github_pr_merge reads the GraphQL body
+        in the request() hook, which streaming would consume.
+        """
+        if flow.request.host.lower() == "api.anthropic.com":
+            flow.request.stream = True
+
+    def responseheaders(self, flow: http.HTTPFlow) -> None:
+        """Stream response bodies through instead of buffering them.
+
+        mitmproxy buffers the whole response by default, which defeats the
+        Anthropic API's SSE streaming (text/event-stream): the client gets
+        nothing until generation finishes, so long / large-context requests look
+        like an idle hung connection and trip idle timeouts. Streaming forwards
+        chunks as they arrive and lets SSE ping keepalives reach the client.
+
+        Safe globally: blocked requests get flow.response set earlier (in
+        request/http_connect) and never reach this hook. _log_request only reads
+        headers/status/timestamps, never the body, so it stays streaming-compatible.
+        """
+        if flow.response is not None:
+            flow.response.stream = True
+
     def response(self, flow: http.HTTPFlow) -> None:
         """Log completed HTTP request/response to JSONL file."""
         if flow.response is None:
